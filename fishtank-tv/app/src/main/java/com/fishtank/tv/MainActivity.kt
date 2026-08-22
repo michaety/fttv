@@ -2,6 +2,7 @@ package com.fishtank.tv
 
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.content.Context
 import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
@@ -13,6 +14,7 @@ import android.webkit.WebChromeClient
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import org.json.JSONObject
 
 class MainActivity : Activity() {
 
@@ -27,10 +29,31 @@ class MainActivity : Activity() {
         const val DESKTOP_UA =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
                 "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+
+        private const val PREFS_NAME = "fishtank_tv_prefs"
+        private const val PREF_ZOOM = "zoom_pct"
+        private const val ZOOM_MIN = 60
+        private const val ZOOM_MAX = 200
+        private const val ZOOM_STEP = 10
+        private const val ZOOM_DEFAULT = 100
     }
 
     private lateinit var webView: WebView
     private lateinit var homeUrl: String
+    private var zoomPct: Int = ZOOM_DEFAULT
+
+    /**
+     * Per-site selectors to hide before DPAD_JS builds its focus list, so
+     * hidden elements never become focusable in the first place.
+     */
+    private fun siteCss(url: String?): String {
+        if (url == null) return ""
+        return when {
+            url.contains("fishtank.live") -> ""
+            url.contains("mde.tv") -> ""
+            else -> ""
+        }
+    }
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -38,18 +61,25 @@ class MainActivity : Activity() {
 
         homeUrl = intent.getStringExtra(EXTRA_URL) ?: LauncherActivity.FISHTANK_URL
 
+        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        zoomPct = prefs.getInt(PREF_ZOOM, ZOOM_DEFAULT)
+
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         webView = WebView(this)
         webView.setBackgroundColor(Color.BLACK)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+            WebView.setWebContentsDebuggingEnabled(true)
+        }
 
         with(webView.settings) {
             javaScriptEnabled = true
             domStorageEnabled = true
             databaseEnabled = true
             mediaPlaybackRequiresUserGesture = false
-            loadWithOverviewMode = true
-            useWideViewPort = true
+            loadWithOverviewMode = false
+            useWideViewPort = false
             userAgentString = DESKTOP_UA
             cacheMode = WebSettings.LOAD_DEFAULT
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
@@ -64,13 +94,33 @@ class MainActivity : Activity() {
         webView.webChromeClient = WebChromeClient()
         webView.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, url: String?) {
+                val css = siteCss(url)
+                if (css.isNotEmpty()) {
+                    val js = "(function(){var s=document.createElement('style');" +
+                        "s.textContent=${JSONObject.quote(css)};" +
+                        "(document.head||document.documentElement).appendChild(s);})();"
+                    view?.evaluateJavascript(js, null)
+                }
                 view?.evaluateJavascript(DPAD_JS, null)
+                view?.evaluateJavascript(zoomJs(zoomPct), null)
             }
         }
 
         setContentView(webView)
         hideSystemUi()
         webView.loadUrl(homeUrl)
+    }
+
+    private fun zoomJs(pct: Int): String =
+        "document.documentElement.style.zoom = '$pct%';"
+
+    private fun applyZoom(delta: Int) {
+        zoomPct = (zoomPct + delta).coerceIn(ZOOM_MIN, ZOOM_MAX)
+        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putInt(PREF_ZOOM, zoomPct)
+            .apply()
+        js(zoomJs(zoomPct))
     }
 
     private fun hideSystemUi() {
@@ -100,6 +150,9 @@ class MainActivity : Activity() {
             KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> { js(TOGGLE_PLAY_JS); return true }
 
             KeyEvent.KEYCODE_MENU -> { js("window.__ftvReset && window.__ftvReset()"); return true }
+
+            KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> { applyZoom(ZOOM_STEP); return true }
+            KeyEvent.KEYCODE_MEDIA_REWIND -> { applyZoom(-ZOOM_STEP); return true }
 
             KeyEvent.KEYCODE_BACK -> {
                 if (webView.canGoBack()) {

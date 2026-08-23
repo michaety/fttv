@@ -635,25 +635,38 @@ private const val DPAD_JS = """
   // Auto-fullscreen the player once per page -- gated to "not the
   // homepage" rather than "large enough", because both sites' homepages
   // autoplay a similarly-sized hero banner video that would otherwise
-  // trigger this while just browsing. Uses the generic Fullscreen API
-  // (never the video-native webkitEnterFullscreen(), tried here before and
-  // reverted: it hands off to Android's native player surface and fights
-  // with the site's own JS player, breaking remote control and causing
-  // buffering) on the iframe itself, since that's the real player element.
-  // onShowCustomView/onHideCustomView in MainActivity make this actually
-  // render -- a bare WebChromeClient silently no-ops any fullscreen
-  // request. Wrapped in try/catch: some WebView versions reject a
-  // fullscreen call without a fresh user gesture, and a rejection here
-  // should be a silent no-op, not a crash.
+  // trigger this while just browsing.
+  //
+  // This is plain CSS, not the HTML5 Fullscreen API: mde's Bunny iframe is
+  // missing "fullscreen" from its allow attribute, so every
+  // requestFullscreen() call -- on the iframe, and (since Permissions
+  // Policy governs the iframe's whole document, not how a request is
+  // triggered) on anything inside it including Bunny's own fullscreen
+  // button, had one been reachable -- rejects with "Permissions check
+  // failed" regardless of gesture, confirmed live. But the WebView is
+  // already fullscreen/immersive at the OS level; the only reason the
+  // player doesn't look fullscreen is that the surrounding page (header,
+  // breadcrumbs) shares the layout with it. Pinning the player element
+  // itself to cover the viewport achieves the same visual result without
+  // ever calling the blocked API.
   function maybeAutoFullscreen(el){
-    if (autoFullscreenDone || location.pathname === '/' || document.fullscreenElement) return;
+    if (autoFullscreenDone || location.pathname === '/') return;
     autoFullscreenDone = true;
-    var req = el.requestFullscreen || el.webkitRequestFullscreen;
-    if (!req) return;
-    try {
-      var p = req.call(el);
-      if (p && p.catch) { p.catch(function(err){ window.__ftvLastFsError = err.name + ': ' + err.message; }); }
-    } catch (err) { window.__ftvLastFsError = err.name + ': ' + err.message; }
+    // position:fixed is relative to the viewport UNLESS an ancestor has a
+    // transform/filter/perspective/will-change, which creates its own
+    // containing block instead -- confirmed live: computed position was
+    // "fixed" but the rendered rect was still boxed inside a transformed
+    // ancestor's layout, not the true viewport. Reparenting straight onto
+    // <body> escapes any such ancestor. Moving a live iframe like this
+    // does not reload it or interrupt playback.
+    try { (document.body || document.documentElement).appendChild(el); } catch (e) {}
+    el.style.setProperty('position', 'fixed', 'important');
+    el.style.setProperty('top', '0', 'important');
+    el.style.setProperty('left', '0', 'important');
+    el.style.setProperty('width', '100vw', 'important');
+    el.style.setProperty('height', '100vh', 'important');
+    el.style.setProperty('z-index', '2147483647', 'important');
+    el.style.setProperty('background', '#000', 'important');
   }
 
   document.addEventListener('play', function(e){

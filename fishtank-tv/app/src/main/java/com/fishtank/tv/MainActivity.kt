@@ -502,17 +502,25 @@ private const val DPAD_JS = """
   // though they're louder than a plain outline.
   var style = document.createElement('style');
   style.textContent =
+    // Purely inset -- an outward outline/box-shadow/scale looks nicer in
+    // isolation, but the New/Popular rows are horizontally scrolling
+    // containers with overflow:auto sized tight to the card height, so
+    // anything painted (or scaled) past the card's own border box was
+    // getting clipped on whichever edges touched the container's clip
+    // region. An inset ring never paints outside its own element, so it
+    // can't be clipped by any ancestor's overflow, regardless of scroll
+    // position or container sizing.
     '.__ftv_focus{' +
-      'outline:3px solid __FTV_ACCENT_HEX__ !important;' +
-      'outline-offset:2px !important;' +
-      'box-shadow:0 0 14px 2px rgba(__FTV_ACCENT_RGB__,.5) !important;' +
+      'outline:none !important;' +
+      'box-shadow:inset 0 0 0 3px __FTV_ACCENT_HEX__, inset 0 0 20px 2px rgba(__FTV_ACCENT_RGB__,.45) !important;' +
       'isolation:isolate !important;' +
       'z-index:2147483647 !important;' +
-      'transform:scale(1.04) !important;' +
-      'transition:transform 120ms ease-out !important;' +
-      'will-change:transform;' +
+      'transition:box-shadow 120ms ease-out !important;' +
     '}' +
-    '@keyframes __ftv_pulse{0%{transform:scale(1.1);}100%{transform:scale(1.04);}}' +
+    '@keyframes __ftv_pulse{' +
+      '0%{box-shadow:inset 0 0 0 3px __FTV_ACCENT_HEX__, inset 0 0 30px 4px rgba(__FTV_ACCENT_RGB__,.6);}' +
+      '100%{box-shadow:inset 0 0 0 3px __FTV_ACCENT_HEX__, inset 0 0 20px 2px rgba(__FTV_ACCENT_RGB__,.45);}' +
+    '}' +
     '.__ftv_focus.__ftv_pulse{animation:__ftv_pulse 220ms ease-out;}' +
     '#__ftv_dim{' +
       'position:fixed;inset:0;background:rgba(0,0,0,.35);' +

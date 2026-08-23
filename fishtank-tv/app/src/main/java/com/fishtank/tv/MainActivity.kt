@@ -68,14 +68,11 @@ class MainActivity : Activity() {
                 "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 
         private const val PREFS_NAME = "fishtank_tv_prefs"
-        private const val PREF_ZOOM = "zoom_pct"
-        private const val ZOOM_DEFAULT = 100
         private const val PREF_BLOCK_IMAGES = "block_images"
     }
 
     private lateinit var webView: WebView
     private lateinit var homeUrl: String
-    private var zoomPct: Int = ZOOM_DEFAULT
     private var blockImages: Boolean = false
 
     /** Set once we've handed a URL off to a Custom Tab / external browser, so
@@ -205,7 +202,6 @@ class MainActivity : Activity() {
         homeUrl = getString(R.string.home_url)
 
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        zoomPct = prefs.getInt(PREF_ZOOM, ZOOM_DEFAULT)
         blockImages = prefs.getBoolean(PREF_BLOCK_IMAGES, false)
 
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -281,7 +277,6 @@ class MainActivity : Activity() {
                     view?.evaluateJavascript("window.__ftvSiteCleanup && window.__ftvSiteCleanup();", null)
                 }
                 view?.evaluateJavascript(DPAD_JS, null)
-                view?.evaluateJavascript(zoomJs(zoomPct), null)
             }
 
             override fun shouldInterceptRequest(
@@ -310,9 +305,6 @@ class MainActivity : Activity() {
         hideSystemUi()
         webView.loadUrl(homeUrl)
     }
-
-    private fun zoomJs(pct: Int): String =
-        "document.documentElement.style.zoom = '$pct%';"
 
     /**
      * Routes through window.__ftvSeek() in DPAD_JS rather than touching a

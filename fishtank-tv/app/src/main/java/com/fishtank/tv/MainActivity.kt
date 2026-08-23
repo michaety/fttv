@@ -307,20 +307,14 @@ class MainActivity : Activity() {
         "document.documentElement.style.zoom = '$pct%';"
 
     /**
-     * Direct mapping from the remote's fast-forward/rewind buttons to the
-     * video DPAD_JS has actually seen play (window.__ftvVideo(), tracked via
-     * a cheap 'play' listener) rather than document.querySelector('video')
-     * -- the first video in DOM order was sometimes a decorative/background
-     * one, not the real player. No overlay, no acceleration: a single
-     * property write is cheap enough to not be a performance concern.
+     * Routes through window.__ftvSeek() in DPAD_JS rather than touching a
+     * <video> element directly -- both sites' actual watch pages embed
+     * their player as a cross-origin Bunny Stream iframe, not a same-origin
+     * <video>, so seeking has to go through window.postMessage
+     * (player.js protocol) there instead of a property write.
      */
     private fun seekVideo(deltaSeconds: Int) {
-        js(
-            "(function(){var v=window.__ftvVideo?window.__ftvVideo():document.querySelector('video');" +
-                "if(!v)return;" +
-                "v.disablePictureInPicture=true;" +
-                "v.currentTime=Math.max(0,v.currentTime+($deltaSeconds));})();"
-        )
+        js("window.__ftvSeek && window.__ftvSeek($deltaSeconds)")
     }
 
     private fun toggleBlockImages() {
@@ -389,7 +383,7 @@ class MainActivity : Activity() {
 
             KeyEvent.KEYCODE_MEDIA_PLAY,
             KeyEvent.KEYCODE_MEDIA_PAUSE,
-            KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> { js(TOGGLE_PLAY_JS); return true }
+            KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> { js("window.__ftvTogglePlay && window.__ftvTogglePlay()"); return true }
 
             KeyEvent.KEYCODE_MENU -> { js("window.__ftvReset && window.__ftvReset()"); return true }
 
@@ -401,7 +395,10 @@ class MainActivity : Activity() {
             KeyEvent.KEYCODE_BACK -> {
                 // Belt-and-suspenders alongside disablePictureInPicture in
                 // DPAD_JS: a paused video can't trigger auto-PiP on navigate-away.
-                js("document.querySelectorAll('video').forEach(function(v){ v.pause(); })")
+                // Covers both a same-origin <video> and (the common case) a
+                // cross-origin Bunny iframe player, which only responds to
+                // pause via postMessage, not document.querySelectorAll.
+                js("window.__ftvPause && window.__ftvPause()")
                 if (webView.canGoBack()) {
                     webView.goBack()
                 } else {
@@ -434,15 +431,6 @@ class MainActivity : Activity() {
         super.onDestroy()
     }
 }
-
-private const val TOGGLE_PLAY_JS = """
-(function(){
-  var v = window.__ftvVideo ? window.__ftvVideo() : document.querySelector('video');
-  if (!v) return;
-  v.disablePictureInPicture = true;
-  if (v.paused) { v.play(); } else { v.pause(); }
-})();
-"""
 
 /**
  * Injected on every page load. Gives the site a synthetic focus cursor driven
@@ -574,6 +562,11 @@ private const val DPAD_JS = """
       if (window.__ftvSiteCleanup) {
         try { window.__ftvSiteCleanup(); } catch (e) {}
       }
+      // Picks up the Bunny player iframe as soon as it mounts (it doesn't
+      // fire a same-origin 'play' event we could listen for instead), so
+      // auto-fullscreen and event subscription don't have to wait for the
+      // user to press a key first.
+      checkPlayerFrame();
     }, 250);
   }
   new MutationObserver(scheduleInvalidate).observe(document.body, { childList: true, subtree: true });
@@ -583,50 +576,179 @@ private const val DPAD_JS = """
   // scrollable container too (a horizontally-scrolling carousel row).
   document.addEventListener('scroll', scheduleInvalidate, { passive: true, capture: true });
 
-  // Track the actively-playing video via event delegation -- cheap, since it
-  // only fires on a real play/pause transition rather than scanning the
-  // page. This is ONLY used to target play/pause/seek key presses at the
-  // right <video> (window.__ftvVideo() below); it does NOT gate D-pad
-  // navigation. An earlier version suppressed all navigation/focus while
-  // any large-enough video was playing, meant to stop D-pad presses from
-  // interfering with a fullscreen player -- but some pages (mde's homepage
-  // "Spotlight" hero banner) autoplay a video large enough to pass that
-  // same size check while just browsing, which permanently froze
-  // navigation on those pages. Removed rather than chasing a size/fullscreen
-  // heuristic that can't reliably tell "the dedicated player" apart from
-  // "a large autoplaying homepage banner".
-  var trackedVideo = null;
+  // ---- Video / player control ------------------------------------------
+  // Both sites' actual watch pages turned out to embed their player as a
+  // cross-origin <iframe> (Bunny Stream, player.mediadelivery.net) rather
+  // than a same-origin <video> -- confirmed by inspecting the live DOM:
+  // document.querySelectorAll('video') only ever finds small decorative
+  // videos, never the real player, because the browser's same-origin
+  // policy blocks JS in this frame from reaching into a cross-origin
+  // iframe's DOM at all. That's the real reason play/pause/seek and
+  // auto-fullscreen kept not working. Bunny's embed implements the
+  // player.js postMessage protocol (github.com/embedly/player.js), so
+  // control has to go through window.postMessage instead of element
+  // properties.
+  var trackedVideo = null;       // same-origin <video>, if a page ever has one
+  var playerFrame = null;        // cross-origin Bunny iframe, if present
+  var playerState = { playing: false, time: 0, duration: 0 };
+  var autoFullscreenDone = false;
+
+  function findPlayerFrame(){
+    if (playerFrame && document.contains(playerFrame)) return playerFrame;
+    var f = document.querySelector('iframe[src*="mediadelivery.net"]');
+    playerFrame = f || null;
+    return playerFrame;
+  }
+
+  function sendPlayerCommand(method, value){
+    var f = findPlayerFrame();
+    if (!f || !f.contentWindow) return false;
+    var msg = { context: 'player.js', version: '0.0.11', method: method };
+    if (value !== undefined) msg.value = value;
+    try { f.contentWindow.postMessage(JSON.stringify(msg), '*'); } catch (e) {}
+    return true;
+  }
+
+  var playerSubscribed = false;
+  function subscribePlayerEvents(){
+    if (playerSubscribed || !findPlayerFrame()) return;
+    playerSubscribed = true;
+    sendPlayerCommand('on', 'play');
+    sendPlayerCommand('on', 'pause');
+    sendPlayerCommand('on', 'timeupdate');
+  }
+
+  window.addEventListener('message', function(e){
+    var data = e.data;
+    if (typeof data === 'string') {
+      try { data = JSON.parse(data); } catch (err) { return; }
+    }
+    if (!data || data.context !== 'player.js') return;
+    if (data.event === 'play') { playerState.playing = true; }
+    else if (data.event === 'pause') { playerState.playing = false; }
+    else if (data.event === 'timeupdate' && data.value) {
+      playerState.time = data.value.seconds || 0;
+      playerState.duration = data.value.duration || 0;
+    }
+  });
+
+  // Auto-fullscreen the player once per page -- gated to "not the
+  // homepage" rather than "large enough", because both sites' homepages
+  // autoplay a similarly-sized hero banner video that would otherwise
+  // trigger this while just browsing. Uses the generic Fullscreen API
+  // (never the video-native webkitEnterFullscreen(), tried here before and
+  // reverted: it hands off to Android's native player surface and fights
+  // with the site's own JS player, breaking remote control and causing
+  // buffering) on the iframe itself, since that's the real player element.
+  // onShowCustomView/onHideCustomView in MainActivity make this actually
+  // render -- a bare WebChromeClient silently no-ops any fullscreen
+  // request. Wrapped in try/catch: some WebView versions reject a
+  // fullscreen call without a fresh user gesture, and a rejection here
+  // should be a silent no-op, not a crash.
+  function maybeAutoFullscreen(el){
+    if (autoFullscreenDone || location.pathname === '/' || document.fullscreenElement) return;
+    autoFullscreenDone = true;
+    var req = el.requestFullscreen || el.webkitRequestFullscreen;
+    if (!req) return;
+    try {
+      var p = req.call(el);
+      if (p && p.catch) { p.catch(function(err){ window.__ftvLastFsError = err.name + ': ' + err.message; }); }
+    } catch (err) { window.__ftvLastFsError = err.name + ': ' + err.message; }
+  }
+
   document.addEventListener('play', function(e){
     var v = e.target;
     if (!v || v.tagName !== 'VIDEO') return;
     v.disablePictureInPicture = true;
     var r = v.getBoundingClientRect();
-    // Only a real, mostly-viewport-filling video is worth tracking as "the"
-    // video for play/pause/seek purposes -- a homepage grid thumbnail
-    // hover-preview (commonly 150-300px) is a mouse-era autoplay pattern
-    // that means nothing on a D-pad interface, and each one spins up its
-    // own hardware video decoder. On this device (~1.7GB RAM, ~36MB free
-    // under normal load) enough of those playing concurrently was enough
-    // for Android's low-memory-killer to kill the *shared*
-    // com.amazon.webview.chromium process outright, taking the whole app
-    // down with it -- confirmed via logcat. Stop it outright rather than
-    // merely ignoring it.
+    // Only a real, mostly-viewport-filling video is worth tracking -- a
+    // homepage grid thumbnail hover-preview (commonly 150-300px) is a
+    // mouse-era autoplay pattern that means nothing on a D-pad interface,
+    // and each one spins up its own hardware video decoder. On this device
+    // (~1.7GB RAM, ~36MB free under normal load) enough of those playing
+    // concurrently was enough for Android's low-memory-killer to kill the
+    // *shared* com.amazon.webview.chromium process outright, taking the
+    // whole app down with it -- confirmed via logcat. Stop it outright
+    // rather than merely ignoring it.
     if (r.width < window.innerWidth * 0.5 || r.height < window.innerHeight * 0.3) {
       try { v.pause(); } catch (err) {}
       return;
     }
     trackedVideo = v;
+    maybeAutoFullscreen(v);
   }, true);
 
-  // MainActivity's play/pause/seek key handlers call this (via
-  // evaluateJavascript) instead of document.querySelector('video') directly,
-  // so they target the video DPAD_JS has actually seen play rather than
-  // whichever <video> happens to be first in DOM order (which was landing on
-  // decorative/background videos instead of the real player).
-  window.__ftvVideo = function(){
-    if (trackedVideo && document.contains(trackedVideo)) return trackedVideo;
-    return document.querySelector('video');
+  // Bunny's iframe doesn't fire a same-origin 'play' event we can catch, so
+  // it's picked up via the ordinary DOM-mutation invalidation path instead
+  // -- cheap, re-checked only on the existing debounced tick, not polled.
+  function checkPlayerFrame(){
+    var f = findPlayerFrame();
+    if (!f) return;
+    subscribePlayerEvents();
+    maybeAutoFullscreen(f);
+  }
+  // The Fullscreen API only honours a request made close to the user
+  // gesture that (indirectly, via the click that navigated here)
+  // triggered it -- the 250ms-debounced mutation tick above is too late by
+  // the time it fires. A few immediate/near-immediate checks right as this
+  // script starts running catch the iframe (if it's already in the initial
+  // HTML) as early as possible instead of waiting for that debounce.
+  checkPlayerFrame();
+  setTimeout(checkPlayerFrame, 0);
+  setTimeout(checkPlayerFrame, 100);
+  setTimeout(checkPlayerFrame, 300);
+
+  // MainActivity's play/pause/seek key handlers go through these instead of
+  // manipulating a <video> element directly, so the same physical buttons
+  // work whether the page has a same-origin video or (as turned out to be
+  // the common case) a cross-origin Bunny iframe reachable only via
+  // postMessage.
+  window.__ftvTogglePlay = function(){
+    if (trackedVideo && document.contains(trackedVideo)) {
+      if (trackedVideo.paused) { trackedVideo.play(); } else { trackedVideo.pause(); }
+      return;
+    }
+    sendPlayerCommand(playerState.playing ? 'pause' : 'play');
   };
+
+  // Unconditional pause (unlike __ftvTogglePlay) for BACK's "make sure
+  // nothing keeps playing off-screen" belt-and-suspenders -- toggling could
+  // have started playback instead if it was already paused.
+  window.__ftvPause = function(){
+    if (trackedVideo && document.contains(trackedVideo)) { trackedVideo.pause(); }
+    sendPlayerCommand('pause');
+  };
+
+  window.__ftvSeek = function(deltaSeconds){
+    if (trackedVideo && document.contains(trackedVideo)) {
+      trackedVideo.currentTime = Math.max(0, trackedVideo.currentTime + deltaSeconds);
+      return;
+    }
+    // No getCurrentTime round trip: timeupdate keeps playerState.time fresh
+    // while playing, and this optimistically advances it so back-to-back
+    // seeks accumulate correctly even before the next timeupdate confirms.
+    var next = Math.max(0, playerState.time + deltaSeconds);
+    if (playerState.duration) { next = Math.min(next, playerState.duration); }
+    playerState.time = next;
+    sendPlayerCommand('setCurrentTime', next);
+  };
+
+  // True on any dedicated watch page (never the homepage -- see the
+  // hero-banner note above). D-pad navigation/activation and the focus
+  // ring no-op while this is true: arrows were navigating the underlying
+  // page (a "sort" button getting focused and glowing on top of the
+  // video), and center was clicking whatever the cursor still happened to
+  // be resting on. The physical play/pause/seek buttons are the only
+  // control surface while actually watching. Deliberately not conditioned
+  // on "is it actually playing" -- the cross-origin iframe's play state
+  // only reaches us asynchronously via postMessage, which isn't a signal
+  // worth gating on when "not the homepage" already answers the question
+  // this exists to answer.
+  function playingVideo(){
+    if (location.pathname === '/') return null;
+    checkPlayerFrame();
+    return (trackedVideo && document.contains(trackedVideo)) || findPlayerFrame();
+  }
 
   // Header/branding chrome (logo, search, account/login) shouldn't be where
   // the synthetic cursor parks by default -- it's still reachable by
@@ -681,6 +803,7 @@ private const val DPAD_JS = """
   }
 
   window.__ftvReset = function(){
+    if (playingVideo()) return;
     if (cur) { cur.classList.remove('__ftv_focus'); }
     cur = null;
     var list = items();
@@ -786,6 +909,7 @@ private const val DPAD_JS = """
   var pendingDir = null;
   var rafScheduled = false;
   window.__ftvNavigate = function(dir){
+    if (playingVideo()) return;
     if (silentCur) { mark(cur); return; }        // first press just reveals it
     pendingDir = dir;
     if (rafScheduled) return;
@@ -799,6 +923,7 @@ private const val DPAD_JS = """
   };
 
   window.__ftvActivate = function(){
+    if (playingVideo()) return;
     if (silentCur) { mark(cur); return; }        // first press just reveals it
     if (!cur) { window.__ftvReset(); return; }
     var tag = cur.tagName.toLowerCase();

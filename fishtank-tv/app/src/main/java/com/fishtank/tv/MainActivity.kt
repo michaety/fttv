@@ -354,6 +354,39 @@ class MainActivity : Activity() {
 
     private fun js(code: String) = webView.evaluateJavascript(code, null)
 
+    /**
+     * A focused WebView handles D-pad keys itself before Activity.onKeyDown
+     * ever sees them -- it has its own built-in link-navigation/scrolling
+     * behavior for arrow keys, which is exactly what was swallowing every
+     * D-pad press on real hardware: onKeyDown's logic was correct (confirmed
+     * by driving the same JS functions directly over the WebView's remote
+     * debugger) but never actually ran, so the synthetic cursor could never
+     * move past wherever it happened to land on load. Intercepting in
+     * dispatchKeyEvent runs before the WebView gets a chance at the event at
+     * all, for both the initial press and the auto-repeat while held.
+     */
+    private fun isHandledKey(keyCode: Int): Boolean = when (keyCode) {
+        KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN,
+        KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT,
+        KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_BUTTON_A,
+        KeyEvent.KEYCODE_MEDIA_PLAY, KeyEvent.KEYCODE_MEDIA_PAUSE, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
+        KeyEvent.KEYCODE_MENU,
+        KeyEvent.KEYCODE_MEDIA_FAST_FORWARD, KeyEvent.KEYCODE_MEDIA_REWIND,
+        KeyEvent.KEYCODE_MEDIA_NEXT,
+        KeyEvent.KEYCODE_BACK -> true
+        else -> false
+    }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (isHandledKey(event.keyCode)) {
+            if (event.action == KeyEvent.ACTION_DOWN) {
+                return onKeyDown(event.keyCode, event)
+            }
+            return true // swallow ACTION_UP too, so the WebView never sees any part of it
+        }
+        return super.dispatchKeyEvent(event)
+    }
+
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
         when (keyCode) {
             KeyEvent.KEYCODE_DPAD_UP -> { js("window.__ftvNavigate && window.__ftvNavigate('up')"); return true }

@@ -115,6 +115,14 @@ class MainActivity : Activity() {
                 div[class*="mobileNavigation"] { display: none !important; }
                 /* docked audio player */
                 div[class*="left-bar-module"][class*="__music"] { display: none !important; }
+                /* live chat bar -- a real performance cost, not just clutter:
+                   it renders full chat message history (with animated GIF
+                   emotes -- confirmed 90 of them on a fresh homepage load,
+                   all continuously decoding/repainting) into a 0-size
+                   collapsed panel that was never visible in this layout to
+                   begin with. display:none stops the browser from animating
+                   images it isn't rendering. */
+                div[class*="chat-bar-module"][class*="__chatBar"] { display: none !important; }
                 /* search button */
                 div[class*="mobileSearch"] { display: none !important; }
                 /* "want to be on one of the shows?" call-in promo (logged-in
@@ -663,8 +671,15 @@ private const val DPAD_JS = """
     el.style.setProperty('position', 'fixed', 'important');
     el.style.setProperty('top', '0', 'important');
     el.style.setProperty('left', '0', 'important');
-    el.style.setProperty('width', '100vw', 'important');
-    el.style.setProperty('height', '100vh', 'important');
+    el.style.setProperty('margin', '0', 'important');
+    // Explicit pixel dimensions from innerWidth/innerHeight, not 100vw/100vh
+    // -- vw/vh can be wider than the actual visible viewport (they can
+    // include scrollbar-gutter space depending on the engine), which with
+    // left:0 pushes the excess off the right edge only, not both sides
+    // evenly. That's exactly the reported symptom: more cropped on the
+    // right than the left.
+    el.style.setProperty('width', window.innerWidth + 'px', 'important');
+    el.style.setProperty('height', window.innerHeight + 'px', 'important');
     el.style.setProperty('z-index', '2147483647', 'important');
     el.style.setProperty('background', '#000', 'important');
   }

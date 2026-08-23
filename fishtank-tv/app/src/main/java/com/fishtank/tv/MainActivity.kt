@@ -2,10 +2,14 @@ package com.fishtank.tv
 
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.content.ActivityNotFoundException
 import android.content.Context
+import android.content.Intent
 import android.graphics.Color
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import android.view.KeyEvent
 import android.view.View
 import android.view.WindowManager
@@ -16,6 +20,7 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.browser.customtabs.CustomTabsIntent
 import org.json.JSONObject
 
 /**
@@ -50,6 +55,8 @@ private val BLOCKED_URL_SUBSTRINGS = listOf(
 class MainActivity : Activity() {
 
     companion object {
+        private const val TAG = "FishtankTV"
+
         /**
          * Desktop Chrome UA. The site serves the phone layout to a mobile UA,
          * which is the wrong shape for a 10-foot screen and gives fewer
@@ -73,6 +80,11 @@ class MainActivity : Activity() {
     private var zoomPct: Int = ZOOM_DEFAULT
     private var blockImages: Boolean = false
 
+    /** Set once we've handed a URL off to a Custom Tab / external browser, so
+     *  onResume knows to reload and pick up a session the OAuth flow left
+     *  behind. Cleared as soon as that reload fires. */
+    private var launchedCustomTab: Boolean = false
+
     /**
      * Per-site selectors to hide before DPAD_JS builds its focus list, so
      * hidden elements never become focusable in the first place.
@@ -91,6 +103,8 @@ class MainActivity : Activity() {
                 div.fixed.top-0.right-0 { display: none !important; }
                 /* season-pass upsell toast */
                 div.fixed.z-50.left-4.right-4 { display: none !important; }
+                /* Archives/Episodes/Clips/Merch nav menu */
+                div.fixed.inset-0.flex.items-center.justify-center.pointer-events-none.z-50 { display: none !important; }
             """.trimIndent()
             url.contains("mde.tv") -> """
                 /* bottom nav bar (Videos/Audio/Screeds/Chat/Producer/Shop) */
@@ -120,6 +134,41 @@ class MainActivity : Activity() {
             """.trimIndent()
             else -> ""
         }
+    }
+
+    /**
+     * Google refuses to complete OAuth inside an embedded WebView ("this
+     * browser or app may not be secure"), so any navigation to
+     * accounts.google.com is handed off to a Custom Tab instead of loading
+     * in-app. Returns true if the navigation was handed off (caller should
+     * not load it in the WebView), false if it should load normally.
+     */
+    private fun handleUrlOverride(url: String?): Boolean {
+        if (url == null) return false
+        val uri = Uri.parse(url)
+        if (uri.host != "accounts.google.com") return false
+
+        // Cookie sharing between the Custom Tab and this WebView is not
+        // guaranteed on Fire OS -- they may not share a cookie jar at all,
+        // so flushing here just ensures whatever session state the WebView
+        // already has is durable before we leave it.
+        CookieManager.getInstance().flush()
+
+        try {
+            CustomTabsIntent.Builder().build().launchUrl(this, uri)
+            launchedCustomTab = true
+            Log.i(TAG, "OAuth: opened $url in a Custom Tab")
+        } catch (e: ActivityNotFoundException) {
+            try {
+                startActivity(Intent(Intent.ACTION_VIEW, uri))
+                launchedCustomTab = true
+                Log.i(TAG, "OAuth: no Custom Tabs provider for $url, fell back to ACTION_VIEW")
+            } catch (e2: ActivityNotFoundException) {
+                Log.w(TAG, "OAuth: no browser available for $url, loading in WebView instead")
+                return false
+            }
+        }
+        return true
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -188,6 +237,16 @@ class MainActivity : Activity() {
                     return WebResourceResponse("text/plain", "utf-8", null)
                 }
                 return super.shouldInterceptRequest(view, request)
+            }
+
+            override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                return handleUrlOverride(request?.url?.toString())
+            }
+
+            @Deprecated("Deprecated in Java")
+            @Suppress("DEPRECATION")
+            override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
+                return handleUrlOverride(url)
             }
         }
 
@@ -272,6 +331,10 @@ class MainActivity : Activity() {
         super.onResume()
         webView.onResume()
         hideSystemUi()
+        if (launchedCustomTab) {
+            launchedCustomTab = false
+            webView.reload()
+        }
     }
 
     override fun onDestroy() {
@@ -302,11 +365,34 @@ private const val DPAD_JS = """
   var SEL = 'a[href], button, input:not([type=hidden]), select, textarea, video, ' +
             '[tabindex]:not([tabindex="-1"]), [role="button"], [role="link"], [onclick]';
 
+  // Focus ring, scale-up and screen dim are transform/opacity/box-shadow
+  // only -- paint/composite work, no layout -- so they stay cheap even
+  // though they're louder than a plain outline.
   var style = document.createElement('style');
-  style.textContent = '.__ftv_focus{outline:3px solid #FFB000 !important;' +
-                      'outline-offset:2px !important;' +
-                      'box-shadow:0 0 14px rgba(255,176,0,.85) !important;}';
+  style.textContent =
+    '.__ftv_focus{' +
+      'outline:6px solid #FFB000 !important;' +
+      'outline-offset:4px !important;' +
+      'box-shadow:0 0 40px 14px rgba(255,176,0,.9) !important;' +
+      'isolation:isolate !important;' +
+      'z-index:2147483647 !important;' +
+      'transform:scale(1.08) !important;' +
+      'transition:transform 120ms ease-out !important;' +
+      'will-change:transform;' +
+    '}' +
+    '@keyframes __ftv_pulse{0%{transform:scale(1.2);}100%{transform:scale(1.08);}}' +
+    '.__ftv_focus.__ftv_pulse{animation:__ftv_pulse 220ms ease-out;}' +
+    '#__ftv_dim{' +
+      'position:fixed;inset:0;background:rgba(0,0,0,.35);' +
+      'z-index:2147483646;pointer-events:none;opacity:0;' +
+      'transition:opacity 150ms ease-out;' +
+    '}' +
+    '#__ftv_dim.__ftv_dim_on{opacity:1;}';
   (document.head || document.documentElement).appendChild(style);
+
+  var dim = document.createElement('div');
+  dim.id = '__ftv_dim';
+  (document.body || document.documentElement).appendChild(dim);
 
   var cur = null;
   var cache = null;
@@ -385,10 +471,16 @@ private const val DPAD_JS = """
   }
 
   function mark(el){
-    if (cur) { cur.classList.remove('__ftv_focus'); }
+    if (cur) { cur.classList.remove('__ftv_focus', '__ftv_pulse'); }
     cur = el || null;
-    if (!cur) return;
+    if (!cur) { dim.classList.remove('__ftv_dim_on'); return; }
     cur.classList.add('__ftv_focus');
+    dim.classList.add('__ftv_dim_on');
+    // Double rAF so the browser paints the pulse class removed before it's
+    // re-added, restarting the CSS animation without forcing a sync layout.
+    requestAnimationFrame(function(){
+      requestAnimationFrame(function(){ if (cur) cur.classList.add('__ftv_pulse'); });
+    });
     try { cur.focus({ preventScroll: true }); } catch (e) {}
     var r = cur.getBoundingClientRect();
     if (r.top < 60 || r.bottom > window.innerHeight - 60) {

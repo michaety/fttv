@@ -44,6 +44,10 @@ how to sideload the APK on a Fire TV device.
 - **Back always returns to that app's homepage** instead of exiting or
   wandering back through video history.
 
+Navigating with the remote (MDE TV shown, same on Fishtank TV):
+
+<img src="assets/screenshots/nav-demo.gif" alt="Navigating MDE TV with the D-pad" width="600">
+
 ### What they don't do
 
 These are websites in a wrapper, not native TV apps. Expect some rough edges:

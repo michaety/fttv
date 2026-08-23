@@ -98,8 +98,9 @@ Download the latest release from the
 
 **3. Install it**
 
-Easiest route is the **Downloader** app from the Amazon Appstore — enter the
-release URL, it downloads and prompts to install.
+Easiest route is the **[Downloader](https://www.amazon.com.au/AFTVnews-com-Downloader/dp/B01N0BP507?dplnkId=e9566ed7-f213-4ad2-89a4-d1566c14b1ee)**
+app from the Amazon Appstore — enter the release URL, it downloads and prompts
+to install.
 
 Alternatives, if you'd rather: **[Apps2Fire](https://play.google.com/store/apps/details?id=mobi.koni.appstofiretv)**
 pushes an APK from your Android phone over wifi, or `adb install fishtank-tv.apk`

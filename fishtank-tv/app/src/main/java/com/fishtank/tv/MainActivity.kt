@@ -106,6 +106,9 @@ class MainActivity : Activity() {
                 /* bottom nav bar (mobile-layout icon row -- shown because the
                    WebView viewport falls under Tailwind's lg breakpoint) */
                 div.fixed.bottom-0.left-0.w-full.bg-light.z-6 { display: none !important; }
+                /* the 3 circular quick-action buttons docked bottom-right
+                   (inventory/anchor/chat) */
+                div[class*="ease-spring"][class*="translate-y-[-2px]"] { display: none !important; }
             """.trimIndent()
             url.contains("mde.tv") -> """
                 /* bottom nav bar (Videos/Audio/Screeds/Chat/Producer/Shop) */
@@ -154,6 +157,13 @@ class MainActivity : Activity() {
                 window.__ftvSiteCleanup = function(){
                   var panel = document.querySelector('div.fixed.bottom-0.right-0.z-2');
                   if (panel) panel.remove();
+                  // The Archives/Episodes/Clips/Merch menu only exists in the
+                  // DOM while open, so this can't be a one-time CSS rule --
+                  // it relies on siteCleanupJs being re-run on the debounced
+                  // MutationObserver tick in DPAD_JS.
+                  document.querySelectorAll('button').forEach(function(b){
+                    if (b.textContent.trim() === 'Merch') b.style.display = 'none';
+                  });
                 };
             """.trimIndent()
             else -> ""

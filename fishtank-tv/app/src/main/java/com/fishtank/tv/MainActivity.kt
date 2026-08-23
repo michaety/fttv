@@ -115,15 +115,21 @@ class MainActivity : Activity() {
                 div[class*="mobileNavigation"] { display: none !important; }
                 /* docked audio player */
                 div[class*="left-bar-module"][class*="__music"] { display: none !important; }
-                /* search button and whatever sits next to it in the top bar
-                   (login/signup normally, a different control when signed in) */
-                div[class*="mobileSearch"], div[class*="mobileSearch"] + div { display: none !important; }
+                /* search button */
+                div[class*="mobileSearch"] { display: none !important; }
                 /* "want to be on one of the shows?" call-in promo (logged-in
                    only, which is why this wasn't found until checked while
                    actually signed in) */
                 button[class*="__callInWidget"] { display: none !important; }
                 /* notification bell next to the logo */
                 button[class*="notification-center-module"] { display: none !important; }
+                /* the account/login control's right-alignment depended on
+                   the (now-hidden) search wrapper's margin-left:auto --
+                   without that it collapsed to sit right next to the logo */
+                div[class*="top-bar-module"][class*="__user"] { margin-left: auto !important; }
+                /* homepage "Series" grid -- 4 columns instead of 2, so more
+                   fits on screen without scrolling as far */
+                div[class*="__seriesGrid"] { grid-template-columns: repeat(4, 1fr) !important; }
             """.trimIndent()
             else -> ""
         }
@@ -622,11 +628,19 @@ private const val DPAD_JS = """
     return document.querySelector('video');
   };
 
-  // Header/branding chrome (logo, search, login) shouldn't be where the
-  // synthetic cursor parks by default -- it's still reachable by navigating
-  // up into it, just not where a fresh page load or reset lands.
+  // Header/branding chrome (logo, search, account/login) shouldn't be where
+  // the synthetic cursor parks by default -- it's still reachable by
+  // navigating up into it, just not where a fresh page load or reset lands.
+  // Content is the sensible default regardless of sign-in state: landing on
+  // an account button when already logged in makes no sense, but neither
+  // does needing per-site logged-in/out detection to fix just that when
+  // simply never defaulting into the header (top ~70px, where both sites'
+  // headers live) solves it either way -- fishtank has no equivalent to
+  // mde's class-based check at all, so this also fixes fishtank always
+  // defaulting onto its logo.
   function isChrome(el){
-    return !!el.closest('[class*="top-bar-module"], [class*="search-module"]');
+    if (el.closest('[class*="top-bar-module"], [class*="search-module"]')) return true;
+    return el.getBoundingClientRect().top < 70;
   }
   function pickDefault(list){
     for (var i = 0; i < list.length; i++) {
@@ -688,9 +702,20 @@ private const val DPAD_JS = """
     var best = null;
     var bestScore = Infinity;
 
+    // Left/right inside a horizontally-scrolling carousel must stay locked
+    // to that row -- it should only ever continue along the row or stop at
+    // its end, never drift into a different row/section just because
+    // something there scored better than nothing. Without this, reaching
+    // the last card in a row could jump the cursor down into the next
+    // section entirely (this got a lot more likely to bite once the Series
+    // grid went from 2 columns to 4 -- more rows means more diagonal
+    // neighbours close enough to out-score a genuinely-empty "next" slot).
+    var track = (dir === 'left' || dir === 'right') ? scrollableAncestor(cur, 'x') : null;
+
     for (var i = 0; i < list.length; i++) {
       var el = list[i];
       if (el === cur) continue;
+      if (track && !track.contains(el)) continue;
       var p = centre(el);
       var dx = p.x - c.x;
       var dy = p.y - c.y;

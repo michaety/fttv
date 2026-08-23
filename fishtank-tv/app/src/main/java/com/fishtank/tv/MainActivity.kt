@@ -112,6 +112,9 @@ class MainActivity : Activity() {
                 div[class*="mobileNavigation"] { display: none !important; }
                 /* docked audio player */
                 div[class*="left-bar-module"][class*="__music"] { display: none !important; }
+                /* search button and whatever sits next to it in the top bar
+                   (login/signup normally, a different control when signed in) */
+                div[class*="mobileSearch"], div[class*="mobileSearch"] + div { display: none !important; }
             """.trimIndent()
             else -> ""
         }
@@ -131,6 +134,31 @@ class MainActivity : Activity() {
                 window.__ftvSiteCleanup = function(){
                   var panel = document.querySelector('div.fixed.bottom-0.right-0.z-2');
                   if (panel) panel.remove();
+                };
+            """.trimIndent()
+            url.contains("mde.tv") -> """
+                window.__ftvSiteCleanup = function(){
+                  // "Want to be on one of the shows? Accepting call-ins now!"
+                  // promo -- only rendered for logged-in users, so there's no
+                  // stable class to target while logged out. Find it by text
+                  // and climb to the smallest ancestor that also wraps its
+                  // "Click here" CTA, which is the self-contained promo block
+                  // rather than the whole page.
+                  var nodes = document.querySelectorAll('body *');
+                  var marker = null;
+                  for (var i = 0; i < nodes.length; i++) {
+                    if (/accepting call-ins/i.test(nodes[i].textContent || '')) { marker = nodes[i]; break; }
+                  }
+                  if (!marker) return;
+                  var el = marker;
+                  for (var j = 0; j < 8 && el; j++) {
+                    if (/click here/i.test(el.textContent || '') && el.getBoundingClientRect().height < 500) {
+                      el.style.display = 'none';
+                      return;
+                    }
+                    el = el.parentElement;
+                  }
+                  marker.style.display = 'none';
                 };
             """.trimIndent()
             else -> ""
@@ -301,7 +329,7 @@ class MainActivity : Activity() {
 
             KeyEvent.KEYCODE_MEDIA_PLAY,
             KeyEvent.KEYCODE_MEDIA_PAUSE,
-            KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> { js(TOGGLE_PLAY_JS); return true }
+            KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> { js("window.__ftvTogglePlay && window.__ftvTogglePlay()"); return true }
 
             KeyEvent.KEYCODE_MENU -> { js("window.__ftvReset && window.__ftvReset()"); return true }
 
@@ -343,14 +371,6 @@ class MainActivity : Activity() {
         super.onDestroy()
     }
 }
-
-private const val TOGGLE_PLAY_JS = """
-(function(){
-  var v = document.querySelector('video');
-  if (!v) return;
-  if (v.paused) { v.play(); } else { v.pause(); }
-})();
-"""
 
 /**
  * Injected on every page load. Gives the site a synthetic focus cursor driven
@@ -451,7 +471,11 @@ private const val DPAD_JS = """
   // DOM mutations (SPA route/content swaps) and scrolling both change which
   // elements are on-screen, so both invalidate the cache. Debounced so a
   // burst of changes -- or a site cleanup hook re-running below -- triggers
-  // one rebuild instead of one per mutation record.
+  // one rebuild instead of one per mutation record. class/style are watched
+  // too (not just childList): lazy-loaded cards often mount as an
+  // empty/skeleton placeholder and only reach real size once their image
+  // swaps in via a class or style change, not a new node -- without this,
+  // a row that hydrates that way is never (re)discovered.
   var invalidateTimer = null;
   function scheduleInvalidate(){
     if (invalidateTimer) return;
@@ -463,8 +487,26 @@ private const val DPAD_JS = """
       }
     }, 250);
   }
-  new MutationObserver(scheduleInvalidate).observe(document.body, { childList: true, subtree: true });
+  new MutationObserver(scheduleInvalidate).observe(document.body, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ['class', 'style']
+  });
   window.addEventListener('scroll', scheduleInvalidate, { passive: true });
+
+  // Header/branding chrome (logo, search, login) shouldn't be where the
+  // synthetic cursor parks by default -- it's still reachable by navigating
+  // up into it, just not where a fresh page load or reset lands.
+  function isChrome(el){
+    return !!el.closest('[class*="top-bar-module"], [class*="search-module"]');
+  }
+  function pickDefault(list){
+    for (var i = 0; i < list.length; i++) {
+      if (!isChrome(list[i])) return list[i];
+    }
+    return list[0] || null;
+  }
 
   function centre(el){
     var r = el.getBoundingClientRect();
@@ -493,15 +535,10 @@ private const val DPAD_JS = """
     if (cur) { cur.classList.remove('__ftv_focus'); }
     cur = null;
     var list = items();
-    if (list.length) { mark(list[0]); }
+    if (list.length) { mark(pickDefault(list)); }
   };
 
-  function doNavigate(dir){
-    var list = items();
-    if (!list.length) return;
-
-    if (!cur || !document.contains(cur) || !visible(cur)) { mark(list[0]); return; }
-
+  function nearest(list, dir){
     var c = centre(cur);
     var best = null;
     var bestScore = Infinity;
@@ -523,6 +560,27 @@ private const val DPAD_JS = """
       var score = along + across * 2.5;      // prefer straight ahead over diagonal
       if (score < bestScore) { bestScore = score; best = el; }
     }
+    return best;
+  }
+
+  function doNavigate(dir){
+    var list = items();
+    if (!list.length) return;
+
+    if (!cur || !document.contains(cur) || !visible(cur)) { mark(pickDefault(list)); return; }
+
+    var best = nearest(list, dir);
+
+    // A cached list that's gone stale (a row hydrated but no mutation/
+    // scroll happened to invalidate it yet) is a far more common reason to
+    // come up empty than "there's truly nothing that way", so force one
+    // fresh read and retry before concluding that and falling back to
+    // scrolling.
+    if (!best && !dirty) {
+      dirty = true;
+      list = items();
+      best = nearest(list, dir);
+    }
 
     if (best) {
       mark(best);
@@ -534,12 +592,116 @@ private const val DPAD_JS = """
     }
   }
 
+  // ---- Video remote control -------------------------------------------
+  // Bypasses the site's own player chrome entirely: the D-pad drives
+  // play/pause and seeking directly against the <video> element. All of
+  // this is transform/opacity only (the overlay) plus plain property
+  // writes (currentTime/paused), so none of it touches layout.
+
+  function activeVideo(){
+    var vids = document.querySelectorAll('video');
+    var best = null, bestArea = 0;
+    for (var i = 0; i < vids.length; i++) {
+      var v = vids[i];
+      var r = v.getBoundingClientRect();
+      if (r.width < 8 || r.height < 8) continue;
+      var area = r.width * r.height;
+      if (area > bestArea) { bestArea = area; best = v; }
+    }
+    return best;
+  }
+
+  function videoIsFullscreenOrPlaying(v){
+    if (!v) return false;
+    if (!v.paused) return true;
+    var fs = document.fullscreenElement || document.webkitFullscreenElement;
+    return !!(fs && (fs === v || fs.contains(v)));
+  }
+
+  window.__ftvVideoActive = function(){
+    return videoIsFullscreenOrPlaying(activeVideo());
+  };
+
+  var overlay = null, overlayFill = null, overlayTime = null, overlayHideTimer = null;
+  function ensureOverlay(){
+    if (overlay) return;
+    var ov = document.createElement('style');
+    ov.textContent =
+      '#__ftv_vov{position:fixed;left:50%;bottom:12%;transform:translate(-50%,0);' +
+        'min-width:280px;padding:14px 22px;border-radius:10px;background:rgba(0,0,0,.72);' +
+        'z-index:2147483647;opacity:0;transition:opacity 150ms ease-out;pointer-events:none;}' +
+      '#__ftv_vov.__ftv_show{opacity:1;}' +
+      '#__ftv_vov_time{color:#fff;font:600 20px/1.2 sans-serif;text-align:center;margin-bottom:8px;' +
+        'text-shadow:0 1px 3px rgba(0,0,0,.8);}' +
+      '#__ftv_vov_bar{width:100%;height:6px;border-radius:3px;background:rgba(255,255,255,.3);overflow:hidden;}' +
+      '#__ftv_vov_fill{height:100%;width:0%;background:#FFB000;}';
+    (document.head || document.documentElement).appendChild(ov);
+
+    overlay = document.createElement('div');
+    overlay.id = '__ftv_vov';
+    overlayTime = document.createElement('div');
+    overlayTime.id = '__ftv_vov_time';
+    var bar = document.createElement('div');
+    bar.id = '__ftv_vov_bar';
+    overlayFill = document.createElement('div');
+    overlayFill.id = '__ftv_vov_fill';
+    bar.appendChild(overlayFill);
+    overlay.appendChild(overlayTime);
+    overlay.appendChild(bar);
+    (document.body || document.documentElement).appendChild(overlay);
+  }
+
+  function fmtTime(t){
+    if (!isFinite(t) || t < 0) t = 0;
+    var m = Math.floor(t / 60), s = Math.floor(t % 60);
+    return m + ':' + (s < 10 ? '0' : '') + s;
+  }
+
+  function showOverlay(v){
+    ensureOverlay();
+    overlayTime.textContent = fmtTime(v.currentTime) + ' / ' + fmtTime(v.duration);
+    overlayFill.style.width = (v.duration ? (v.currentTime / v.duration * 100) : 0) + '%';
+    overlay.classList.add('__ftv_show');
+    if (overlayHideTimer) clearTimeout(overlayHideTimer);
+    overlayHideTimer = setTimeout(function(){ overlay.classList.remove('__ftv_show'); }, 2000);
+  }
+
+  window.__ftvTogglePlay = function(){
+    var v = activeVideo();
+    if (!v) return;
+    if (v.paused) { v.play(); } else { v.pause(); }
+    showOverlay(v);
+  };
+
+  // Held-key seeking ramps 10s -> 30s as repeats keep landing inside a
+  // 600ms window of each other, and resets once they stop.
+  var seekAmount = 10;
+  var lastSeekAt = 0;
+  window.__ftvSeek = function(dir){
+    var v = activeVideo();
+    if (!v) return;
+    var now = Date.now();
+    seekAmount = (now - lastSeekAt < 600) ? Math.min(30, seekAmount + 10) : 10;
+    lastSeekAt = now;
+    var delta = dir === 'right' ? seekAmount : -seekAmount;
+    var max = isFinite(v.duration) ? v.duration : Infinity;
+    v.currentTime = Math.max(0, Math.min(max, v.currentTime + delta));
+    showOverlay(v);
+  };
+
   // Fire TV remotes auto-repeat while a direction is held, firing one JS
   // eval per repeat. Collapse a whole run of those into a single navigate
   // call per animation frame instead of one full candidate search each.
   var pendingDir = null;
   var rafScheduled = false;
   window.__ftvNavigate = function(dir){
+    // Left/right seek the active video instead of moving the cursor, but
+    // only while it's actually playing -- paused or absent, arrows behave
+    // as normal D-pad navigation.
+    if (dir === 'left' || dir === 'right') {
+      var v = activeVideo();
+      if (v && !v.paused) { window.__ftvSeek(dir); return; }
+    }
     pendingDir = dir;
     if (rafScheduled) return;
     rafScheduled = true;
@@ -552,6 +714,7 @@ private const val DPAD_JS = """
   };
 
   window.__ftvActivate = function(){
+    if (window.__ftvVideoActive()) { window.__ftvTogglePlay(); return; }
     if (!cur) { window.__ftvReset(); return; }
     var tag = cur.tagName.toLowerCase();
     if (tag === 'input' || tag === 'textarea') {

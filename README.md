@@ -42,7 +42,7 @@ These are websites in a wrapper, not native TV apps. **Expect some rough edges**
 
 - Navigation is approximate. Can be buggy.
 - The Firestick is running a full desktop web app. **It is not fast.**
-- Video player controls are locked to the remote. Play/pause, fast-forward and rewind.
+- Video player controls are locked to the remote. Play/pause, fast-forward and rewind buttons only. No scrubbing or play/pause with the arrows or select buttons.
 - Anything the site changes on their end may break something here.
 - Sign in with Google. See requirements below.
 

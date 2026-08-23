@@ -14,12 +14,20 @@ Unofficial. Not affiliated with, endorsed by, or supported by either site.
 
 Two separate apps, each with its own icon on the Fire TV home row:
 
-| | |
-|---|---|
-| **Fishtank TV** | fishtank.live |
-| **MDE TV** | mde.tv |
+| | | |
+|---|---|---|
+| <img src="assets/icons/fishtank-tv.png" width="64" alt="Fishtank TV icon"> | **Fishtank TV** — fishtank.live | [Download](https://github.com/michaety/fttv/releases/latest/download/fishtank-tv.apk) |
+| <img src="assets/icons/mde-tv.png" width="64" alt="MDE TV icon"> | **MDE TV** — mde.tv | [Download](https://github.com/michaety/fttv/releases/latest/download/mde-tv.apk) |
 
-Install one or both — they're independent.
+Install one or both — they're independent. See [Installing](#installing) below for
+how to sideload the APK on a Fire TV device.
+
+<table>
+<tr>
+<td><img src="assets/screenshots/fishtank-tv.jpg" alt="Fishtank TV screenshot" width="480"></td>
+<td><img src="assets/screenshots/mde-tv.jpg" alt="MDE TV screenshot" width="480"></td>
+</tr>
+</table>
 
 ### What they do
 
@@ -31,8 +39,10 @@ Install one or both — they're independent.
   prompts are hidden — they're unusable from a couch and they slow the page
   down.
 - **Stays logged in.** Sign in once; the session survives restarts.
-- **Zoom.** Fast-forward and rewind adjust page zoom if things are too small
-  or too large on your screen.
+- **Fast-forward and rewind seek the video** 10 seconds at a time, with an
+  on-screen scrub indicator.
+- **Back always returns to that app's homepage** instead of exiting or
+  wandering back through video history.
 
 ### What they don't do
 
@@ -48,7 +58,14 @@ These are websites in a wrapper, not native TV apps. Expect some rough edges:
 
 ## Requirements
 
-- A Fire TV Stick or Fire TV device
+- A Fire TV Stick or Fire TV device. The app's minimum SDK (22 / Fire OS 5)
+  covers every Fire TV model ever sold, from the original 2014 stick through
+  the latest 4K Max, so it will install and launch anywhere. Performance is
+  the real variable, not compatibility — these are heavy desktop web pages in
+  a WebView, and it's only been tested on a Fire TV Stick 4K (2nd gen, 1.5GB
+  RAM), where video playback shows real memory-pressure slowdown. Lower-RAM
+  devices (original Stick, Stick Lite, 1st-gen 4K) will likely feel worse;
+  the 4K Max (3rd gen, more RAM) should be fine or better.
 - An account on whichever site you're installing for — these apps don't
   create accounts or bypass anything
 - **A password on that account.** Google sign-in does not work inside these
@@ -101,10 +118,10 @@ and you're done.
 |---|---|
 | **Arrows** | Move the highlight |
 | **Select** | Click the highlighted thing |
-| **Back** | Go back a page, then exit |
+| **Back** | Return to the homepage (exits the app from there) |
 | **Play/Pause** | Play or pause the video |
-| **Fast-forward** | Zoom in |
-| **Rewind** | Zoom out |
+| **Fast-forward** | Seek forward 10s |
+| **Rewind** | Seek back 10s |
 
 ---
 

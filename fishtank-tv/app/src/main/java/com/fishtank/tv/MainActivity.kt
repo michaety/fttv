@@ -12,6 +12,7 @@ import android.os.Bundle
 import android.util.Log
 import android.view.KeyEvent
 import android.view.View
+import android.view.ViewGroup
 import android.view.WindowManager
 import android.webkit.CookieManager
 import android.webkit.WebChromeClient
@@ -84,6 +85,11 @@ class MainActivity : Activity() {
      *  onResume knows to reload and pick up a session the OAuth flow left
      *  behind. Cleared as soon as that reload fires. */
     private var launchedCustomTab: Boolean = false
+
+    /** The view Chromium hands us for an HTML5 fullscreen request (video or
+     *  otherwise). Tracked so onHideCustomView can tear it back down. */
+    private var customView: View? = null
+    private var customViewCallback: WebChromeClient.CustomViewCallback? = null
 
     /**
      * Per-site selectors to hide before DPAD_JS builds its focus list, so
@@ -259,7 +265,36 @@ class MainActivity : Activity() {
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
 
-        webView.webChromeClient = WebChromeClient()
+        webView.webChromeClient = object : WebChromeClient() {
+            // Without this, Element.requestFullscreen() (what the
+            // auto-fullscreen hook in DPAD_JS calls) is a silent no-op --
+            // Android WebView routes any HTML5 fullscreen request through
+            // these two callbacks rather than handling it internally, and
+            // the base WebChromeClient doesn't implement them.
+            override fun onShowCustomView(view: View?, callback: CustomViewCallback?) {
+                if (customView != null) {
+                    callback?.onCustomViewHidden()
+                    return
+                }
+                customView = view
+                customViewCallback = callback
+                (window.decorView as? ViewGroup)?.addView(
+                    view,
+                    ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+                )
+                webView.visibility = View.GONE
+                hideSystemUi()
+            }
+
+            override fun onHideCustomView() {
+                (window.decorView as? ViewGroup)?.removeView(customView)
+                customView = null
+                customViewCallback?.onCustomViewHidden()
+                customViewCallback = null
+                webView.visibility = View.VISIBLE
+                hideSystemUi()
+            }
+        }
         webView.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 val css = siteCss(url)
@@ -676,6 +711,33 @@ private const val DPAD_JS = """
   // play/pause and seeking directly against the <video> element. All of
   // this is transform/opacity only (the overlay) plus plain property
   // writes (currentTime/paused), so none of it touches layout.
+
+  // Both sites autoplay the episode video as soon as its page loads. Follow
+  // that with fullscreen automatically instead of waiting for a remote
+  // press. 'play'/'loadstart' don't bubble, so this listens on the capture
+  // phase at the document instead of needing a reference to the video.
+  // Size-gated so a small autoplaying preview thumbnail elsewhere on the
+  // page (browse-grid hover previews, related-videos rail) doesn't trigger
+  // it -- only something roughly player-sized does.
+  document.addEventListener('loadstart', function(e){
+    var v = e.target;
+    if (v && v.tagName === 'VIDEO') { v.__ftvAutoFsDone = false; }
+  }, true);
+  document.addEventListener('play', function(e){
+    var v = e.target;
+    if (!v || v.tagName !== 'VIDEO' || v.__ftvAutoFsDone) return;
+    var r = v.getBoundingClientRect();
+    if (r.width < 400 || r.height < 200) return;
+    v.__ftvAutoFsDone = true;
+    // webkitEnterFullscreen (the video-native path, distinct from the
+    // generic Fullscreen API) is tried first -- WebView's generic
+    // Element.requestFullscreen() enforces a strict "was this called from a
+    // live user gesture" check that an autoplay-triggered 'play' event
+    // fails, while the video-specific path is generally more permissive
+    // about autoplayed media.
+    var req = v.webkitEnterFullscreen || v.requestFullscreen || v.webkitRequestFullscreen;
+    if (req) { try { req.call(v); } catch (err) {} }
+  }, true);
 
   function activeVideo(){
     var vids = document.querySelectorAll('video');

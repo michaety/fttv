@@ -712,33 +712,6 @@ private const val DPAD_JS = """
   // this is transform/opacity only (the overlay) plus plain property
   // writes (currentTime/paused), so none of it touches layout.
 
-  // Both sites autoplay the episode video as soon as its page loads. Follow
-  // that with fullscreen automatically instead of waiting for a remote
-  // press. 'play'/'loadstart' don't bubble, so this listens on the capture
-  // phase at the document instead of needing a reference to the video.
-  // Size-gated so a small autoplaying preview thumbnail elsewhere on the
-  // page (browse-grid hover previews, related-videos rail) doesn't trigger
-  // it -- only something roughly player-sized does.
-  document.addEventListener('loadstart', function(e){
-    var v = e.target;
-    if (v && v.tagName === 'VIDEO') { v.__ftvAutoFsDone = false; }
-  }, true);
-  document.addEventListener('play', function(e){
-    var v = e.target;
-    if (!v || v.tagName !== 'VIDEO' || v.__ftvAutoFsDone) return;
-    var r = v.getBoundingClientRect();
-    if (r.width < 400 || r.height < 200) return;
-    v.__ftvAutoFsDone = true;
-    // webkitEnterFullscreen (the video-native path, distinct from the
-    // generic Fullscreen API) is tried first -- WebView's generic
-    // Element.requestFullscreen() enforces a strict "was this called from a
-    // live user gesture" check that an autoplay-triggered 'play' event
-    // fails, while the video-specific path is generally more permissive
-    // about autoplayed media.
-    var req = v.webkitEnterFullscreen || v.requestFullscreen || v.webkitRequestFullscreen;
-    if (req) { try { req.call(v); } catch (err) {} }
-  }, true);
-
   function activeVideo(){
     var vids = document.querySelectorAll('video');
     var best = null, bestArea = 0;

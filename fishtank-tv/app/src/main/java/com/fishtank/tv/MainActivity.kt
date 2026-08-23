@@ -103,8 +103,9 @@ class MainActivity : Activity() {
                 div.fixed.top-0.right-0 { display: none !important; }
                 /* season-pass upsell toast */
                 div.fixed.z-50.left-4.right-4 { display: none !important; }
-                /* Archives/Episodes/Clips/Merch nav menu */
-                div.fixed.inset-0.flex.items-center.justify-center.pointer-events-none.z-50 { display: none !important; }
+                /* bottom nav bar (mobile-layout icon row -- shown because the
+                   WebView viewport falls under Tailwind's lg breakpoint) */
+                div.fixed.bottom-0.left-0.w-full.bg-light.z-6 { display: none !important; }
             """.trimIndent()
             url.contains("mde.tv") -> """
                 /* bottom nav bar (Videos/Audio/Screeds/Chat/Producer/Shop) */

@@ -592,7 +592,23 @@ private const val DPAD_JS = """
     if (!v || v.tagName !== 'VIDEO') return;
     v.disablePictureInPicture = true;
     var r = v.getBoundingClientRect();
-    if (r.width < 8 || r.height < 8) return; // ignore tiny/hidden preview videos
+    // Only a real, mostly-viewport-filling player counts as "the" video --
+    // a homepage grid thumbnail hover-preview (commonly 150-300px) must
+    // never satisfy this, or an autoplaying one gets tracked as playing and
+    // silently disables D-pad navigation site-wide.
+    if (r.width < window.innerWidth * 0.5 || r.height < window.innerHeight * 0.3) {
+      // Hover-preview autoplay is a mouse-era pattern that means nothing on
+      // a D-pad interface, and each one spins up its own hardware video
+      // decoder -- confirmed via logcat as the actual cause of "remote
+      // stops working after a few presses": this device has ~1.7GB RAM and
+      // ~36MB free under normal load, and enough of these playing at once
+      // was enough for Android's low-memory-killer to kill the *shared*
+      // com.amazon.webview.chromium process outright, taking the whole app
+      // down with it (visible as a sudden jump to the Fire TV home
+      // launcher). Stop it outright rather than merely ignoring it.
+      try { v.pause(); } catch (err) {}
+      return;
+    }
     trackedVideo = v;
   }, true);
 

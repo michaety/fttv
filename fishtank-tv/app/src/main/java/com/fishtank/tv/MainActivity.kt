@@ -118,6 +118,12 @@ class MainActivity : Activity() {
                 /* search button and whatever sits next to it in the top bar
                    (login/signup normally, a different control when signed in) */
                 div[class*="mobileSearch"], div[class*="mobileSearch"] + div { display: none !important; }
+                /* "want to be on one of the shows?" call-in promo (logged-in
+                   only, which is why this wasn't found until checked while
+                   actually signed in) */
+                button[class*="__callInWidget"] { display: none !important; }
+                /* notification bell next to the logo */
+                button[class*="notification-center-module"] { display: none !important; }
             """.trimIndent()
             else -> ""
         }
@@ -137,52 +143,6 @@ class MainActivity : Activity() {
                 window.__ftvSiteCleanup = function(){
                   var panel = document.querySelector('div.fixed.bottom-0.right-0.z-2');
                   if (panel) panel.remove();
-                };
-            """.trimIndent()
-            url.contains("mde.tv") -> """
-                window.__ftvSiteCleanup = function(){
-                  // "Want to be on one of the shows? Accepting call-ins now!"
-                  // promo -- only rendered for logged-in users, so there's no
-                  // stable class to target while logged out. Find it by text
-                  // and climb to the smallest ancestor that also wraps its
-                  // "Click here" CTA, which is the self-contained promo block
-                  // rather than the whole page.
-                  //
-                  // Skip the scan if we already hid it AND it's still the
-                  // same node sitting there hidden -- this runs on every
-                  // debounced MutationObserver tick, and re-scanning the
-                  // whole DOM's textContent forever (most expensively during
-                  // the mutation burst of initial hydration) is exactly the
-                  // kind of cost that stalled the page blank before. But
-                  // React can replace the whole subtree with a fresh node on
-                  // a re-render, orphaning our reference and un-hiding the
-                  // promo, so this re-scans (once) rather than trusting a
-                  // one-time flag forever. Only leaf elements are checked --
-                  // textContent on a leaf is cheap; on a container it walks
-                  // its whole subtree.
-                  if (window.__ftvCallInEl &&
-                      document.contains(window.__ftvCallInEl) &&
-                      window.__ftvCallInEl.style.display === 'none') {
-                    return;
-                  }
-                  var nodes = document.querySelectorAll('body *');
-                  var marker = null;
-                  for (var i = 0; i < nodes.length; i++) {
-                    if (nodes[i].children.length > 0) continue;
-                    if (/accepting call-ins/i.test(nodes[i].textContent || '')) { marker = nodes[i]; break; }
-                  }
-                  if (!marker) return;
-                  var el = marker;
-                  var target = marker;
-                  for (var j = 0; j < 8 && el; j++) {
-                    if (/click here/i.test(el.textContent || '') && el.getBoundingClientRect().height < 500) {
-                      target = el;
-                      break;
-                    }
-                    el = el.parentElement;
-                  }
-                  target.style.display = 'none';
-                  window.__ftvCallInEl = target;
                 };
             """.trimIndent()
             else -> ""
@@ -341,16 +301,17 @@ class MainActivity : Activity() {
         "document.documentElement.style.zoom = '$pct%';"
 
     /**
-     * Direct, dumb mapping from the remote's fast-forward/rewind buttons to
-     * the page's first <video> -- no "find the active/largest video across
-     * the whole page" scan, no overlay, no acceleration. That detection
-     * layer ran on every press and was the suspected cause of the homepage
-     * thumbnail-preview slowdown and player sluggishness; a single
-     * querySelector is cheap enough to not be a concern.
+     * Direct mapping from the remote's fast-forward/rewind buttons to the
+     * video DPAD_JS has actually seen play (window.__ftvVideo(), tracked via
+     * a cheap 'play' listener) rather than document.querySelector('video')
+     * -- the first video in DOM order was sometimes a decorative/background
+     * one, not the real player. No overlay, no acceleration: a single
+     * property write is cheap enough to not be a performance concern.
      */
     private fun seekVideo(deltaSeconds: Int) {
         js(
-            "(function(){var v=document.querySelector('video');if(!v)return;" +
+            "(function(){var v=window.__ftvVideo?window.__ftvVideo():document.querySelector('video');" +
+                "if(!v)return;" +
                 "v.disablePictureInPicture=true;" +
                 "v.currentTime=Math.max(0,v.currentTime+($deltaSeconds));})();"
         )
@@ -470,7 +431,7 @@ class MainActivity : Activity() {
 
 private const val TOGGLE_PLAY_JS = """
 (function(){
-  var v = document.querySelector('video');
+  var v = window.__ftvVideo ? window.__ftvVideo() : document.querySelector('video');
   if (!v) return;
   v.disablePictureInPicture = true;
   if (v.paused) { v.play(); } else { v.pause(); }
@@ -564,6 +525,7 @@ private const val DPAD_JS = """
     var out = [];
     for (var i = 0; i < onscreen.length; i++) {
       var el = onscreen[i];
+      if (isExcluded(el)) continue;
       var s = window.getComputedStyle(el);
       if (s.visibility === 'hidden' || s.display === 'none') continue;
       if (parseFloat(s.opacity) < 0.1) continue;
@@ -571,6 +533,12 @@ private const val DPAD_JS = """
       out.push(el);
     }
     return out;
+  }
+
+  // Elements that match SEL but should never be reachable by the D-pad at
+  // all, not just skipped as a default landing spot.
+  function isExcluded(el){
+    return !!(el.matches && el.matches('a[class*="__logo"]'));
   }
 
   function items(){
@@ -603,7 +571,45 @@ private const val DPAD_JS = """
     }, 250);
   }
   new MutationObserver(scheduleInvalidate).observe(document.body, { childList: true, subtree: true });
-  window.addEventListener('scroll', scheduleInvalidate, { passive: true });
+  // Capture phase on document, not a plain window listener: scroll events
+  // don't bubble, so a listener on window only ever sees the page itself
+  // scrolling. Capture-phase delegation from document catches any nested
+  // scrollable container too (a horizontally-scrolling carousel row).
+  document.addEventListener('scroll', scheduleInvalidate, { passive: true, capture: true });
+
+  // Track the actively-playing video via event delegation -- cheap, since it
+  // only fires on a real play/pause transition rather than scanning the
+  // page. While one is playing, D-pad navigation/activation and the focus
+  // ring are fully suppressed below: arrows were navigating the underlying
+  // page (scrolling comments over the video), and center was clicking
+  // whatever the cursor happened to be resting on, including the header
+  // logo, navigating away entirely. The physical play/pause/seek buttons
+  // (handled natively in MainActivity, not through here) are the only
+  // control surface while actually watching.
+  var trackedVideo = null;
+  document.addEventListener('play', function(e){
+    var v = e.target;
+    if (!v || v.tagName !== 'VIDEO') return;
+    v.disablePictureInPicture = true;
+    var r = v.getBoundingClientRect();
+    if (r.width < 8 || r.height < 8) return; // ignore tiny/hidden preview videos
+    trackedVideo = v;
+  }, true);
+
+  function playingVideo(){
+    if (trackedVideo && document.contains(trackedVideo) && !trackedVideo.paused) return trackedVideo;
+    return null;
+  }
+
+  // MainActivity's play/pause/seek key handlers call this (via
+  // evaluateJavascript) instead of document.querySelector('video') directly,
+  // so they target the video DPAD_JS has actually seen play rather than
+  // whichever <video> happens to be first in DOM order (which was landing on
+  // decorative/background videos instead of the real player).
+  window.__ftvVideo = function(){
+    if (trackedVideo && document.contains(trackedVideo)) return trackedVideo;
+    return document.querySelector('video');
+  };
 
   // Header/branding chrome (logo, search, login) shouldn't be where the
   // synthetic cursor parks by default -- it's still reachable by navigating
@@ -642,11 +648,30 @@ private const val DPAD_JS = """
   }
 
   window.__ftvReset = function(){
+    if (playingVideo()) return;
     if (cur) { cur.classList.remove('__ftv_focus'); }
     cur = null;
     var list = items();
     if (list.length) { mark(pickDefault(list)); }
   };
+
+  // Nearest scrollable ancestor along one axis -- used to scroll a
+  // horizontally-scrolling carousel row when the D-pad reaches its last
+  // on-screen card, the same way vertical scrolling already falls back to
+  // window.scrollBy when nothing more is focusable that way.
+  function scrollableAncestor(el, axis){
+    var node = el && el.parentElement;
+    while (node && node !== document.body) {
+      var s = getComputedStyle(node);
+      if (axis === 'x') {
+        if ((s.overflowX === 'auto' || s.overflowX === 'scroll') && node.scrollWidth > node.clientWidth + 4) return node;
+      } else {
+        if ((s.overflowY === 'auto' || s.overflowY === 'scroll') && node.scrollHeight > node.clientHeight + 4) return node;
+      }
+      node = node.parentElement;
+    }
+    return null;
+  }
 
   function nearest(list, dir){
     var c = centre(cur);
@@ -694,11 +719,21 @@ private const val DPAD_JS = """
 
     if (best) {
       mark(best);
+    } else if (dir === 'down') {
+      window.scrollBy(0, Math.round(window.innerHeight * 0.6));
+    } else if (dir === 'up') {
+      window.scrollBy(0, -Math.round(window.innerHeight * 0.6));
     } else {
-      // Nothing focusable that way -- scroll the page instead so long
-      // pages are not a dead end.
-      if (dir === 'down') window.scrollBy(0, Math.round(window.innerHeight * 0.6));
-      if (dir === 'up')   window.scrollBy(0, -Math.round(window.innerHeight * 0.6));
+      // Nothing focusable further that way in the viewport -- if cur sits
+      // inside a horizontally-scrolling carousel, scroll that container to
+      // reveal more instead of dead-ending; the retry-fresh-recompute above
+      // already covers rediscovering the newly-visible cards on the next
+      // press once the scroll settles.
+      var track = cur && scrollableAncestor(cur, 'x');
+      if (track) {
+        var amount = Math.round(track.clientWidth * 0.8);
+        track.scrollBy({ left: dir === 'right' ? amount : -amount, behavior: 'auto' });
+      }
     }
   }
 
@@ -708,6 +743,7 @@ private const val DPAD_JS = """
   var pendingDir = null;
   var rafScheduled = false;
   window.__ftvNavigate = function(dir){
+    if (playingVideo()) return;
     pendingDir = dir;
     if (rafScheduled) return;
     rafScheduled = true;
@@ -720,6 +756,7 @@ private const val DPAD_JS = """
   };
 
   window.__ftvActivate = function(){
+    if (playingVideo()) return;
     if (!cur) { window.__ftvReset(); return; }
     var tag = cur.tagName.toLowerCase();
     if (tag === 'input' || tag === 'textarea') {
@@ -729,6 +766,6 @@ private const val DPAD_JS = """
     cur.click();
   };
 
-  setTimeout(function(){ if (!cur) { window.__ftvReset(); } }, 1200);
+  setTimeout(function(){ if (!cur && !playingVideo()) { window.__ftvReset(); } }, 1200);
 })();
 """

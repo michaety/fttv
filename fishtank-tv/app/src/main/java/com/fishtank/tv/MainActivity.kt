@@ -422,16 +422,17 @@ class MainActivity : Activity() {
                 js("window.__ftvPause && window.__ftvPause()")
                 val currentPath = try { Uri.parse(webView.url).path } catch (e: Exception) { null }
                 val onHomePage = currentPath == null || currentPath == "/"
-                if (webView.canGoBack()) {
-                    // The watch page is usually reached via the site's own
-                    // client-side router (History API pushState), which the
-                    // WebView never records as a navigation entry -- so
-                    // canGoBack() is almost always false here even though we
-                    // are visibly "back" of the homepage. When it IS true
-                    // (a real WebView navigation happened), honor it.
-                    webView.goBack()
-                } else if (!onHomePage) {
+                if (!onHomePage) {
+                    // Always go to the actual homepage, never "back" through
+                    // WebView history: on fishtank the watch route is reached
+                    // via client-side pushState (canGoBack() is false there,
+                    // so this was already the effective behavior), but on mde
+                    // each video load pushes a real WebView navigation entry,
+                    // so canGoBack()+goBack() was walking back through
+                    // previously watched videos instead of returning home.
                     webView.loadUrl(homeUrl)
+                } else if (webView.canGoBack()) {
+                    webView.goBack()
                 } else {
                     finish()
                 }

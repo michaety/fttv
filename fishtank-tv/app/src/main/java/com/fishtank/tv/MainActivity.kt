@@ -145,14 +145,23 @@ class MainActivity : Activity() {
                   // "Click here" CTA, which is the self-contained promo block
                   // rather than the whole page.
                   //
-                  // Bail out once handled: this runs on every debounced
-                  // MutationObserver tick, and re-scanning the whole DOM's
-                  // textContent forever (most expensively during the mutation
-                  // burst of initial hydration) is exactly the kind of cost
-                  // that stalled the page blank before. Only leaf elements
-                  // are checked -- textContent on a leaf is cheap; on a
-                  // container it walks its whole subtree.
-                  if (window.__ftvCallInHidden) return;
+                  // Skip the scan if we already hid it AND it's still the
+                  // same node sitting there hidden -- this runs on every
+                  // debounced MutationObserver tick, and re-scanning the
+                  // whole DOM's textContent forever (most expensively during
+                  // the mutation burst of initial hydration) is exactly the
+                  // kind of cost that stalled the page blank before. But
+                  // React can replace the whole subtree with a fresh node on
+                  // a re-render, orphaning our reference and un-hiding the
+                  // promo, so this re-scans (once) rather than trusting a
+                  // one-time flag forever. Only leaf elements are checked --
+                  // textContent on a leaf is cheap; on a container it walks
+                  // its whole subtree.
+                  if (window.__ftvCallInEl &&
+                      document.contains(window.__ftvCallInEl) &&
+                      window.__ftvCallInEl.style.display === 'none') {
+                    return;
+                  }
                   var nodes = document.querySelectorAll('body *');
                   var marker = null;
                   for (var i = 0; i < nodes.length; i++) {
@@ -170,7 +179,7 @@ class MainActivity : Activity() {
                     el = el.parentElement;
                   }
                   target.style.display = 'none';
-                  window.__ftvCallInHidden = true;
+                  window.__ftvCallInEl = target;
                 };
             """.trimIndent()
             else -> ""
@@ -368,6 +377,9 @@ class MainActivity : Activity() {
             KeyEvent.KEYCODE_MEDIA_NEXT -> { toggleBlockImages(); return true }
 
             KeyEvent.KEYCODE_BACK -> {
+                // Belt-and-suspenders alongside disablePictureInPicture in
+                // DPAD_JS: a paused video can't trigger auto-PiP on navigate-away.
+                js("document.querySelectorAll('video').forEach(function(v){ v.pause(); })")
                 if (webView.canGoBack()) {
                     webView.goBack()
                 } else {
@@ -412,7 +424,12 @@ private const val DPAD_JS = """
   if (window.__ftvReady) return;
   window.__ftvReady = true;
 
-  var SEL = 'a[href], button, input:not([type=hidden]), select, textarea, video, ' +
+  // Deliberately excludes 'video': the dedicated video-control module below
+  // drives play/pause/seek directly against the active <video> regardless of
+  // cursor position. Letting the D-pad cursor land ON the video used to give
+  // it the loud focus treatment -- 1.08 scale, 6px outline, full-screen dim
+  // -- while actually watching, which is exactly backwards.
+  var SEL = 'a[href], button, input:not([type=hidden]), select, textarea, ' +
             '[tabindex]:not([tabindex="-1"]), [role="button"], [role="link"], [onclick]';
 
   // Focus ring, scale-up and screen dim are transform/opacity/box-shadow
@@ -632,6 +649,10 @@ private const val DPAD_JS = """
     var best = null, bestArea = 0;
     for (var i = 0; i < vids.length; i++) {
       var v = vids[i];
+      // Suppress the browser's own picture-in-picture (both the explicit
+      // button and its auto-PiP-on-navigate-away heuristic) -- this is a TV
+      // app with nowhere for a floating mini-player to go.
+      if (!v.disablePictureInPicture) { v.disablePictureInPicture = true; }
       var r = v.getBoundingClientRect();
       if (r.width < 8 || r.height < 8) continue;
       var area = r.width * r.height;
@@ -748,10 +769,6 @@ private const val DPAD_JS = """
     var tag = cur.tagName.toLowerCase();
     if (tag === 'input' || tag === 'textarea') {
       cur.focus();                            // brings up the Fire TV keyboard
-      return;
-    }
-    if (tag === 'video') {
-      if (cur.paused) { cur.play(); } else { cur.pause(); }
       return;
     }
     cur.click();

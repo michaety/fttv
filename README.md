@@ -101,9 +101,9 @@ Download the latest release from the
 Easiest route is the **Downloader** app from the Amazon Appstore — enter the
 release URL, it downloads and prompts to install.
 
-Alternatives, if you'd rather: **Apps2Fire** pushes an APK from your Android
-phone over wifi, or `adb install fishtank-tv.apk` if you already have adb set
-up.
+Alternatives, if you'd rather: **[Apps2Fire](https://play.google.com/store/apps/details?id=mobi.koni.appstofiretv)**
+pushes an APK from your Android phone over wifi, or `adb install fishtank-tv.apk`
+if you already have adb set up.
 
 **4. Launch and sign in**
 

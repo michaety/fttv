@@ -144,21 +144,33 @@ class MainActivity : Activity() {
                   // and climb to the smallest ancestor that also wraps its
                   // "Click here" CTA, which is the self-contained promo block
                   // rather than the whole page.
+                  //
+                  // Bail out once handled: this runs on every debounced
+                  // MutationObserver tick, and re-scanning the whole DOM's
+                  // textContent forever (most expensively during the mutation
+                  // burst of initial hydration) is exactly the kind of cost
+                  // that stalled the page blank before. Only leaf elements
+                  // are checked -- textContent on a leaf is cheap; on a
+                  // container it walks its whole subtree.
+                  if (window.__ftvCallInHidden) return;
                   var nodes = document.querySelectorAll('body *');
                   var marker = null;
                   for (var i = 0; i < nodes.length; i++) {
+                    if (nodes[i].children.length > 0) continue;
                     if (/accepting call-ins/i.test(nodes[i].textContent || '')) { marker = nodes[i]; break; }
                   }
                   if (!marker) return;
                   var el = marker;
+                  var target = marker;
                   for (var j = 0; j < 8 && el; j++) {
                     if (/click here/i.test(el.textContent || '') && el.getBoundingClientRect().height < 500) {
-                      el.style.display = 'none';
-                      return;
+                      target = el;
+                      break;
                     }
                     el = el.parentElement;
                   }
-                  marker.style.display = 'none';
+                  target.style.display = 'none';
+                  window.__ftvCallInHidden = true;
                 };
             """.trimIndent()
             else -> ""
@@ -471,11 +483,16 @@ private const val DPAD_JS = """
   // DOM mutations (SPA route/content swaps) and scrolling both change which
   // elements are on-screen, so both invalidate the cache. Debounced so a
   // burst of changes -- or a site cleanup hook re-running below -- triggers
-  // one rebuild instead of one per mutation record. class/style are watched
-  // too (not just childList): lazy-loaded cards often mount as an
-  // empty/skeleton placeholder and only reach real size once their image
-  // swaps in via a class or style change, not a new node -- without this,
-  // a row that hydrates that way is never (re)discovered.
+  // one rebuild instead of one per mutation record.
+  //
+  // This deliberately does NOT also watch attributes (class/style): on a
+  // page that updates inline styles continuously -- a scrubber position, a
+  // carousel transform, chat timestamps -- via requestAnimationFrame, an
+  // attribute-observing MutationObserver queues a record for every single
+  // one of those before our debounce ever gets to run, which was enough to
+  // choke mde's page to a blank screen on real hardware. doNavigate's
+  // force-refresh-before-giving-up below covers the case this would have
+  // caught (a lazily-hydrated row) without paying that cost continuously.
   var invalidateTimer = null;
   function scheduleInvalidate(){
     if (invalidateTimer) return;
@@ -487,12 +504,7 @@ private const val DPAD_JS = """
       }
     }, 250);
   }
-  new MutationObserver(scheduleInvalidate).observe(document.body, {
-    childList: true,
-    subtree: true,
-    attributes: true,
-    attributeFilter: ['class', 'style']
-  });
+  new MutationObserver(scheduleInvalidate).observe(document.body, { childList: true, subtree: true });
   window.addEventListener('scroll', scheduleInvalidate, { passive: true });
 
   // Header/branding chrome (logo, search, login) shouldn't be where the

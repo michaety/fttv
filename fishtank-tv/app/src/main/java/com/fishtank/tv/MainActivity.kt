@@ -264,6 +264,17 @@ class MainActivity : Activity() {
         }
         webView.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, url: String?) {
+                // A modest, honest mitigation, not a fix for video-decode CPU
+                // itself: dumpsys cpuinfo during playback showed kswapd0 (the
+                // kernel's memory-swap daemon) alone at ~24% CPU on this
+                // device's 1.7GB RAM, so anything that trims memory pressure
+                // during playback is worth doing even though it can't touch
+                // the actual decode cost. The homepage's own images have no
+                // reason to keep loading/decoding while a video page is
+                // showing; restore the user's real preference once back on
+                // the homepage.
+                val isWatchPage = url != null && Uri.parse(url).path.let { it != null && it != "/" }
+                view?.settings?.blockNetworkImage = isWatchPage || blockImages
                 val css = siteCss(url)
                 if (css.isNotEmpty()) {
                     val js = "(function(){var s=document.createElement('style');" +
@@ -399,8 +410,18 @@ class MainActivity : Activity() {
                 // cross-origin Bunny iframe player, which only responds to
                 // pause via postMessage, not document.querySelectorAll.
                 js("window.__ftvPause && window.__ftvPause()")
+                val currentPath = try { Uri.parse(webView.url).path } catch (e: Exception) { null }
+                val onHomePage = currentPath == null || currentPath == "/"
                 if (webView.canGoBack()) {
+                    // The watch page is usually reached via the site's own
+                    // client-side router (History API pushState), which the
+                    // WebView never records as a navigation entry -- so
+                    // canGoBack() is almost always false here even though we
+                    // are visibly "back" of the homepage. When it IS true
+                    // (a real WebView navigation happened), honor it.
                     webView.goBack()
+                } else if (!onHomePage) {
+                    webView.loadUrl(homeUrl)
                 } else {
                     finish()
                 }
@@ -600,11 +621,12 @@ private const val DPAD_JS = """
     return playerFrame;
   }
 
-  function sendPlayerCommand(method, value){
+  function sendPlayerCommand(method, value, listener){
     var f = findPlayerFrame();
     if (!f || !f.contentWindow) return false;
     var msg = { context: 'player.js', version: '0.0.11', method: method };
     if (value !== undefined) msg.value = value;
+    if (listener !== undefined) msg.listener = listener;
     try { f.contentWindow.postMessage(JSON.stringify(msg), '*'); } catch (e) {}
     return true;
   }
@@ -616,6 +638,17 @@ private const val DPAD_JS = """
     sendPlayerCommand('on', 'play');
     sendPlayerCommand('on', 'pause');
     sendPlayerCommand('on', 'timeupdate');
+    // Autoplay starts (and often finishes its first play/pause transition)
+    // before we ever get a chance to subscribe to those events, so
+    // playerState.playing's default of false is wrong from the start on
+    // most page loads -- toggling play/pause against that stale guess sent
+    // 'play' to an already-playing video, which does nothing and looks
+    // exactly like "the button stopped working". Query the real state
+    // directly instead of only waiting for a future transition we may have
+    // already missed.
+    sendPlayerCommand('getPaused', undefined, 'ftvInit');
+    sendPlayerCommand('getCurrentTime', undefined, 'ftvInit');
+    sendPlayerCommand('getDuration', undefined, 'ftvInit');
   }
 
   window.addEventListener('message', function(e){
@@ -626,9 +659,13 @@ private const val DPAD_JS = """
     if (!data || data.context !== 'player.js') return;
     if (data.event === 'play') { playerState.playing = true; }
     else if (data.event === 'pause') { playerState.playing = false; }
+    else if (data.event === 'getPaused') { playerState.playing = !data.value; }
+    else if (data.event === 'getCurrentTime') { playerState.time = data.value || 0; }
+    else if (data.event === 'getDuration') { playerState.duration = data.value || 0; }
     else if (data.event === 'timeupdate' && data.value) {
       playerState.time = data.value.seconds || 0;
       playerState.duration = data.value.duration || 0;
+      if (seekOverlayVisible) { renderSeekOverlay(); }
     }
   });
 
@@ -718,6 +755,72 @@ private const val DPAD_JS = """
   setTimeout(checkPlayerFrame, 100);
   setTimeout(checkPlayerFrame, 300);
 
+  // Minimal on-screen feedback for seek/play-pause -- cheap now that it
+  // targets the already-tracked video/iframe directly rather than the old
+  // design's full-page video scan on every keypress (that scan, not the
+  // overlay itself, was what got removed for performance earlier).
+  var seekOverlayEl = null, seekOverlayTimeEl = null, seekOverlayFillEl = null, seekOverlayHideTimer = null;
+  var seekOverlayVisible = false;
+
+  function currentPlaybackInfo(){
+    if (trackedVideo && document.contains(trackedVideo)) {
+      return { time: trackedVideo.currentTime, duration: trackedVideo.duration || 0 };
+    }
+    return { time: playerState.time, duration: playerState.duration };
+  }
+
+  function fmtSeekTime(t){
+    if (!isFinite(t) || t < 0) t = 0;
+    var m = Math.floor(t / 60), s = Math.floor(t % 60);
+    return m + ':' + (s < 10 ? '0' : '') + s;
+  }
+
+  function ensureSeekOverlay(){
+    if (seekOverlayEl) return;
+    var style = document.createElement('style');
+    style.textContent =
+      '#__ftv_seek{position:fixed;left:50%;bottom:8%;transform:translateX(-50%);' +
+        'min-width:260px;padding:12px 22px;border-radius:10px;background:rgba(0,0,0,.72);' +
+        'z-index:2147483647;opacity:0;transition:opacity 150ms ease-out;pointer-events:none;}' +
+      '#__ftv_seek.__ftv_show{opacity:1;}' +
+      '#__ftv_seek_time{color:#fff;font:600 18px/1.2 sans-serif;text-align:center;margin-bottom:6px;' +
+        'text-shadow:0 1px 3px rgba(0,0,0,.8);}' +
+      '#__ftv_seek_bar{width:100%;height:5px;border-radius:3px;background:rgba(255,255,255,.3);overflow:hidden;}' +
+      '#__ftv_seek_fill{height:100%;width:0%;background:#FFB000;}';
+    (document.head || document.documentElement).appendChild(style);
+
+    seekOverlayEl = document.createElement('div');
+    seekOverlayEl.id = '__ftv_seek';
+    seekOverlayTimeEl = document.createElement('div');
+    seekOverlayTimeEl.id = '__ftv_seek_time';
+    var bar = document.createElement('div');
+    bar.id = '__ftv_seek_bar';
+    seekOverlayFillEl = document.createElement('div');
+    seekOverlayFillEl.id = '__ftv_seek_fill';
+    bar.appendChild(seekOverlayFillEl);
+    seekOverlayEl.appendChild(seekOverlayTimeEl);
+    seekOverlayEl.appendChild(bar);
+    (document.body || document.documentElement).appendChild(seekOverlayEl);
+  }
+
+  function renderSeekOverlay(){
+    ensureSeekOverlay();
+    var info = currentPlaybackInfo();
+    seekOverlayTimeEl.textContent = fmtSeekTime(info.time) + ' / ' + fmtSeekTime(info.duration);
+    seekOverlayFillEl.style.width = (info.duration ? (info.time / info.duration * 100) : 0) + '%';
+  }
+
+  function showSeekOverlay(){
+    renderSeekOverlay();
+    seekOverlayEl.classList.add('__ftv_show');
+    seekOverlayVisible = true;
+    if (seekOverlayHideTimer) clearTimeout(seekOverlayHideTimer);
+    seekOverlayHideTimer = setTimeout(function(){
+      seekOverlayEl.classList.remove('__ftv_show');
+      seekOverlayVisible = false;
+    }, 2000);
+  }
+
   // MainActivity's play/pause/seek key handlers go through these instead of
   // manipulating a <video> element directly, so the same physical buttons
   // work whether the page has a same-origin video or (as turned out to be
@@ -726,9 +829,12 @@ private const val DPAD_JS = """
   window.__ftvTogglePlay = function(){
     if (trackedVideo && document.contains(trackedVideo)) {
       if (trackedVideo.paused) { trackedVideo.play(); } else { trackedVideo.pause(); }
+      showSeekOverlay();
       return;
     }
     sendPlayerCommand(playerState.playing ? 'pause' : 'play');
+    playerState.playing = !playerState.playing; // optimistic; corrected by the real play/pause event if wrong
+    showSeekOverlay();
   };
 
   // Unconditional pause (unlike __ftvTogglePlay) for BACK's "make sure
@@ -737,11 +843,13 @@ private const val DPAD_JS = """
   window.__ftvPause = function(){
     if (trackedVideo && document.contains(trackedVideo)) { trackedVideo.pause(); }
     sendPlayerCommand('pause');
+    playerState.playing = false;
   };
 
   window.__ftvSeek = function(deltaSeconds){
     if (trackedVideo && document.contains(trackedVideo)) {
       trackedVideo.currentTime = Math.max(0, trackedVideo.currentTime + deltaSeconds);
+      showSeekOverlay();
       return;
     }
     // No getCurrentTime round trip: timeupdate keeps playerState.time fresh
@@ -751,6 +859,7 @@ private const val DPAD_JS = """
     if (playerState.duration) { next = Math.min(next, playerState.duration); }
     playerState.time = next;
     sendPlayerCommand('setCurrentTime', next);
+    showSeekOverlay();
   };
 
   // True on any dedicated watch page (never the homepage -- see the

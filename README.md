@@ -32,9 +32,14 @@ how to sideload the APK on a Fire TV device.
 - **Clutter removed.** Chat panels, nav bars, audio players and purchase
   prompts are hidden.
 
-Navigating with the remote (MDE TV shown, same on Fishtank TV):
+Navigating with the remote:
 
-<img src="assets/screenshots/nav-demo.gif" alt="Navigating MDE TV with the D-pad" width="600">
+<table>
+<tr>
+<td><img src="assets/screenshots/nav-demo-fishtank.gif" alt="Navigating Fishtank TV's Episodes page with the D-pad" width="480"></td>
+<td><img src="assets/screenshots/nav-demo.gif" alt="Navigating MDE TV's homepage with the D-pad" width="480"></td>
+</tr>
+</table>
 
 ### What they don't do
 

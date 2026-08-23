@@ -69,9 +69,6 @@ class MainActivity : Activity() {
 
         private const val PREFS_NAME = "fishtank_tv_prefs"
         private const val PREF_ZOOM = "zoom_pct"
-        private const val ZOOM_MIN = 60
-        private const val ZOOM_MAX = 200
-        private const val ZOOM_STEP = 10
         private const val ZOOM_DEFAULT = 100
         private const val PREF_BLOCK_IMAGES = "block_images"
     }
@@ -343,30 +340,20 @@ class MainActivity : Activity() {
     private fun zoomJs(pct: Int): String =
         "document.documentElement.style.zoom = '$pct%';"
 
-    private fun applyZoom(delta: Int) {
-        zoomPct = (zoomPct + delta).coerceIn(ZOOM_MIN, ZOOM_MAX)
-        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .edit()
-            .putInt(PREF_ZOOM, zoomPct)
-            .apply()
-        js(zoomJs(zoomPct))
-    }
-
     /**
-     * The Firestick remote's dedicated fast-forward/rewind buttons double
-     * duty: seek the active video when one's playing, zoom the page
-     * otherwise. __ftvVideoActive() is the async-safe way to ask -- there's
-     * no synchronous JS bridge, so this reads its answer back through
-     * evaluateJavascript's callback instead of guessing on the Kotlin side.
+     * Direct, dumb mapping from the remote's fast-forward/rewind buttons to
+     * the page's first <video> -- no "find the active/largest video across
+     * the whole page" scan, no overlay, no acceleration. That detection
+     * layer ran on every press and was the suspected cause of the homepage
+     * thumbnail-preview slowdown and player sluggishness; a single
+     * querySelector is cheap enough to not be a concern.
      */
-    private fun seekOrZoom(sign: Int) {
-        webView.evaluateJavascript("window.__ftvVideoActive ? window.__ftvVideoActive() : false") { result ->
-            if (result == "true") {
-                js("window.__ftvSeek && window.__ftvSeek('${if (sign > 0) "right" else "left"}')")
-            } else {
-                applyZoom(sign * ZOOM_STEP)
-            }
-        }
+    private fun seekVideo(deltaSeconds: Int) {
+        js(
+            "(function(){var v=document.querySelector('video');if(!v)return;" +
+                "v.disablePictureInPicture=true;" +
+                "v.currentTime=Math.max(0,v.currentTime+($deltaSeconds));})();"
+        )
     }
 
     private fun toggleBlockImages() {
@@ -435,12 +422,12 @@ class MainActivity : Activity() {
 
             KeyEvent.KEYCODE_MEDIA_PLAY,
             KeyEvent.KEYCODE_MEDIA_PAUSE,
-            KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> { js("window.__ftvTogglePlay && window.__ftvTogglePlay()"); return true }
+            KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> { js(TOGGLE_PLAY_JS); return true }
 
             KeyEvent.KEYCODE_MENU -> { js("window.__ftvReset && window.__ftvReset()"); return true }
 
-            KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> { seekOrZoom(1); return true }
-            KeyEvent.KEYCODE_MEDIA_REWIND -> { seekOrZoom(-1); return true }
+            KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> { seekVideo(10); return true }
+            KeyEvent.KEYCODE_MEDIA_REWIND -> { seekVideo(-10); return true }
 
             KeyEvent.KEYCODE_MEDIA_NEXT -> { toggleBlockImages(); return true }
 
@@ -480,6 +467,15 @@ class MainActivity : Activity() {
         super.onDestroy()
     }
 }
+
+private const val TOGGLE_PLAY_JS = """
+(function(){
+  var v = document.querySelector('video');
+  if (!v) return;
+  v.disablePictureInPicture = true;
+  if (v.paused) { v.play(); } else { v.pause(); }
+})();
+"""
 
 /**
  * Injected on every page load. Gives the site a synthetic focus cursor driven
@@ -706,120 +702,12 @@ private const val DPAD_JS = """
     }
   }
 
-  // ---- Video remote control -------------------------------------------
-  // Bypasses the site's own player chrome entirely: the D-pad drives
-  // play/pause and seeking directly against the <video> element. All of
-  // this is transform/opacity only (the overlay) plus plain property
-  // writes (currentTime/paused), so none of it touches layout.
-
-  function activeVideo(){
-    var vids = document.querySelectorAll('video');
-    var best = null, bestArea = 0;
-    for (var i = 0; i < vids.length; i++) {
-      var v = vids[i];
-      // Suppress the browser's own picture-in-picture (both the explicit
-      // button and its auto-PiP-on-navigate-away heuristic) -- this is a TV
-      // app with nowhere for a floating mini-player to go.
-      if (!v.disablePictureInPicture) { v.disablePictureInPicture = true; }
-      var r = v.getBoundingClientRect();
-      if (r.width < 8 || r.height < 8) continue;
-      var area = r.width * r.height;
-      if (area > bestArea) { bestArea = area; best = v; }
-    }
-    return best;
-  }
-
-  function videoIsFullscreenOrPlaying(v){
-    if (!v) return false;
-    if (!v.paused) return true;
-    var fs = document.fullscreenElement || document.webkitFullscreenElement;
-    return !!(fs && (fs === v || fs.contains(v)));
-  }
-
-  window.__ftvVideoActive = function(){
-    return videoIsFullscreenOrPlaying(activeVideo());
-  };
-
-  var overlay = null, overlayFill = null, overlayTime = null, overlayHideTimer = null;
-  function ensureOverlay(){
-    if (overlay) return;
-    var ov = document.createElement('style');
-    ov.textContent =
-      '#__ftv_vov{position:fixed;left:50%;bottom:12%;transform:translate(-50%,0);' +
-        'min-width:280px;padding:14px 22px;border-radius:10px;background:rgba(0,0,0,.72);' +
-        'z-index:2147483647;opacity:0;transition:opacity 150ms ease-out;pointer-events:none;}' +
-      '#__ftv_vov.__ftv_show{opacity:1;}' +
-      '#__ftv_vov_time{color:#fff;font:600 20px/1.2 sans-serif;text-align:center;margin-bottom:8px;' +
-        'text-shadow:0 1px 3px rgba(0,0,0,.8);}' +
-      '#__ftv_vov_bar{width:100%;height:6px;border-radius:3px;background:rgba(255,255,255,.3);overflow:hidden;}' +
-      '#__ftv_vov_fill{height:100%;width:0%;background:#FFB000;}';
-    (document.head || document.documentElement).appendChild(ov);
-
-    overlay = document.createElement('div');
-    overlay.id = '__ftv_vov';
-    overlayTime = document.createElement('div');
-    overlayTime.id = '__ftv_vov_time';
-    var bar = document.createElement('div');
-    bar.id = '__ftv_vov_bar';
-    overlayFill = document.createElement('div');
-    overlayFill.id = '__ftv_vov_fill';
-    bar.appendChild(overlayFill);
-    overlay.appendChild(overlayTime);
-    overlay.appendChild(bar);
-    (document.body || document.documentElement).appendChild(overlay);
-  }
-
-  function fmtTime(t){
-    if (!isFinite(t) || t < 0) t = 0;
-    var m = Math.floor(t / 60), s = Math.floor(t % 60);
-    return m + ':' + (s < 10 ? '0' : '') + s;
-  }
-
-  function showOverlay(v){
-    ensureOverlay();
-    overlayTime.textContent = fmtTime(v.currentTime) + ' / ' + fmtTime(v.duration);
-    overlayFill.style.width = (v.duration ? (v.currentTime / v.duration * 100) : 0) + '%';
-    overlay.classList.add('__ftv_show');
-    if (overlayHideTimer) clearTimeout(overlayHideTimer);
-    overlayHideTimer = setTimeout(function(){ overlay.classList.remove('__ftv_show'); }, 2000);
-  }
-
-  window.__ftvTogglePlay = function(){
-    var v = activeVideo();
-    if (!v) return;
-    if (v.paused) { v.play(); } else { v.pause(); }
-    showOverlay(v);
-  };
-
-  // Held-key seeking ramps 10s -> 30s as repeats keep landing inside a
-  // 600ms window of each other, and resets once they stop.
-  var seekAmount = 10;
-  var lastSeekAt = 0;
-  window.__ftvSeek = function(dir){
-    var v = activeVideo();
-    if (!v) return;
-    var now = Date.now();
-    seekAmount = (now - lastSeekAt < 600) ? Math.min(30, seekAmount + 10) : 10;
-    lastSeekAt = now;
-    var delta = dir === 'right' ? seekAmount : -seekAmount;
-    var max = isFinite(v.duration) ? v.duration : Infinity;
-    v.currentTime = Math.max(0, Math.min(max, v.currentTime + delta));
-    showOverlay(v);
-  };
-
   // Fire TV remotes auto-repeat while a direction is held, firing one JS
   // eval per repeat. Collapse a whole run of those into a single navigate
   // call per animation frame instead of one full candidate search each.
   var pendingDir = null;
   var rafScheduled = false;
   window.__ftvNavigate = function(dir){
-    // Left/right seek the active video instead of moving the cursor, but
-    // only while it's actually playing -- paused or absent, arrows behave
-    // as normal D-pad navigation.
-    if (dir === 'left' || dir === 'right') {
-      var v = activeVideo();
-      if (v && !v.paused) { window.__ftvSeek(dir); return; }
-    }
     pendingDir = dir;
     if (rafScheduled) return;
     rafScheduled = true;
@@ -832,7 +720,6 @@ private const val DPAD_JS = """
   };
 
   window.__ftvActivate = function(){
-    if (window.__ftvVideoActive()) { window.__ftvTogglePlay(); return; }
     if (!cur) { window.__ftvReset(); return; }
     var tag = cur.tagName.toLowerCase();
     if (tag === 'input' || tag === 'textarea') {

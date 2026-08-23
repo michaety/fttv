@@ -15,6 +15,22 @@ android {
         versionName "1.0"
     }
 
+    flavorDimensions = ["site"]
+    productFlavors {
+        fishtank {
+            dimension "site"
+            applicationId "com.fishtank.tv"
+            resValue "string", "app_name", "Fishtank TV"
+            resValue "string", "home_url", "https://www.fishtank.live"
+        }
+        mde {
+            dimension "site"
+            applicationId "com.mde.tv"
+            resValue "string", "app_name", "MDE TV"
+            resValue "string", "home_url", "https://mde.tv"
+        }
+    }
+
     buildTypes {
         release {
             minifyEnabled false

@@ -11,16 +11,45 @@ import android.view.View
 import android.view.WindowManager
 import android.webkit.CookieManager
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import org.json.JSONObject
 
+/**
+ * Substrings matched (case-insensitively) against every outgoing request
+ * URL; a hit short-circuits the request with an empty response instead of
+ * hitting the network. Edit this list, not the intercept logic in
+ * MainActivity — and never add anything that could match a video
+ * stream/manifest/segment URL or an auth/session endpoint.
+ */
+private val BLOCKED_URL_SUBSTRINGS = listOf(
+    // analytics / telemetry
+    "google-analytics.com",
+    "googletagmanager.com",
+    "doubleclick.net",
+    "connect.facebook.net",
+    "facebook.net",
+    "sentry.io",
+    "segment.io",
+    "segment.com",
+    "amplitude.com",
+    "mixpanel.com",
+    "hotjar.com",
+    "fullstory.com",
+    // ads
+    "googlesyndication.com",
+    "adservice.google.com",
+    "adnxs.com",
+    // site-specific: decorative chat emoji pack, not needed on a TV shell
+    "cdn.fishtank.live/emojis",
+)
+
 class MainActivity : Activity() {
 
     companion object {
-        const val EXTRA_URL = "url"
-
         /**
          * Desktop Chrome UA. The site serves the phone layout to a mobile UA,
          * which is the wrong shape for a 10-foot screen and gives fewer
@@ -36,21 +65,59 @@ class MainActivity : Activity() {
         private const val ZOOM_MAX = 200
         private const val ZOOM_STEP = 10
         private const val ZOOM_DEFAULT = 100
+        private const val PREF_BLOCK_IMAGES = "block_images"
     }
 
     private lateinit var webView: WebView
     private lateinit var homeUrl: String
     private var zoomPct: Int = ZOOM_DEFAULT
+    private var blockImages: Boolean = false
 
     /**
      * Per-site selectors to hide before DPAD_JS builds its focus list, so
      * hidden elements never become focusable in the first place.
+     *
+     * Selectors are matched against Tailwind/CSS-module utility classes
+     * rather than IDs because neither site exposes stable hooks for these
+     * elements; re-check against the live site if a future redesign stops
+     * matching. Anything that re-renders often (chat) is removed from the
+     * DOM in siteCleanupJs() instead of just hidden here.
      */
     private fun siteCss(url: String?): String {
         if (url == null) return ""
         return when {
-            url.contains("fishtank.live") -> ""
-            url.contains("mde.tv") -> ""
+            url.contains("fishtank.live") -> """
+                /* "Get Fishbucks" purchase CTA (top-right) */
+                div.fixed.top-0.right-0 { display: none !important; }
+                /* season-pass upsell toast */
+                div.fixed.z-50.left-4.right-4 { display: none !important; }
+            """.trimIndent()
+            url.contains("mde.tv") -> """
+                /* bottom nav bar (Videos/Audio/Screeds/Chat/Producer/Shop) */
+                div[class*="mobileNavigation"] { display: none !important; }
+                /* docked audio player */
+                div[class*="left-bar-module"][class*="__music"] { display: none !important; }
+            """.trimIndent()
+            else -> ""
+        }
+    }
+
+    /**
+     * Defines window.__ftvSiteCleanup, which physically removes rendering
+     * hotspots (rather than display:none) so the SPA stops re-rendering
+     * into them. Idempotent — safe to call repeatedly. DPAD_JS re-invokes it
+     * on every debounced MutationObserver tick, since the SPA may re-mount
+     * the node on route/tab changes.
+     */
+    private fun siteCleanupJs(url: String?): String {
+        if (url == null) return ""
+        return when {
+            url.contains("fishtank.live") -> """
+                window.__ftvSiteCleanup = function(){
+                  var panel = document.querySelector('div.fixed.bottom-0.right-0.z-2');
+                  if (panel) panel.remove();
+                };
+            """.trimIndent()
             else -> ""
         }
     }
@@ -59,10 +126,11 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        homeUrl = intent.getStringExtra(EXTRA_URL) ?: LauncherActivity.FISHTANK_URL
+        homeUrl = getString(R.string.home_url)
 
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         zoomPct = prefs.getInt(PREF_ZOOM, ZOOM_DEFAULT)
+        blockImages = prefs.getBoolean(PREF_BLOCK_IMAGES, false)
 
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
@@ -82,6 +150,7 @@ class MainActivity : Activity() {
             useWideViewPort = false
             userAgentString = DESKTOP_UA
             cacheMode = WebSettings.LOAD_DEFAULT
+            blockNetworkImage = blockImages
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                 mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
             }
@@ -101,8 +170,24 @@ class MainActivity : Activity() {
                         "(document.head||document.documentElement).appendChild(s);})();"
                     view?.evaluateJavascript(js, null)
                 }
+                val cleanup = siteCleanupJs(url)
+                if (cleanup.isNotEmpty()) {
+                    view?.evaluateJavascript(cleanup, null)
+                    view?.evaluateJavascript("window.__ftvSiteCleanup && window.__ftvSiteCleanup();", null)
+                }
                 view?.evaluateJavascript(DPAD_JS, null)
                 view?.evaluateJavascript(zoomJs(zoomPct), null)
+            }
+
+            override fun shouldInterceptRequest(
+                view: WebView?,
+                request: WebResourceRequest?
+            ): WebResourceResponse? {
+                val url = request?.url?.toString()
+                if (url != null && BLOCKED_URL_SUBSTRINGS.any { url.contains(it, ignoreCase = true) }) {
+                    return WebResourceResponse("text/plain", "utf-8", null)
+                }
+                return super.shouldInterceptRequest(view, request)
             }
         }
 
@@ -121,6 +206,15 @@ class MainActivity : Activity() {
             .putInt(PREF_ZOOM, zoomPct)
             .apply()
         js(zoomJs(zoomPct))
+    }
+
+    private fun toggleBlockImages() {
+        blockImages = !blockImages
+        webView.settings.blockNetworkImage = blockImages
+        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(PREF_BLOCK_IMAGES, blockImages)
+            .apply()
     }
 
     private fun hideSystemUi() {
@@ -154,11 +248,12 @@ class MainActivity : Activity() {
             KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> { applyZoom(ZOOM_STEP); return true }
             KeyEvent.KEYCODE_MEDIA_REWIND -> { applyZoom(-ZOOM_STEP); return true }
 
+            KeyEvent.KEYCODE_MEDIA_NEXT -> { toggleBlockImages(); return true }
+
             KeyEvent.KEYCODE_BACK -> {
                 if (webView.canGoBack()) {
                     webView.goBack()
                 } else {
-                    // Drop back to the site picker rather than killing the app.
                     finish()
                 }
                 return true
@@ -214,7 +309,10 @@ private const val DPAD_JS = """
   (document.head || document.documentElement).appendChild(style);
 
   var cur = null;
+  var cache = null;
+  var dirty = true;
 
+  // Single-element check used only for validating `cur` (not a hot loop).
   function visible(el){
     var r = el.getBoundingClientRect();
     if (r.width < 8 || r.height < 8) return false;
@@ -227,12 +325,59 @@ private const val DPAD_JS = """
     return true;
   }
 
-  function items(){
+  // Rebuilds the candidate list. Rects are read in one batch pass up front
+  // (interleaving getBoundingClientRect with getComputedStyle forces a
+  // layout per element) and off-screen elements are dropped by geometry
+  // alone before any survivor pays for a getComputedStyle call.
+  function computeItems(){
     var all = document.querySelectorAll(SEL);
+    var n = all.length;
+    var rects = new Array(n);
+    for (var i = 0; i < n; i++) { rects[i] = all[i].getBoundingClientRect(); }
+
+    var onscreen = [];
+    for (var i = 0; i < n; i++) {
+      var r = rects[i];
+      if (r.width < 8 || r.height < 8) continue;
+      if (r.bottom < 0 || r.top > window.innerHeight) continue;
+      if (r.right < 0 || r.left > window.innerWidth) continue;
+      onscreen.push(all[i]);
+    }
+
     var out = [];
-    for (var i = 0; i < all.length; i++) { if (visible(all[i])) out.push(all[i]); }
+    for (var i = 0; i < onscreen.length; i++) {
+      var el = onscreen[i];
+      var s = window.getComputedStyle(el);
+      if (s.visibility === 'hidden' || s.display === 'none') continue;
+      if (parseFloat(s.opacity) < 0.1) continue;
+      if (el.disabled) continue;
+      out.push(el);
+    }
     return out;
   }
+
+  function items(){
+    if (dirty || !cache) { cache = computeItems(); dirty = false; }
+    return cache;
+  }
+
+  // DOM mutations (SPA route/content swaps) and scrolling both change which
+  // elements are on-screen, so both invalidate the cache. Debounced so a
+  // burst of changes -- or a site cleanup hook re-running below -- triggers
+  // one rebuild instead of one per mutation record.
+  var invalidateTimer = null;
+  function scheduleInvalidate(){
+    if (invalidateTimer) return;
+    invalidateTimer = setTimeout(function(){
+      invalidateTimer = null;
+      dirty = true;
+      if (window.__ftvSiteCleanup) {
+        try { window.__ftvSiteCleanup(); } catch (e) {}
+      }
+    }, 250);
+  }
+  new MutationObserver(scheduleInvalidate).observe(document.body, { childList: true, subtree: true });
+  window.addEventListener('scroll', scheduleInvalidate, { passive: true });
 
   function centre(el){
     var r = el.getBoundingClientRect();
@@ -258,7 +403,7 @@ private const val DPAD_JS = """
     if (list.length) { mark(list[0]); }
   };
 
-  window.__ftvNavigate = function(dir){
+  function doNavigate(dir){
     var list = items();
     if (!list.length) return;
 
@@ -294,6 +439,23 @@ private const val DPAD_JS = """
       if (dir === 'down') window.scrollBy(0, Math.round(window.innerHeight * 0.6));
       if (dir === 'up')   window.scrollBy(0, -Math.round(window.innerHeight * 0.6));
     }
+  }
+
+  // Fire TV remotes auto-repeat while a direction is held, firing one JS
+  // eval per repeat. Collapse a whole run of those into a single navigate
+  // call per animation frame instead of one full candidate search each.
+  var pendingDir = null;
+  var rafScheduled = false;
+  window.__ftvNavigate = function(dir){
+    pendingDir = dir;
+    if (rafScheduled) return;
+    rafScheduled = true;
+    requestAnimationFrame(function(){
+      rafScheduled = false;
+      var d = pendingDir;
+      pendingDir = null;
+      if (d) doNavigate(d);
+    });
   };
 
   window.__ftvActivate = function(){
@@ -309,12 +471,6 @@ private const val DPAD_JS = """
     }
     cur.click();
   };
-
-  // Single-page apps swap the DOM without a page load, so re-acquire focus
-  // if the current target disappears.
-  setInterval(function(){
-    if (cur && (!document.contains(cur) || !visible(cur))) { window.__ftvReset(); }
-  }, 1500);
 
   setTimeout(function(){ if (!cur) { window.__ftvReset(); } }, 1200);
 })();

@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Fishtank TV</string>
+    <!-- app_name and home_url are supplied per product flavor in app/build.gradle -->
+
 </resources>

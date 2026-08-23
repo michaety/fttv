@@ -308,6 +308,23 @@ class MainActivity : Activity() {
         js(zoomJs(zoomPct))
     }
 
+    /**
+     * The Firestick remote's dedicated fast-forward/rewind buttons double
+     * duty: seek the active video when one's playing, zoom the page
+     * otherwise. __ftvVideoActive() is the async-safe way to ask -- there's
+     * no synchronous JS bridge, so this reads its answer back through
+     * evaluateJavascript's callback instead of guessing on the Kotlin side.
+     */
+    private fun seekOrZoom(sign: Int) {
+        webView.evaluateJavascript("window.__ftvVideoActive ? window.__ftvVideoActive() : false") { result ->
+            if (result == "true") {
+                js("window.__ftvSeek && window.__ftvSeek('${if (sign > 0) "right" else "left"}')")
+            } else {
+                applyZoom(sign * ZOOM_STEP)
+            }
+        }
+    }
+
     private fun toggleBlockImages() {
         blockImages = !blockImages
         webView.settings.blockNetworkImage = blockImages
@@ -345,8 +362,8 @@ class MainActivity : Activity() {
 
             KeyEvent.KEYCODE_MENU -> { js("window.__ftvReset && window.__ftvReset()"); return true }
 
-            KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> { applyZoom(ZOOM_STEP); return true }
-            KeyEvent.KEYCODE_MEDIA_REWIND -> { applyZoom(-ZOOM_STEP); return true }
+            KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> { seekOrZoom(1); return true }
+            KeyEvent.KEYCODE_MEDIA_REWIND -> { seekOrZoom(-1); return true }
 
             KeyEvent.KEYCODE_MEDIA_NEXT -> { toggleBlockImages(); return true }
 

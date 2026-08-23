@@ -579,43 +579,38 @@ private const val DPAD_JS = """
 
   // Track the actively-playing video via event delegation -- cheap, since it
   // only fires on a real play/pause transition rather than scanning the
-  // page. While one is playing, D-pad navigation/activation and the focus
-  // ring are fully suppressed below: arrows were navigating the underlying
-  // page (scrolling comments over the video), and center was clicking
-  // whatever the cursor happened to be resting on, including the header
-  // logo, navigating away entirely. The physical play/pause/seek buttons
-  // (handled natively in MainActivity, not through here) are the only
-  // control surface while actually watching.
+  // page. This is ONLY used to target play/pause/seek key presses at the
+  // right <video> (window.__ftvVideo() below); it does NOT gate D-pad
+  // navigation. An earlier version suppressed all navigation/focus while
+  // any large-enough video was playing, meant to stop D-pad presses from
+  // interfering with a fullscreen player -- but some pages (mde's homepage
+  // "Spotlight" hero banner) autoplay a video large enough to pass that
+  // same size check while just browsing, which permanently froze
+  // navigation on those pages. Removed rather than chasing a size/fullscreen
+  // heuristic that can't reliably tell "the dedicated player" apart from
+  // "a large autoplaying homepage banner".
   var trackedVideo = null;
   document.addEventListener('play', function(e){
     var v = e.target;
     if (!v || v.tagName !== 'VIDEO') return;
     v.disablePictureInPicture = true;
     var r = v.getBoundingClientRect();
-    // Only a real, mostly-viewport-filling player counts as "the" video --
-    // a homepage grid thumbnail hover-preview (commonly 150-300px) must
-    // never satisfy this, or an autoplaying one gets tracked as playing and
-    // silently disables D-pad navigation site-wide.
+    // Only a real, mostly-viewport-filling video is worth tracking as "the"
+    // video for play/pause/seek purposes -- a homepage grid thumbnail
+    // hover-preview (commonly 150-300px) is a mouse-era autoplay pattern
+    // that means nothing on a D-pad interface, and each one spins up its
+    // own hardware video decoder. On this device (~1.7GB RAM, ~36MB free
+    // under normal load) enough of those playing concurrently was enough
+    // for Android's low-memory-killer to kill the *shared*
+    // com.amazon.webview.chromium process outright, taking the whole app
+    // down with it -- confirmed via logcat. Stop it outright rather than
+    // merely ignoring it.
     if (r.width < window.innerWidth * 0.5 || r.height < window.innerHeight * 0.3) {
-      // Hover-preview autoplay is a mouse-era pattern that means nothing on
-      // a D-pad interface, and each one spins up its own hardware video
-      // decoder -- confirmed via logcat as the actual cause of "remote
-      // stops working after a few presses": this device has ~1.7GB RAM and
-      // ~36MB free under normal load, and enough of these playing at once
-      // was enough for Android's low-memory-killer to kill the *shared*
-      // com.amazon.webview.chromium process outright, taking the whole app
-      // down with it (visible as a sudden jump to the Fire TV home
-      // launcher). Stop it outright rather than merely ignoring it.
       try { v.pause(); } catch (err) {}
       return;
     }
     trackedVideo = v;
   }, true);
-
-  function playingVideo(){
-    if (trackedVideo && document.contains(trackedVideo) && !trackedVideo.paused) return trackedVideo;
-    return null;
-  }
 
   // MainActivity's play/pause/seek key handlers call this (via
   // evaluateJavascript) instead of document.querySelector('video') directly,
@@ -664,7 +659,6 @@ private const val DPAD_JS = """
   }
 
   window.__ftvReset = function(){
-    if (playingVideo()) return;
     if (cur) { cur.classList.remove('__ftv_focus'); }
     cur = null;
     var list = items();
@@ -759,7 +753,6 @@ private const val DPAD_JS = """
   var pendingDir = null;
   var rafScheduled = false;
   window.__ftvNavigate = function(dir){
-    if (playingVideo()) return;
     pendingDir = dir;
     if (rafScheduled) return;
     rafScheduled = true;
@@ -772,7 +765,6 @@ private const val DPAD_JS = """
   };
 
   window.__ftvActivate = function(){
-    if (playingVideo()) return;
     if (!cur) { window.__ftvReset(); return; }
     var tag = cur.tagName.toLowerCase();
     if (tag === 'input' || tag === 'textarea') {
@@ -782,6 +774,6 @@ private const val DPAD_JS = """
     cur.click();
   };
 
-  setTimeout(function(){ if (!cur && !playingVideo()) { window.__ftvReset(); } }, 1200);
+  setTimeout(function(){ if (!cur) { window.__ftvReset(); } }, 1200);
 })();
 """

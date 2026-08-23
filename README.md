@@ -97,9 +97,9 @@ and you're done.
 
 | Button | Does |
 |---|---|
-| **Arrows** |
-| **Select** |
-| **Back** |
+| **Arrows** | Navigation |
+| **Select** | Selects |
+| **Back** | Returns |
 | **Play/Pause** | Play or pause the video |
 | **Fast-forward** | Seek forward 10s |
 | **Rewind** | Seek back 10s |

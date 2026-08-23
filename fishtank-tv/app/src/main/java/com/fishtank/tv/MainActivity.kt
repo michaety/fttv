@@ -654,10 +654,18 @@ private const val DPAD_JS = """
     return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
   }
 
-  function mark(el){
+  // Set when the cursor was placed by the passive auto-focus timer below
+  // rather than a real key press, so the very first press can reveal it
+  // (dim + ring) instead of the screen dimming the instant the page loads,
+  // before the user has touched the remote at all.
+  var silentCur = false;
+
+  function mark(el, silent){
     if (cur) { cur.classList.remove('__ftv_focus', '__ftv_pulse'); }
     cur = el || null;
-    if (!cur) { dim.classList.remove('__ftv_dim_on'); return; }
+    if (!cur) { dim.classList.remove('__ftv_dim_on'); silentCur = false; return; }
+    if (silent) { silentCur = true; return; }
+    silentCur = false;
     cur.classList.add('__ftv_focus');
     dim.classList.add('__ftv_dim_on');
     // Double rAF so the browser paints the pulse class removed before it's
@@ -778,6 +786,7 @@ private const val DPAD_JS = """
   var pendingDir = null;
   var rafScheduled = false;
   window.__ftvNavigate = function(dir){
+    if (silentCur) { mark(cur); return; }        // first press just reveals it
     pendingDir = dir;
     if (rafScheduled) return;
     rafScheduled = true;
@@ -790,6 +799,7 @@ private const val DPAD_JS = """
   };
 
   window.__ftvActivate = function(){
+    if (silentCur) { mark(cur); return; }        // first press just reveals it
     if (!cur) { window.__ftvReset(); return; }
     var tag = cur.tagName.toLowerCase();
     if (tag === 'input' || tag === 'textarea') {
@@ -799,6 +809,13 @@ private const val DPAD_JS = """
     cur.click();
   };
 
-  setTimeout(function(){ if (!cur) { window.__ftvReset(); } }, 1200);
+  // Silent: this establishes a starting point for navigation without
+  // dimming the screen before the user has touched the remote at all --
+  // __ftvNavigate/__ftvActivate reveal it (full visual mark) on first press.
+  setTimeout(function(){
+    if (cur) return;
+    var list = items();
+    if (list.length) { mark(pickDefault(list), true); }
+  }, 1200);
 })();
 """

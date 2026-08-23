@@ -144,6 +144,18 @@ class MainActivity : Activity() {
     }
 
     /**
+     * D-pad cursor accent color (hex, and its "r,g,b" form for rgba()),
+     * sampled from each site's own design tokens rather than picked
+     * arbitrarily: fishtank's --color-primary and mde's --color-green,
+     * read live via getComputedStyle(document.documentElement) against
+     * the real sites.
+     */
+    private fun accentColor(url: String?): Pair<String, String> = when {
+        url != null && url.contains("mde.tv") -> "#25FF06" to "37,255,6"
+        else -> "#DF4E1E" to "223,78,30"
+    }
+
+    /**
      * Defines window.__ftvSiteCleanup, which physically removes rendering
      * hotspots (rather than display:none) so the SPA stops re-rendering
      * into them. Idempotent — safe to call repeatedly. DPAD_JS re-invokes it
@@ -297,7 +309,9 @@ class MainActivity : Activity() {
                     view?.evaluateJavascript(cleanup, null)
                     view?.evaluateJavascript("window.__ftvSiteCleanup && window.__ftvSiteCleanup();", null)
                 }
-                view?.evaluateJavascript(DPAD_JS, null)
+                val (accentHex, accentRgb) = accentColor(url)
+                val dpadJs = DPAD_JS.replace("__FTV_ACCENT_HEX__", accentHex).replace("__FTV_ACCENT_RGB__", accentRgb)
+                view?.evaluateJavascript(dpadJs, null)
             }
 
             override fun shouldInterceptRequest(
@@ -489,16 +503,16 @@ private const val DPAD_JS = """
   var style = document.createElement('style');
   style.textContent =
     '.__ftv_focus{' +
-      'outline:6px solid #FFB000 !important;' +
-      'outline-offset:4px !important;' +
-      'box-shadow:0 0 40px 14px rgba(255,176,0,.9) !important;' +
+      'outline:3px solid __FTV_ACCENT_HEX__ !important;' +
+      'outline-offset:2px !important;' +
+      'box-shadow:0 0 14px 2px rgba(__FTV_ACCENT_RGB__,.5) !important;' +
       'isolation:isolate !important;' +
       'z-index:2147483647 !important;' +
-      'transform:scale(1.08) !important;' +
+      'transform:scale(1.04) !important;' +
       'transition:transform 120ms ease-out !important;' +
       'will-change:transform;' +
     '}' +
-    '@keyframes __ftv_pulse{0%{transform:scale(1.2);}100%{transform:scale(1.08);}}' +
+    '@keyframes __ftv_pulse{0%{transform:scale(1.1);}100%{transform:scale(1.04);}}' +
     '.__ftv_focus.__ftv_pulse{animation:__ftv_pulse 220ms ease-out;}' +
     '#__ftv_dim{' +
       'position:fixed;inset:0;background:rgba(0,0,0,.35);' +
@@ -797,7 +811,7 @@ private const val DPAD_JS = """
       '#__ftv_seek_time{color:#fff;font:600 18px/1.2 sans-serif;text-align:center;margin-bottom:6px;' +
         'text-shadow:0 1px 3px rgba(0,0,0,.8);}' +
       '#__ftv_seek_bar{width:100%;height:5px;border-radius:3px;background:rgba(255,255,255,.3);overflow:hidden;}' +
-      '#__ftv_seek_fill{height:100%;width:0%;background:#FFB000;}';
+      '#__ftv_seek_fill{height:100%;width:0%;background:__FTV_ACCENT_HEX__;}';
     (document.head || document.documentElement).appendChild(style);
 
     seekOverlayEl = document.createElement('div');

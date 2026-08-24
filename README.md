@@ -55,7 +55,10 @@ These are websites in a wrapper, not native TV apps. **Expect some rough edges**
 
 ## Requirements
 
-- A Fire TV Stick or Fire TV device. **This has only been tested on a Fire TV Stick 4K (2nd gen)**. Anything older than this may be unusable.
+- A Fire TV Stick or Fire TV device. **Developed and tested on a Fire TV Stick
+  4K (2nd gen)** — anything older than this may be unusable. It's a standard
+  Android TV app under the hood, so it should work fine on any Android TV
+  device too, just untested there.
 - An account on whichever site you're installing for — these apps don't
   create accounts or bypass anything
 - **A password on that account.** Google sign-in does not work. If your account is Google-only, use "forgot

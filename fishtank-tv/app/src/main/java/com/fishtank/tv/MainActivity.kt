@@ -791,38 +791,34 @@ private const val DPAD_JS = """
   var SEL = 'a[href], button, input:not([type=hidden]), select, textarea, ' +
             '[tabindex]:not([tabindex="-1"]), [role="button"], [role="link"], [onclick]';
 
-  // Focus ring, scale-up and screen dim are transform/opacity/box-shadow
-  // only -- paint/composite work, no layout -- so they stay cheap even
-  // though they're louder than a plain outline.
+  // Focus treatment: the selected item zooms in, and a separate fixed
+  // "lift" element sits exactly over it (at its zoomed size) casting a
+  // soft drop shadow with a faint light edge -- the edge is what makes it
+  // read on mde's near-black page, where a shadow alone vanishes. Being
+  // its own fixed element on top, it can't be covered by the card's image
+  // or clipped by a carousel's overflow, unlike the inset coloured ring
+  // this replaced (a full-bleed card image painted straight over that).
+  // Both are compositor-only: 'scale' (the standalone property, so it
+  // composes with any transform the site already uses) and position/
+  // opacity on one small layer.
+  var ZOOM = 1.1;
   var style = document.createElement('style');
   style.textContent =
-    // Purely inset -- an outward outline/box-shadow/scale looks nicer in
-    // isolation, but the New/Popular rows are horizontally scrolling
-    // containers with overflow:auto sized tight to the card height, so
-    // anything painted (or scaled) past the card's own border box was
-    // getting clipped on whichever edges touched the container's clip
-    // region. An inset ring never paints outside its own element, so it
-    // can't be clipped by any ancestor's overflow, regardless of scroll
-    // position or container sizing.
-    '.__ftv_focus{' +
-      'outline:none !important;' +
-      'box-shadow:inset 0 0 0 3px __FTV_ACCENT_HEX__, inset 0 0 20px 2px rgba(__FTV_ACCENT_RGB__,.45) !important;' +
-      'isolation:isolate !important;' +
-      'z-index:2147483647 !important;' +
-      'transition:box-shadow 120ms ease-out !important;' +
-    '}' +
-    '@keyframes __ftv_pulse{' +
-      '0%{box-shadow:inset 0 0 0 3px __FTV_ACCENT_HEX__, inset 0 0 30px 4px rgba(__FTV_ACCENT_RGB__,.6);}' +
-      '100%{box-shadow:inset 0 0 0 3px __FTV_ACCENT_HEX__, inset 0 0 20px 2px rgba(__FTV_ACCENT_RGB__,.45);}' +
-    '}' +
-    '.__ftv_focus.__ftv_pulse{animation:__ftv_pulse 220ms ease-out;}';
-  // No full-screen dim layer any more: once the first key was pressed it
-  // stayed on permanently, a translucent viewport-sized layer the GPU had
-  // to blend over every frame (including under a playing hero video), and
-  // since the focused card almost never sits in the root stacking context
-  // its z-index couldn't lift it above the dim -- so it just darkened the
-  // whole screen, card included.
+    // The zoom amount and anchor point are set inline per item (see
+    // fitZoom); the class only carries the animation.
+    '.__ftv_focus{outline:none !important;transition:scale 160ms ease-out !important;}' +
+    '#__ftv_veil{position:fixed;left:0;top:0;width:0;height:0;pointer-events:none;' +
+      'z-index:2147483646;border-radius:6px;opacity:0;' +
+      'box-shadow:0 0 0 1px rgba(255,255,255,.55),0 10px 28px 6px rgba(0,0,0,.6);' +
+      'transition:opacity 160ms ease-out,left 160ms ease-out,top 160ms ease-out,' +
+        'width 160ms ease-out,height 160ms ease-out;}' +
+    '#__ftv_veil.__ftv_on{opacity:1;}' +
+    '#__ftv_veil.__ftv_snap{transition:opacity 160ms ease-out;}';
   (document.head || document.documentElement).appendChild(style);
+
+  var veil = document.createElement('div');
+  veil.id = '__ftv_veil';
+  document.body.appendChild(veil);
 
   var cur = null;
   var cache = null;
@@ -943,6 +939,7 @@ private const val DPAD_JS = """
     invalidateTimer = setTimeout(function(){
       invalidateTimer = null;
       dirty = true;
+      if (cur && !document.contains(cur)) hideVeil();
       if (window.__ftvSiteCleanup) {
         try { window.__ftvSiteCleanup(); } catch (e) {}
       }
@@ -1142,6 +1139,19 @@ private const val DPAD_JS = """
       // a higher z-index would paint over the video.
       if (s.zIndex !== 'auto' && s.position !== 'static') pinStyle(a, 'z-index', '2147483647');
     }
+    // A same-origin <video> fed by MSE (mde's player) isn't drawn into the
+    // page at all on Fire TV: the hardware decoder renders it to a separate
+    // video layer *behind* the app window, and the page has to leave a
+    // transparent hole for it. mde's player wrappers and <html> all have
+    // opaque backgrounds, so the video played -- audio, time advancing --
+    // behind a black screen. Clear every background from the video up.
+    if (el.tagName === 'VIDEO') {
+      for (var b = el.parentElement; b; b = b.parentElement) {
+        if (getComputedStyle(b).backgroundColor !== 'rgba(0, 0, 0, 0)' || getComputedStyle(b).backgroundImage !== 'none') {
+          pinStyle(b, 'background', 'transparent');
+        }
+      }
+    }
     fullscreenUndo.push([el, el.style.cssText]);
     el.style.setProperty('position', 'fixed', 'important');
     el.style.setProperty('top', '0', 'important');
@@ -1156,7 +1166,10 @@ private const val DPAD_JS = """
     el.style.setProperty('width', window.innerWidth + 'px', 'important');
     el.style.setProperty('height', window.innerHeight + 'px', 'important');
     el.style.setProperty('z-index', '2147483647', 'important');
-    el.style.setProperty('background', '#000', 'important');
+    // Transparent, not black, for the same video-layer reason as above;
+    // an iframe player (Bunny) is opaque on its own and keeps the black.
+    el.style.setProperty('background', el.tagName === 'VIDEO' ? 'transparent' : '#000', 'important');
+    hideVeil();
   }
 
   var PAUSE_HOME_VIDEOS = __FTV_PAUSE_HOME_VIDEOS__;
@@ -1415,18 +1428,108 @@ private const val DPAD_JS = """
     return tag === 'INPUT' && !/^(button|submit|reset|checkbox|radio|range|color|file|image)$/i.test(el.type);
   }
 
+  // The selected item's zoom: how much (curZoom) and about which point
+  // (curOx/curOy, px within the item). Chosen per item by fitZoom so the
+  // zoomed item stays inside both the screen and every ancestor that
+  // clips its overflow -- zooming from the centre pushed edge cards off
+  // the screen, and cards in tight scrolling rows got their titles cut
+  // off by the row. Where there's no room at all it zooms less (or not
+  // at all; the lift edge still marks it) rather than getting clipped.
+  var curZoom = 1, curOx = 0, curOy = 0;
+  var curRect = null;          // cur's unzoomed rect
+  var curRef = null;           // cur's parent rect when curRect was taken
+  var savedScale = null, savedOrigin = null;
+
+  function fitZoom(el, r){
+    var m = 6;
+    var L = m, T = m, R = window.innerWidth - m, B = window.innerHeight - m;
+    for (var a = el.parentElement; a && a !== document.body && a !== document.documentElement; a = a.parentElement) {
+      var st = getComputedStyle(a);
+      if (st.overflowX === 'visible' && st.overflowY === 'visible') continue;
+      var ar = a.getBoundingClientRect();
+      if (st.overflowX !== 'visible') {
+        L = Math.max(L, ar.left + a.clientLeft);
+        R = Math.min(R, ar.left + a.clientLeft + a.clientWidth);
+      }
+      if (st.overflowY !== 'visible') {
+        T = Math.max(T, ar.top + a.clientTop);
+        B = Math.min(B, ar.top + a.clientTop + a.clientHeight);
+      }
+    }
+    var z = Math.min(ZOOM, (R - L) / r.width, (B - T) / r.height);
+    if (!(z >= 1.02)) z = 1;
+    // Per axis: where the zoomed box would ideally sit (centred), pushed
+    // back inside [lo, hi], expressed as the origin that produces it.
+    function origin(pos, size, lo, hi){
+      if (z === 1) return size / 2;
+      var ns = size * z;
+      var want = Math.max(lo, Math.min(pos - (ns - size) / 2, hi - ns));
+      return Math.max(0, Math.min(size, (pos - want) / (z - 1)));
+    }
+    curZoom = z;
+    curOx = origin(r.left, r.width, L, R);
+    curOy = origin(r.top, r.height, T, B);
+  }
+
+  function zoomOn(el){
+    savedScale = [el.style.getPropertyValue('scale'), el.style.getPropertyPriority('scale')];
+    savedOrigin = [el.style.getPropertyValue('transform-origin'), el.style.getPropertyPriority('transform-origin')];
+    el.classList.add('__ftv_focus');
+    el.style.setProperty('transform-origin', curOx + 'px ' + curOy + 'px', 'important');
+    el.style.setProperty('scale', String(curZoom), 'important');
+  }
+  function zoomOff(el){
+    el.classList.remove('__ftv_focus');
+    if (savedScale) el.style.setProperty('scale', savedScale[0], savedScale[1]);
+    if (savedOrigin) el.style.setProperty('transform-origin', savedOrigin[0], savedOrigin[1]);
+    savedScale = savedOrigin = null;
+  }
+
+  // Moves the lift element onto the selected item at its final zoomed
+  // box -- computed from the unzoomed rect, so it lands where the zoom
+  // animation ends rather than wherever it is mid-transition. 'snap' skips
+  // the slide animation (used while scrolling, where sliding would trail).
+  function placeVeil(snap){
+    if (!cur || silentCur || !document.contains(cur) || playingVideo()) {
+      veil.classList.remove('__ftv_on');
+      return;
+    }
+    var r = curRect || cur.getBoundingClientRect();
+    veil.classList.toggle('__ftv_snap', !!snap);
+    veil.style.left = (r.left + curOx * (1 - curZoom)) + 'px';
+    veil.style.top = (r.top + curOy * (1 - curZoom)) + 'px';
+    veil.style.width = (r.width * curZoom) + 'px';
+    veil.style.height = (r.height * curZoom) + 'px';
+    veil.style.borderRadius = getComputedStyle(cur).borderRadius || '6px';
+    veil.classList.add('__ftv_on');
+  }
+  function hideVeil(){ veil.classList.remove('__ftv_on'); }
+
+  // Scrolling moves the selected item under the fixed lift element, so
+  // follow it -- once per frame, snapped. Tracked via the (unzoomed)
+  // parent's movement, since cur's own rect may be mid-zoom-animation.
+  var veilRaf = false;
+  document.addEventListener('scroll', function(){
+    if (veilRaf || !cur || !curRect || !curRef) return;
+    veilRaf = true;
+    requestAnimationFrame(function(){
+      veilRaf = false;
+      if (!cur || !curRect || !curRef || !cur.parentElement) return;
+      var pr = cur.parentElement.getBoundingClientRect();
+      var dx = pr.left - curRef.left, dy = pr.top - curRef.top;
+      curRect = { left: curRect.left + dx, top: curRect.top + dy, width: curRect.width, height: curRect.height };
+      curRef = { left: pr.left, top: pr.top };
+      placeVeil(true);
+    });
+  }, { passive: true, capture: true });
+
   function mark(el, silent){
-    if (cur) { cur.classList.remove('__ftv_focus', '__ftv_pulse'); }
+    if (cur) { zoomOff(cur); }
     cur = el || null;
-    if (!cur) { silentCur = false; return; }
+    curRect = curRef = null;
+    if (!cur) { silentCur = false; hideVeil(); return; }
     if (silent) { silentCur = true; return; }
     silentCur = false;
-    cur.classList.add('__ftv_focus');
-    // Double rAF so the browser paints the pulse class removed before it's
-    // re-added, restarting the CSS animation without forcing a sync layout.
-    requestAnimationFrame(function(){
-      requestAnimationFrame(function(){ if (cur) cur.classList.add('__ftv_pulse'); });
-    });
     // Never focus a text field just because the cursor passed over it, and
     // let go of one the cursor has left: a focused field connects the
     // system keyboard, which then receives the remote's keys *before* the
@@ -1446,12 +1549,20 @@ private const val DPAD_JS = """
         cur.scrollIntoView({ block: needY ? 'center' : 'nearest', inline: needX ? 'center' : 'nearest', behavior: 'auto' });
       } catch (e) { cur.scrollIntoView(); }
     }
+    // Measure (unzoomed) after any scroll, then zoom and move the lift.
+    curRect = cur.getBoundingClientRect();
+    var pr = cur.parentElement && cur.parentElement.getBoundingClientRect();
+    curRef = pr ? { left: pr.left, top: pr.top } : null;
+    fitZoom(cur, curRect);
+    zoomOn(cur);
+    placeVeil(false);
   }
 
   window.__ftvReset = function(){
     if (playingVideo()) return;
-    if (cur) { cur.classList.remove('__ftv_focus'); }
+    if (cur) { zoomOff(cur); }
     cur = null;
+    hideVeil();
     var list = items();
     if (list.length) { mark(pickDefault(list)); }
   };
@@ -1591,7 +1702,8 @@ private const val DPAD_JS = """
                document.querySelector('a[href="' + location.origin + '"]');
     if (!link) return false;
     undoFullscreen();
-    if (cur) { cur.classList.remove('__ftv_focus', '__ftv_pulse'); cur = null; }
+    if (cur) { zoomOff(cur); cur = null; }
+    hideVeil();
     link.click();
     return true;
   };

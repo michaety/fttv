@@ -35,6 +35,8 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.browser.customtabs.CustomTabsIntent
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
 import org.json.JSONObject
 
 /**
@@ -293,6 +295,13 @@ class MainActivity : Activity() {
      * fallback in case body didn't exist yet at commit time.
      */
     private fun injectPageScripts(view: WebView?, url: String?) {
+        // Fallback for a WebView without document-start scripts: too late
+        // for a player already on the page, but still in time for one that
+        // mounts after a client-side route change, which is the normal path
+        // (homepage -> episode).
+        if (hidesMediaSource(url) && !WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+            view?.evaluateJavascript(NO_MSE_JS, null)
+        }
         val css = siteCss(url)
         if (css.isNotEmpty()) {
             val js = "(function(){if(document.getElementById('__ftv_site_css'))return;" +
@@ -336,6 +345,14 @@ class MainActivity : Activity() {
      * live cams themselves.
      */
     private fun pauseHomeVideos(url: String?): Boolean = url != null && url.contains("mde.tv")
+
+    /**
+     * Whether to hide Media Source Extensions from the page (NO_MSE_JS).
+     * mde only: fishtank's episodes play in Bunny's own iframe, which this
+     * never touches and which renders fine, and its homepage live cams
+     * aren't worth risking on a player change.
+     */
+    private fun hidesMediaSource(url: String?): Boolean = url != null && url.contains("mde.tv")
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -408,6 +425,10 @@ class MainActivity : Activity() {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                 mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
             }
+        }
+
+        if (hidesMediaSource(homeUrl) && WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+            WebViewCompat.addDocumentStartJavaScript(webView, NO_MSE_JS, setOf("https://www.mde.tv", "https://mde.tv"))
         }
 
         // Keep the login across restarts.
@@ -768,6 +789,26 @@ class MainActivity : Activity() {
         super.onDestroy()
     }
 }
+
+/**
+ * Run before any of mde's own scripts (a document-start script). Fire TV's
+ * Amazon WebView currently fails to draw video fed through Media Source
+ * Extensions -- the decoder runs, the clock advances, audio plays, but the
+ * renderer logs "video frame queue is empty" and the picture stays black
+ * (also reported by other WebView apps on Amazon's developer forum since
+ * ~Oct 11 2026). Progressive and native-HLS video render fine. With
+ * MediaSource absent, mde's player falls back to native HLS of the same
+ * stream (as it would on an iPhone), which plays normally. Hidden rather
+ * than deleted, and before the player's code loads, since it keeps its own
+ * reference from first load.
+ */
+private const val NO_MSE_JS = """
+(function(){
+  ['MediaSource','ManagedMediaSource','WebKitMediaSource'].forEach(function(k){
+    try { Object.defineProperty(window, k, { value: undefined, configurable: true, writable: true }); } catch (e) {}
+  });
+})();
+"""
 
 /**
  * Injected on every page load. Gives the site a synthetic focus cursor driven

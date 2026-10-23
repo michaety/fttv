@@ -88,12 +88,21 @@ class MainActivity : Activity() {
         /** Second BACK on the homepage within this window exits the app. */
         private const val EXIT_CONFIRM_MS = 2000L
 
+        /**
+         * 2s of black, 1280x720 @ 1fps H.264 -- see createOverlayHolder. It has
+         * to be a "real" resolution: the WebView only hands its overlay to
+         * videos above some size, and ignored a 128x72 version entirely. Black
+         * frames at 1fps still cost next to nothing to decode.
+         */
+        private const val OVERLAY_HOLDER_MP4 = "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"
+
         /** Gap between releasing Select and opening the keyboard. */
         private const val TAP_DELAY_MS = 250L
     }
 
     private lateinit var root: FrameLayout
     private lateinit var webView: WebView
+    private var overlayHolder: WebView? = null
     private lateinit var progressBar: ProgressBar
     private lateinit var errorView: TextView
     private lateinit var homeUrl: String
@@ -393,6 +402,7 @@ class MainActivity : Activity() {
         }
 
         createWebView()
+        createOverlayHolder()
         root.addView(errorView, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
         root.addView(progressBar, FrameLayout.LayoutParams(MATCH_PARENT, dp(4)).apply { gravity = Gravity.TOP })
 
@@ -544,7 +554,52 @@ class MainActivity : Activity() {
             }
         }
 
-        root.addView(webView, 0, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
+        // Above the overlay holder (index 0) whenever it exists.
+        val index = if (overlayHolder?.parent == root) 1 else 0
+        root.addView(webView, index, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
+    }
+
+    /**
+     * Works around Amazon WebView's broken video overlay on Fire TV.
+     *
+     * The Amazon WebView hands the first large playing video in the app a
+     * hardware overlay layer (a SurfaceView behind the window) -- one per
+     * app ("AWV Unable to create overlay; MAX_OVERLAYS limit hit" for any
+     * other). On current Fire OS that overlay is never actually connected
+     * to the decoder ("SurfaceView has 0x0 dimensions after addView" /
+     * "configureVideo - Not using SurfaceView from MediaCodecBridge"), so
+     * whichever video gets it plays -- audio, clock advancing -- with no
+     * picture: black, or a grey hole once the page is transparent. Every
+     * *other* video falls back to normal compositing and draws fine. mde's
+     * episode player was usually first in line; fishtank's only got lucky.
+     *
+     * So this hidden WebView, stacked under the real one and started before
+     * it loads anything, plays a tiny black clip (720p but 1fps of solid
+     * black -- next to no decode cost) full-screen on a loop, purely to occupy that one
+     * overlay slot for the life of the app. It lives outside the site's DOM
+     * on purpose: an element injected into the page itself gets thrown
+     * away whenever the site's React app re-renders.
+     */
+    private fun createOverlayHolder() {
+        val holder = WebView(this)
+        holder.setBackgroundColor(Color.BLACK)
+        holder.settings.mediaPlaybackRequiresUserGesture = false
+        holder.isFocusable = false
+        holder.webViewClient = object : WebViewClient() {
+            override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
+                root.removeView(holder)
+                holder.destroy()
+                overlayHolder = null
+                createOverlayHolder()
+                return true
+            }
+        }
+        overlayHolder = holder
+        root.addView(holder, 0, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
+        val html = "<!doctype html><body style='margin:0;background:#000'>" +
+            "<video autoplay muted loop playsinline style='width:100vw;height:100vh' " +
+            "src='data:video/mp4;base64,$OVERLAY_HOLDER_MP4'></video></body>"
+        holder.loadDataWithBaseURL(null, html, "text/html", "utf-8", null)
     }
 
     /** A genuine touch at (x, y) in WebView pixels -- see __ftvActivate. */
@@ -785,6 +840,7 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
+        overlayHolder?.destroy()
         webView.destroy()
         super.onDestroy()
     }
@@ -1180,19 +1236,6 @@ private const val DPAD_JS = """
       // a higher z-index would paint over the video.
       if (s.zIndex !== 'auto' && s.position !== 'static') pinStyle(a, 'z-index', '2147483647');
     }
-    // A same-origin <video> fed by MSE (mde's player) isn't drawn into the
-    // page at all on Fire TV: the hardware decoder renders it to a separate
-    // video layer *behind* the app window, and the page has to leave a
-    // transparent hole for it. mde's player wrappers and <html> all have
-    // opaque backgrounds, so the video played -- audio, time advancing --
-    // behind a black screen. Clear every background from the video up.
-    if (el.tagName === 'VIDEO') {
-      for (var b = el.parentElement; b; b = b.parentElement) {
-        if (getComputedStyle(b).backgroundColor !== 'rgba(0, 0, 0, 0)' || getComputedStyle(b).backgroundImage !== 'none') {
-          pinStyle(b, 'background', 'transparent');
-        }
-      }
-    }
     fullscreenUndo.push([el, el.style.cssText]);
     el.style.setProperty('position', 'fixed', 'important');
     el.style.setProperty('top', '0', 'important');
@@ -1207,9 +1250,7 @@ private const val DPAD_JS = """
     el.style.setProperty('width', window.innerWidth + 'px', 'important');
     el.style.setProperty('height', window.innerHeight + 'px', 'important');
     el.style.setProperty('z-index', '2147483647', 'important');
-    // Transparent, not black, for the same video-layer reason as above;
-    // an iframe player (Bunny) is opaque on its own and keeps the black.
-    el.style.setProperty('background', el.tagName === 'VIDEO' ? 'transparent' : '#000', 'important');
+    el.style.setProperty('background', '#000', 'important');
     hideVeil();
   }
 

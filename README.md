@@ -47,7 +47,7 @@ These are websites in a wrapper, not native TV apps. **Expect some rough edges**
 
 - Navigation is approximate. Can be buggy.
 - The Firestick is running a full desktop web app. **It is not fast.**
-- Video player controls are locked to the remote. Play/pause, fast-forward and rewind buttons only. No scrubbing or play/pause with the arrows or select buttons.
+- No on-screen scrubber. Seeking is in steps from the remote (see below).
 - Anything the site changes on their end may break something here.
 - Sign in with Google. See requirements below.
 
@@ -107,10 +107,17 @@ and you're done.
 |---|---|
 | **Arrows** | Navigation |
 | **Select** | Selects |
-| **Back** | Returns |
+| **Back** | Returns to the homepage; press twice on the homepage to exit |
 | **Play/Pause** | Play or pause the video |
-| **Fast-forward** | Seek forward 10s |
-| **Rewind** | Seek back 10s |
+| **Fast-forward** / **Rewind** | Seek 10s; hold to speed up (30s, then 60s steps) |
+
+While a video is playing:
+
+| Button | Does |
+|---|---|
+| **Select** | Play or pause |
+| **Left** / **Right** | Seek back / forward (hold to speed up) |
+| **Up** / **Down** | Show the time bar |
 
 ---
 

@@ -5,22 +5,35 @@ import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
+import android.content.res.ColorStateList
+import android.graphics.Bitmap
 import android.graphics.Color
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import android.util.Log
+import android.view.Gravity
+import android.view.InputDevice
 import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.WindowManager
 import android.webkit.CookieManager
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.FrameLayout
+import android.widget.ProgressBar
+import android.widget.TextView
+import android.widget.Toast
 import androidx.browser.customtabs.CustomTabsIntent
 import org.json.JSONObject
 
@@ -69,11 +82,25 @@ class MainActivity : Activity() {
 
         private const val PREFS_NAME = "fishtank_tv_prefs"
         private const val PREF_BLOCK_IMAGES = "block_images"
+
+        /** Second BACK on the homepage within this window exits the app. */
+        private const val EXIT_CONFIRM_MS = 2000L
+
+        /** Gap between releasing Select and opening the keyboard. */
+        private const val TAP_DELAY_MS = 250L
     }
 
+    private lateinit var root: FrameLayout
     private lateinit var webView: WebView
+    private lateinit var progressBar: ProgressBar
+    private lateinit var errorView: TextView
     private lateinit var homeUrl: String
     private var blockImages: Boolean = false
+    private var lastHomeBackPress = 0L
+
+    /** Set when the main-frame load failed and errorView is showing; Select
+     *  then retries instead of being forwarded to the (error) page. */
+    private var errorShown = false
 
     /** Set once we've handed a URL off to a Custom Tab / external browser, so
      *  onResume knows to reload and pick up a session the OAuth flow left
@@ -109,35 +136,54 @@ class MainActivity : Activity() {
                 /* the 3 circular quick-action buttons docked bottom-right
                    (inventory/anchor/chat) */
                 div[class*="ease-spring"][class*="translate-y-[-2px]"] { display: none !important; }
+                /* bottom-right docked panel (logged-in only). Hidden, not
+                   removed: this used to be node.remove()d, but it belongs
+                   to React, and pulling it out from under React made its
+                   next update throw removeChild/insertBefore "not a child
+                   of this node" -- which crashed the whole site to "This
+                   page couldn't load" right after logging in. */
+                div.fixed.bottom-0.right-0.z-2 { display: none !important; }
+                /* "Log In With Google" and the "Or" divider under it --
+                   Google refuses OAuth inside an embedded WebView, so it
+                   can only fail. Matched by its icon, not its Tailwind
+                   classes, which are generic button styling. */
+                div:has(> button img[src*="/icons/google"]) { display: none !important; }
+                div:has(> button img[src*="/icons/google"]) + div { display: none !important; }
             """.trimIndent()
             url.contains("mde.tv") -> """
+                /* mde's CSS-module class names changed format in a site
+                   rebuild -- from "left-bar-module__music" to hashed
+                   "5R0ZAa_music" -- which silently broke most of these.
+                   Each selector now matches on the "_name" part, which
+                   both formats share, and never on the hash. */
                 /* bottom nav bar (Videos/Audio/Screeds/Chat/Producer/Shop) */
                 div[class*="mobileNavigation"] { display: none !important; }
-                /* docked audio player */
-                div[class*="left-bar-module"][class*="__music"] { display: none !important; }
+                /* docked audio player (has a visualizer that repaints) */
+                div[class*="_musicPanel"], div[class*="_music "], div[class$="_music"] { display: none !important; }
                 /* live chat bar -- a real performance cost, not just clutter:
                    it renders full chat message history (with animated GIF
                    emotes -- confirmed 90 of them on a fresh homepage load,
                    all continuously decoding/repainting) into a 0-size
                    collapsed panel that was never visible in this layout to
                    begin with. display:none stops the browser from animating
-                   images it isn't rendering. */
-                div[class*="chat-bar-module"][class*="__chatBar"] { display: none !important; }
+                   images it isn't rendering. (Not present in the current
+                   build, kept in case it returns.) */
+                div[class*="_chatBar"] { display: none !important; }
                 /* search button */
                 div[class*="mobileSearch"] { display: none !important; }
                 /* "want to be on one of the shows?" call-in promo (logged-in
-                   only, which is why this wasn't found until checked while
-                   actually signed in) */
-                button[class*="__callInWidget"] { display: none !important; }
+                   only). Also a 942px animated GIF that never stops
+                   decoding, so it costs CPU as well as space. */
+                button[class*="_callInWidget"] { display: none !important; }
                 /* notification bell next to the logo */
-                button[class*="notification-center-module"] { display: none !important; }
+                button[class*="notification-center-module"], button[class*="_notificationCenter"] { display: none !important; }
                 /* the account/login control's right-alignment depended on
                    the (now-hidden) search wrapper's margin-left:auto --
                    without that it collapsed to sit right next to the logo */
-                div[class*="top-bar-module"][class*="__user"] { margin-left: auto !important; }
+                div[class*="_topBar"] > div[class*="_user"] { margin-left: auto !important; }
                 /* homepage "Series" grid -- 4 columns instead of 2, so more
                    fits on screen without scrolling as far */
-                div[class*="__seriesGrid"] { grid-template-columns: repeat(4, 1fr) !important; }
+                div[class*="_seriesGrid"] { grid-template-columns: repeat(4, 1fr) !important; }
             """.trimIndent()
             else -> ""
         }
@@ -156,19 +202,21 @@ class MainActivity : Activity() {
     }
 
     /**
-     * Defines window.__ftvSiteCleanup, which physically removes rendering
-     * hotspots (rather than display:none) so the SPA stops re-rendering
-     * into them. Idempotent — safe to call repeatedly. DPAD_JS re-invokes it
+     * Defines window.__ftvSiteCleanup, for clutter CSS can't target (matched
+     * by text). Idempotent — safe to call repeatedly. DPAD_JS re-invokes it
      * on every debounced MutationObserver tick, since the SPA may re-mount
-     * the node on route/tab changes.
+     * the node on route/tab changes. Only ever hide here, never remove():
+     * these nodes belong to React, and removing them crashes the site.
      */
     private fun siteCleanupJs(url: String?): String {
         if (url == null) return ""
         return when {
             url.contains("fishtank.live") -> """
                 window.__ftvSiteCleanup = function(){
-                  var panel = document.querySelector('div.fixed.bottom-0.right-0.z-2');
-                  if (panel) panel.remove();
+                  // Never before the page has finished loading: React is
+                  // still hydrating the server HTML then, and any change to
+                  // it fails hydration (React error #418).
+                  if (document.readyState !== 'complete') return;
                   // The Archives/Episodes/Clips/Merch menu only exists in the
                   // DOM while open, so this can't be a one-time CSS rule --
                   // it relies on siteCleanupJs being re-run on the debounced
@@ -217,6 +265,78 @@ class MainActivity : Activity() {
         return true
     }
 
+    /**
+     * Desktop UA carrying the WebView's *real* Chrome version instead of a
+     * hardcoded one, so feature detection server-side matches what the
+     * engine can actually do. Falls back to DESKTOP_UA if the default UA
+     * doesn't parse.
+     */
+    private fun desktopUserAgent(): String {
+        val version = try {
+            Regex("Chrome/([\\d.]+)").find(WebSettings.getDefaultUserAgent(this))?.groupValues?.get(1)
+        } catch (e: Exception) { null } ?: return DESKTOP_UA
+        return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+            "(KHTML, like Gecko) Chrome/$version Safari/537.36"
+    }
+
+    private fun isHomePath(url: String?): Boolean {
+        val path = try { Uri.parse(url).path } catch (e: Exception) { null }
+        return path.isNullOrEmpty() || path == "/"
+    }
+
+    /**
+     * Injects the site CSS, cleanup hook and DPAD_JS. Idempotent (the style
+     * tag is id-guarded, DPAD_JS guards on window.__ftvReady), so it's run
+     * from onPageCommitVisible -- as soon as the new page first paints, so
+     * the remote works and clutter is hidden without waiting for every
+     * image/iframe/ad to finish -- and again from onPageFinished as a
+     * fallback in case body didn't exist yet at commit time.
+     */
+    private fun injectPageScripts(view: WebView?, url: String?) {
+        val css = siteCss(url)
+        if (css.isNotEmpty()) {
+            val js = "(function(){if(document.getElementById('__ftv_site_css'))return;" +
+                "var s=document.createElement('style');s.id='__ftv_site_css';" +
+                "s.textContent=${JSONObject.quote(css)};" +
+                "(document.head||document.documentElement).appendChild(s);})();"
+            view?.evaluateJavascript(js, null)
+        }
+        val cleanup = siteCleanupJs(url)
+        if (cleanup.isNotEmpty()) {
+            view?.evaluateJavascript(cleanup, null)
+            view?.evaluateJavascript("window.__ftvSiteCleanup && window.__ftvSiteCleanup();", null)
+        }
+        val (accentHex, accentRgb) = accentColor(url)
+        val dpadJs = DPAD_JS
+            .replace("__FTV_ACCENT_HEX__", accentHex)
+            .replace("__FTV_ACCENT_RGB__", accentRgb)
+            .replace("__FTV_IGNORE_MUTATIONS__", JSONObject.quote(ignoredMutationSelector(url)))
+            .replace("__FTV_PAUSE_HOME_VIDEOS__", pauseHomeVideos(url).toString())
+        view?.evaluateJavascript(dpadJs, null)
+    }
+
+    /**
+     * Subtrees whose DOM churn should not invalidate the D-pad candidate
+     * cache: they're hidden by siteCss but the SPA keeps rendering into
+     * them (live chat), which otherwise marks the cache dirty every few
+     * hundred ms and makes every keypress pay for a full rebuild.
+     */
+    private fun ignoredMutationSelector(url: String?): String = when {
+        url != null && url.contains("mde.tv") ->
+            "[class*=\"_chatBar\"], [class*=\"_musicPanel\"]"
+        else -> ""
+    }
+
+    /**
+     * Whether autoplaying videos on the homepage (mde's Spotlight clips and
+     * banner ad) get paused. Measured on a Fire TV Stick 4K: total CPU ~226%
+     * of 400% with the Spotlight clip playing vs ~116% paused -- over a full
+     * core spent decoding a preview nobody pressed play on, on a device
+     * already deep in swap. Not on fishtank, whose homepage is the
+     * live cams themselves.
+     */
+    private fun pauseHomeVideos(url: String?): Boolean = url != null && url.contains("mde.tv")
+
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -228,12 +348,52 @@ class MainActivity : Activity() {
 
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
-        webView = WebView(this)
-        webView.setBackgroundColor(Color.BLACK)
-
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
             WebView.setWebContentsDebuggingEnabled(true)
         }
+
+        root = FrameLayout(this)
+        root.setBackgroundColor(Color.BLACK)
+
+        // Thin load indicator: a full page load on the Firestick takes
+        // seconds, and without this a Select that triggered one looks like it
+        // did nothing.
+        progressBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            max = 100
+            visibility = View.GONE
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                progressTintList = ColorStateList.valueOf(Color.parseColor(accentColor(homeUrl).first))
+            }
+        }
+
+        errorView = TextView(this).apply {
+            setTextColor(Color.WHITE)
+            textSize = 22f
+            gravity = Gravity.CENTER
+            setBackgroundColor(Color.BLACK)
+            text = "Couldn't reach the site.\n\nPress Select to retry."
+            visibility = View.GONE
+        }
+
+        createWebView()
+        root.addView(errorView, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
+        root.addView(progressBar, FrameLayout.LayoutParams(MATCH_PARENT, dp(4)).apply { gravity = Gravity.TOP })
+
+        setContentView(root)
+        hideSystemUi()
+        webView.loadUrl(homeUrl)
+    }
+
+    private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+
+    /**
+     * Builds (or, after a renderer crash, rebuilds) the WebView and inserts
+     * it at the bottom of root, under the progress bar and error view.
+     */
+    @SuppressLint("SetJavaScriptEnabled")
+    private fun createWebView() {
+        webView = WebView(this)
+        webView.setBackgroundColor(Color.BLACK)
 
         with(webView.settings) {
             javaScriptEnabled = true
@@ -242,7 +402,7 @@ class MainActivity : Activity() {
             mediaPlaybackRequiresUserGesture = false
             loadWithOverviewMode = false
             useWideViewPort = false
-            userAgentString = DESKTOP_UA
+            userAgentString = desktopUserAgent()
             cacheMode = WebSettings.LOAD_DEFAULT
             blockNetworkImage = blockImages
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
@@ -276,15 +436,56 @@ class MainActivity : Activity() {
             }
 
             override fun onHideCustomView() {
-                (window.decorView as? ViewGroup)?.removeView(customView)
-                customView = null
-                customViewCallback?.onCustomViewHidden()
-                customViewCallback = null
-                webView.visibility = View.VISIBLE
-                hideSystemUi()
+                exitCustomView()
+            }
+
+            override fun onProgressChanged(view: WebView?, newProgress: Int) {
+                progressBar.progress = newProgress
+                progressBar.visibility = if (newProgress < 100) View.VISIBLE else View.GONE
             }
         }
         webView.webViewClient = object : WebViewClient() {
+            override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                // Lift the watch-page image block *before* the homepage
+                // starts loading, not in onPageFinished: otherwise coming
+                // BACK from a video loaded the whole homepage imageless and
+                // only began fetching every thumbnail after it "finished".
+                if (isHomePath(url)) view?.settings?.blockNetworkImage = blockImages
+                showError(false)
+            }
+
+            override fun onPageCommitVisible(view: WebView?, url: String?) {
+                injectPageScripts(view, url)
+            }
+
+            // Fires for client-side (pushState) navigations too, which never
+            // reach onPageStarted -- both sites are Next.js SPAs.
+            override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
+                if (isHomePath(url)) view?.settings?.blockNetworkImage = blockImages
+            }
+
+            override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
+                if (request?.isForMainFrame == true) showError(true)
+            }
+
+            /**
+             * The renderer is a separate process, and on a ~2GB Firestick the
+             * low-memory killer does take it out under load. Without this
+             * override Android's default is to kill the app process along with
+             * it -- the "app just closed itself" crash. Rebuild the WebView and
+             * reload where we were instead.
+             */
+            override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
+                Log.w(TAG, "Renderer gone (crashed=${detail?.didCrash()}), rebuilding WebView")
+                val lastUrl = webView.url ?: homeUrl
+                if (customView != null) exitCustomView()
+                root.removeView(webView)
+                webView.destroy()
+                createWebView()
+                webView.loadUrl(if (isHomePath(lastUrl)) homeUrl else lastUrl)
+                return true
+            }
+
             override fun onPageFinished(view: WebView?, url: String?) {
                 // A modest, honest mitigation, not a fix for video-decode CPU
                 // itself: dumpsys cpuinfo during playback showed kswapd0 (the
@@ -295,23 +496,9 @@ class MainActivity : Activity() {
                 // reason to keep loading/decoding while a video page is
                 // showing; restore the user's real preference once back on
                 // the homepage.
-                val isWatchPage = url != null && Uri.parse(url).path.let { it != null && it != "/" }
+                val isWatchPage = url != null && !isHomePath(url)
                 view?.settings?.blockNetworkImage = isWatchPage || blockImages
-                val css = siteCss(url)
-                if (css.isNotEmpty()) {
-                    val js = "(function(){var s=document.createElement('style');" +
-                        "s.textContent=${JSONObject.quote(css)};" +
-                        "(document.head||document.documentElement).appendChild(s);})();"
-                    view?.evaluateJavascript(js, null)
-                }
-                val cleanup = siteCleanupJs(url)
-                if (cleanup.isNotEmpty()) {
-                    view?.evaluateJavascript(cleanup, null)
-                    view?.evaluateJavascript("window.__ftvSiteCleanup && window.__ftvSiteCleanup();", null)
-                }
-                val (accentHex, accentRgb) = accentColor(url)
-                val dpadJs = DPAD_JS.replace("__FTV_ACCENT_HEX__", accentHex).replace("__FTV_ACCENT_RGB__", accentRgb)
-                view?.evaluateJavascript(dpadJs, null)
+                injectPageScripts(view, url)
             }
 
             override fun shouldInterceptRequest(
@@ -336,9 +523,47 @@ class MainActivity : Activity() {
             }
         }
 
-        setContentView(webView)
+        root.addView(webView, 0, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
+    }
+
+    /** A genuine touch at (x, y) in WebView pixels -- see __ftvActivate. */
+    private fun tap(x: Float, y: Float) {
+        webView.requestFocus()
+        val t = SystemClock.uptimeMillis()
+        for (action in intArrayOf(MotionEvent.ACTION_DOWN, MotionEvent.ACTION_UP)) {
+            val ev = MotionEvent.obtain(t, t, action, x, y, 0)
+            ev.source = InputDevice.SOURCE_TOUCHSCREEN
+            webView.dispatchTouchEvent(ev)
+            ev.recycle()
+        }
+    }
+
+    private fun showError(show: Boolean) {
+        errorShown = show
+        errorView.visibility = if (show) View.VISIBLE else View.GONE
+    }
+
+    private fun exitCustomView() {
+        (window.decorView as? ViewGroup)?.removeView(customView)
+        customView = null
+        customViewCallback?.onCustomViewHidden()
+        customViewCallback = null
+        webView.visibility = View.VISIBLE
         hideSystemUi()
-        webView.loadUrl(homeUrl)
+    }
+
+    /**
+     * Leaves a watch page for the homepage. Tries the site's own home link
+     * first (window.__ftvGoHome in DPAD_JS) -- both sites are Next.js SPAs,
+     * so that's a client-side route change that reuses the already-booted
+     * app instead of re-downloading and re-parsing the whole bundle the way
+     * loadUrl does, which was the multi-second black-screen on every BACK.
+     * Falls back to a full load if the script isn't there or no link matched.
+     */
+    private fun goHome() {
+        webView.evaluateJavascript("window.__ftvGoHome ? window.__ftvGoHome() : false") { result ->
+            if (result != "true") webView.loadUrl(homeUrl)
+        }
     }
 
     /**
@@ -395,7 +620,20 @@ class MainActivity : Activity() {
         else -> false
     }
 
+    private var selectHeld = false
+    private var pendingTap: Pair<Float, Float>? = null
+
+    private fun isSelectKey(keyCode: Int) = keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
+        keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_BUTTON_A
+
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (isSelectKey(event.keyCode)) {
+            selectHeld = event.action == KeyEvent.ACTION_DOWN
+            if (event.action == KeyEvent.ACTION_UP) {
+                pendingTap?.let { (x, y) -> webView.postDelayed({ tap(x, y) }, TAP_DELAY_MS) }
+                pendingTap = null
+            }
+        }
         if (isHandledKey(event.keyCode)) {
             if (event.action == KeyEvent.ACTION_DOWN) {
                 return onKeyDown(event.keyCode, event)
@@ -405,16 +643,52 @@ class MainActivity : Activity() {
         return super.dispatchKeyEvent(event)
     }
 
+    /** Seek step grows the longer FF/RW (or left/right on a watch page) is
+     *  held, so skipping through an hour-long episode isn't 360 presses. */
+    private fun seekStep(event: KeyEvent?): Int {
+        val repeat = event?.repeatCount ?: 0
+        return when {
+            repeat < 6 -> 10
+            repeat < 20 -> 30
+            else -> 60
+        }
+    }
+
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        if (errorShown) {
+            when (keyCode) {
+                KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_BUTTON_A -> {
+                    showError(false)
+                    webView.reload()
+                    return true
+                }
+                KeyEvent.KEYCODE_BACK -> { finish(); return true }
+            }
+            return true
+        }
+        val step = seekStep(event)
         when (keyCode) {
-            KeyEvent.KEYCODE_DPAD_UP -> { js("window.__ftvNavigate && window.__ftvNavigate('up')"); return true }
-            KeyEvent.KEYCODE_DPAD_DOWN -> { js("window.__ftvNavigate && window.__ftvNavigate('down')"); return true }
-            KeyEvent.KEYCODE_DPAD_LEFT -> { js("window.__ftvNavigate && window.__ftvNavigate('left')"); return true }
-            KeyEvent.KEYCODE_DPAD_RIGHT -> { js("window.__ftvNavigate && window.__ftvNavigate('right')"); return true }
+            KeyEvent.KEYCODE_DPAD_UP -> { js("window.__ftvNavigate && window.__ftvNavigate('up', $step)"); return true }
+            KeyEvent.KEYCODE_DPAD_DOWN -> { js("window.__ftvNavigate && window.__ftvNavigate('down', $step)"); return true }
+            KeyEvent.KEYCODE_DPAD_LEFT -> { js("window.__ftvNavigate && window.__ftvNavigate('left', $step)"); return true }
+            KeyEvent.KEYCODE_DPAD_RIGHT -> { js("window.__ftvNavigate && window.__ftvNavigate('right', $step)"); return true }
 
             KeyEvent.KEYCODE_DPAD_CENTER,
             KeyEvent.KEYCODE_ENTER,
-            KeyEvent.KEYCODE_BUTTON_A -> { js("window.__ftvActivate && window.__ftvActivate()"); return true }
+            KeyEvent.KEYCODE_BUTTON_A -> {
+                webView.evaluateJavascript("window.__ftvActivate && window.__ftvActivate()") { result ->
+                    Regex("""tap:(\d+),(\d+)""").find(result ?: "")?.let {
+                        val x = it.groupValues[1].toFloat()
+                        val y = it.groupValues[2].toFloat()
+                        // Open the keyboard only once Select is released:
+                        // otherwise the key-up lands on the just-opened
+                        // keyboard, which "presses" its highlighted key and
+                        // types a stray "a" into every field.
+                        if (selectHeld) pendingTap = x to y else webView.postDelayed({ tap(x, y) }, TAP_DELAY_MS)
+                    }
+                }
+                return true
+            }
 
             KeyEvent.KEYCODE_MEDIA_PLAY,
             KeyEvent.KEYCODE_MEDIA_PAUSE,
@@ -422,33 +696,47 @@ class MainActivity : Activity() {
 
             KeyEvent.KEYCODE_MENU -> { js("window.__ftvReset && window.__ftvReset()"); return true }
 
-            KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> { seekVideo(10); return true }
-            KeyEvent.KEYCODE_MEDIA_REWIND -> { seekVideo(-10); return true }
+            KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> { seekVideo(step); return true }
+            KeyEvent.KEYCODE_MEDIA_REWIND -> { seekVideo(-step); return true }
 
-            KeyEvent.KEYCODE_MEDIA_NEXT -> { toggleBlockImages(); return true }
+            KeyEvent.KEYCODE_MEDIA_NEXT -> {
+                toggleBlockImages()
+                // It's persisted, so a stray press used to silently leave the
+                // whole app imageless across restarts with no hint why.
+                Toast.makeText(this, if (blockImages) "Images off" else "Images on", Toast.LENGTH_SHORT).show()
+                return true
+            }
 
             KeyEvent.KEYCODE_BACK -> {
+                if ((event?.repeatCount ?: 0) > 0) return true
+                if (customView != null) {
+                    customViewCallback?.onCustomViewHidden()
+                    exitCustomView()
+                    return true
+                }
                 // Belt-and-suspenders alongside disablePictureInPicture in
                 // DPAD_JS: a paused video can't trigger auto-PiP on navigate-away.
                 // Covers both a same-origin <video> and (the common case) a
                 // cross-origin Bunny iframe player, which only responds to
                 // pause via postMessage, not document.querySelectorAll.
                 js("window.__ftvPause && window.__ftvPause()")
-                val currentPath = try { Uri.parse(webView.url).path } catch (e: Exception) { null }
-                val onHomePage = currentPath == null || currentPath == "/"
-                if (!onHomePage) {
+                if (!isHomePath(webView.url)) {
                     // Always go to the actual homepage, never "back" through
-                    // WebView history: on fishtank the watch route is reached
-                    // via client-side pushState (canGoBack() is false there,
-                    // so this was already the effective behavior), but on mde
-                    // each video load pushes a real WebView navigation entry,
-                    // so canGoBack()+goBack() was walking back through
-                    // previously watched videos instead of returning home.
-                    webView.loadUrl(homeUrl)
-                } else if (webView.canGoBack()) {
-                    webView.goBack()
+                    // WebView history: each video pushes a history entry, so
+                    // goBack() walked back through previously watched videos.
+                    goHome()
                 } else {
-                    finish()
+                    // Never goBack() from the homepage either: after watching
+                    // anything, history is [home, video, home], so that went
+                    // straight back into the last video and BACK could never
+                    // exit the app. Double-press to exit instead.
+                    val now = SystemClock.uptimeMillis()
+                    if (now - lastHomeBackPress < EXIT_CONFIRM_MS) {
+                        finish()
+                    } else {
+                        lastHomeBackPress = now
+                        Toast.makeText(this, "Press BACK again to exit", Toast.LENGTH_SHORT).show()
+                    }
                 }
                 return true
             }
@@ -458,6 +746,9 @@ class MainActivity : Activity() {
 
     override fun onPause() {
         super.onPause()
+        // Pressing Home left the video playing (audio and decoder) in the
+        // background, since WebView.onPause doesn't pause media.
+        js("window.__ftvPause && window.__ftvPause()")
         webView.onPause()
         CookieManager.getInstance().flush()
     }
@@ -486,7 +777,10 @@ class MainActivity : Activity() {
  */
 private const val DPAD_JS = """
 (function(){
-  if (window.__ftvReady) return;
+  // Injected from onPageCommitVisible as well as onPageFinished -- bail
+  // (without claiming ready) if the body isn't there yet, so the later call
+  // still gets to run.
+  if (window.__ftvReady || !document.body) return;
   window.__ftvReady = true;
 
   // Deliberately excludes 'video': the dedicated video-control module below
@@ -521,18 +815,14 @@ private const val DPAD_JS = """
       '0%{box-shadow:inset 0 0 0 3px __FTV_ACCENT_HEX__, inset 0 0 30px 4px rgba(__FTV_ACCENT_RGB__,.6);}' +
       '100%{box-shadow:inset 0 0 0 3px __FTV_ACCENT_HEX__, inset 0 0 20px 2px rgba(__FTV_ACCENT_RGB__,.45);}' +
     '}' +
-    '.__ftv_focus.__ftv_pulse{animation:__ftv_pulse 220ms ease-out;}' +
-    '#__ftv_dim{' +
-      'position:fixed;inset:0;background:rgba(0,0,0,.35);' +
-      'z-index:2147483646;pointer-events:none;opacity:0;' +
-      'transition:opacity 150ms ease-out;' +
-    '}' +
-    '#__ftv_dim.__ftv_dim_on{opacity:1;}';
+    '.__ftv_focus.__ftv_pulse{animation:__ftv_pulse 220ms ease-out;}';
+  // No full-screen dim layer any more: once the first key was pressed it
+  // stayed on permanently, a translucent viewport-sized layer the GPU had
+  // to blend over every frame (including under a playing hero video), and
+  // since the focused card almost never sits in the root stacking context
+  // its z-index couldn't lift it above the dim -- so it just darkened the
+  // whole screen, card included.
   (document.head || document.documentElement).appendChild(style);
-
-  var dim = document.createElement('div');
-  dim.id = '__ftv_dim';
-  (document.body || document.documentElement).appendChild(dim);
 
   var cur = null;
   var cache = null;
@@ -561,12 +851,27 @@ private const val DPAD_JS = """
     var rects = new Array(n);
     for (var i = 0; i < n; i++) { rects[i] = all[i].getBoundingClientRect(); }
 
+    // Up to one screen beyond each edge, not just the visible viewport: with
+    // a viewport-only list, the next row/card just past the edge was
+    // unreachable, so DOWN scrolled the page without moving the cursor,
+    // the cursor scrolled off, and the next press reset it to the top-left
+    // item. Now the cursor moves straight to it and mark() scrolls it in.
+    // Horizontally, only inside a scrolling carousel row: anything else
+    // past the left/right edge is far more likely an off-canvas drawer
+    // than content. Memoised per parent since a row's cards share one.
+    var mx = window.innerWidth, my = window.innerHeight;
+    var trackOf = new Map();
     var onscreen = [];
     for (var i = 0; i < n; i++) {
       var r = rects[i];
       if (r.width < 8 || r.height < 8) continue;
-      if (r.bottom < 0 || r.top > window.innerHeight) continue;
-      if (r.right < 0 || r.left > window.innerWidth) continue;
+      if (r.bottom < -my || r.top > window.innerHeight + my) continue;
+      if (r.right < 0 || r.left > window.innerWidth) {
+        if (r.right < -mx || r.left > window.innerWidth + mx) continue;
+        var p = all[i].parentElement;
+        if (!trackOf.has(p)) trackOf.set(p, scrollableAncestor(all[i], 'x'));
+        if (!trackOf.get(p)) continue;
+      }
       onscreen.push(all[i]);
     }
 
@@ -578,15 +883,40 @@ private const val DPAD_JS = """
       if (s.visibility === 'hidden' || s.display === 'none') continue;
       if (parseFloat(s.opacity) < 0.1) continue;
       if (el.disabled) continue;
+      if (covered(el)) continue;
       out.push(el);
     }
     return out;
   }
 
+  // True if something else is painted on top of el at every probe point --
+  // a modal over the page (fishtank's menu stayed reachable underneath its
+  // login dialog), or el clipped away by an overflow:hidden ancestor (the
+  // login dialog's off-to-the-side "forgot password" pane, whose buttons
+  // the cursor kept landing on). Hit-testing is the one check that answers
+  // "can the user actually see this" for both. Probes the centre and four
+  // inset points so a small badge over one part of a card doesn't count;
+  // points outside the viewport can't be hit-tested and are skipped, and
+  // an element with no testable point at all is given the benefit of the
+  // doubt (it's in the off-screen margin).
+  var PROBES = [[.5,.5],[.25,.25],[.75,.25],[.25,.75],[.75,.75]];
+  function covered(el){
+    var r = el.getBoundingClientRect();
+    var tested = false;
+    for (var i = 0; i < PROBES.length; i++) {
+      var x = r.left + r.width * PROBES[i][0], y = r.top + r.height * PROBES[i][1];
+      if (x < 0 || y < 0 || x >= window.innerWidth || y >= window.innerHeight) continue;
+      tested = true;
+      var hit = document.elementFromPoint(x, y);
+      if (!hit || el === hit || el.contains(hit)) return false;
+    }
+    return tested;
+  }
+
   // Elements that match SEL but should never be reachable by the D-pad at
   // all, not just skipped as a default landing spot.
   function isExcluded(el){
-    return !!(el.matches && el.matches('a[class*="__logo"]'));
+    return !!(el.matches && el.matches('a[class*="_logo"]'));
   }
 
   function items(){
@@ -621,9 +951,20 @@ private const val DPAD_JS = """
       // auto-fullscreen and event subscription don't have to wait for the
       // user to press a key first.
       checkPlayerFrame();
+      pauseHomeVideos();
     }, 250);
   }
-  new MutationObserver(scheduleInvalidate).observe(document.body, { childList: true, subtree: true });
+  // Mutations entirely inside an ignored subtree (hidden live chat that the
+  // SPA keeps rendering into) are skipped, or they'd dirty the cache every
+  // few hundred ms forever and every keypress would pay a full rebuild.
+  var IGNORE = __FTV_IGNORE_MUTATIONS__;
+  new MutationObserver(function(records){
+    if (!IGNORE) { scheduleInvalidate(); return; }
+    for (var i = 0; i < records.length; i++) {
+      var t = records[i].target;
+      if (!(t.closest && t.closest(IGNORE))) { scheduleInvalidate(); return; }
+    }
+  }).observe(document.body, { childList: true, subtree: true });
   // Capture phase on document, not a plain window listener: scroll events
   // don't bubble, so a listener on window only ever sees the page itself
   // scrolling. Capture-phase delegation from document catches any nested
@@ -644,13 +985,24 @@ private const val DPAD_JS = """
   // properties.
   var trackedVideo = null;       // same-origin <video>, if a page ever has one
   var playerFrame = null;        // cross-origin Bunny iframe, if present
-  var playerState = { playing: false, time: 0, duration: 0 };
-  var autoFullscreenDone = false;
+  // timeKnown: whether playerState.time has actually been reported by the
+  // player yet. Seeking off the default 0 sent FF to 0:10 -- i.e. restarted
+  // the episode -- whenever the event subscription hadn't landed.
+  var playerState = { playing: false, time: 0, duration: 0, timeKnown: false };
+  var fullscreenEl = null;       // element currently pinned to the viewport
+  var fullscreenUndo = [];       // [element, cssText] pairs to restore
 
   function findPlayerFrame(){
     if (playerFrame && document.contains(playerFrame)) return playerFrame;
     var f = document.querySelector('iframe[src*="mediadelivery.net"]');
-    playerFrame = f || null;
+    if (f !== playerFrame) {
+      // A different (or no) player than last time -- SPA route change or
+      // next episode. Everything learned about the old one is stale, and
+      // the new one needs its own subscription and fullscreen.
+      playerFrame = f || null;
+      playerSubscribed = false;
+      playerState = { playing: false, time: 0, duration: 0, timeKnown: false };
+    }
     return playerFrame;
   }
 
@@ -668,9 +1020,13 @@ private const val DPAD_JS = """
   function subscribePlayerEvents(){
     if (playerSubscribed || !findPlayerFrame()) return;
     playerSubscribed = true;
-    sendPlayerCommand('on', 'play');
-    sendPlayerCommand('on', 'pause');
-    sendPlayerCommand('on', 'timeupdate');
+    // 'addEventListener' with a listener id, not 'on': Bunny's player.js
+    // receiver answers 'on' with {event:'error', msg:'Invalid Method "on"'},
+    // so none of these subscriptions had ever been live -- the real
+    // reason play/pause state and seek positions were unreliable.
+    sendPlayerCommand('addEventListener', 'play', 'ftvPlay');
+    sendPlayerCommand('addEventListener', 'pause', 'ftvPause');
+    sendPlayerCommand('addEventListener', 'timeupdate', 'ftvTime');
     // Autoplay starts (and often finishes its first play/pause transition)
     // before we ever get a chance to subscribe to those events, so
     // playerState.playing's default of false is wrong from the start on
@@ -684,20 +1040,35 @@ private const val DPAD_JS = """
     sendPlayerCommand('getDuration', undefined, 'ftvInit');
   }
 
+  // Seek requested before the player has reported a position: accumulated
+  // here and applied once a getCurrentTime reply arrives.
+  var pendingSeek = null;
+
   window.addEventListener('message', function(e){
     var data = e.data;
     if (typeof data === 'string') {
       try { data = JSON.parse(data); } catch (err) { return; }
     }
     if (!data || data.context !== 'player.js') return;
-    if (data.event === 'play') { playerState.playing = true; }
+    var f = findPlayerFrame();
+    if (f && e.source !== f.contentWindow) return;  // a stale/other player
+    // player.js receivers announce 'ready' once they can accept commands;
+    // anything sent before that (which is when the iframe element first
+    // appears in the DOM) is silently dropped, so subscribe again here.
+    if (data.event === 'ready') { playerSubscribed = false; subscribePlayerEvents(); }
+    else if (data.event === 'play') { playerState.playing = true; }
     else if (data.event === 'pause') { playerState.playing = false; }
     else if (data.event === 'getPaused') { playerState.playing = !data.value; }
-    else if (data.event === 'getCurrentTime') { playerState.time = data.value || 0; }
+    else if (data.event === 'getCurrentTime') {
+      playerState.time = data.value || 0;
+      playerState.timeKnown = true;
+      if (pendingSeek !== null) { var d = pendingSeek; pendingSeek = null; window.__ftvSeek(d); }
+    }
     else if (data.event === 'getDuration') { playerState.duration = data.value || 0; }
     else if (data.event === 'timeupdate' && data.value) {
       playerState.time = data.value.seconds || 0;
       playerState.duration = data.value.duration || 0;
+      playerState.timeKnown = true;
       if (seekOverlayVisible) { renderSeekOverlay(); }
     }
   });
@@ -719,17 +1090,59 @@ private const val DPAD_JS = """
   // breadcrumbs) shares the layout with it. Pinning the player element
   // itself to cover the viewport achieves the same visual result without
   // ever calling the blocked API.
+  function pinStyle(el, prop, value){
+    fullscreenUndo.push([el, el.style.cssText]);
+    el.style.setProperty(prop, value, 'important');
+  }
+
+  // Puts back every inline style maybeAutoFullscreen changed. Run when the
+  // route goes back to the homepage, in case the SPA keeps the player's
+  // container mounted in a shared layout.
+  function undoFullscreen(){
+    for (var i = fullscreenUndo.length - 1; i >= 0; i--) {
+      try { fullscreenUndo[i][0].style.cssText = fullscreenUndo[i][1]; } catch (e) {}
+    }
+    fullscreenUndo = [];
+    fullscreenEl = null;
+  }
+
   function maybeAutoFullscreen(el){
-    if (autoFullscreenDone || location.pathname === '/') return;
-    autoFullscreenDone = true;
+    if (el === fullscreenEl || location.pathname === '/') return;
+    undoFullscreen();
+    fullscreenEl = el;
     // position:fixed is relative to the viewport UNLESS an ancestor has a
-    // transform/filter/perspective/will-change, which creates its own
-    // containing block instead -- confirmed live: computed position was
+    // transform/filter/perspective/will-change/contain, which creates its
+    // own containing block instead (as does container-type) -- confirmed live: computed position was
     // "fixed" but the rendered rect was still boxed inside a transformed
-    // ancestor's layout, not the true viewport. Reparenting straight onto
-    // <body> escapes any such ancestor. Moving a live iframe like this
-    // does not reload it or interrupt playback.
-    try { (document.body || document.documentElement).appendChild(el); } catch (e) {}
+    // ancestor's layout. This used to escape that by reparenting the
+    // element onto <body>, but moving an <iframe> in the DOM makes the
+    // browser discard and reload it (HTML spec; only the new moveBefore()
+    // avoids that) -- so every video loaded twice, and the player.js
+    // subscription sent just before went to the discarded frame. It also
+    // left a node React no longer knew the position of. Neutralise the
+    // offending ancestors in place instead.
+    for (var a = el.parentElement; a && a !== document.documentElement; a = a.parentElement) {
+      var s = getComputedStyle(a);
+      if (s.transform !== 'none') pinStyle(a, 'transform', 'none');
+      // The standalone properties count too (mde's player wrapper sets
+      // translate:0px, which does nothing visually but still traps it).
+      if (s.translate && s.translate !== 'none') pinStyle(a, 'translate', 'none');
+      if (s.scale && s.scale !== 'none') pinStyle(a, 'scale', 'none');
+      if (s.rotate && s.rotate !== 'none') pinStyle(a, 'rotate', 'none');
+      if (s.filter && s.filter !== 'none') pinStyle(a, 'filter', 'none');
+      if (s.perspective && s.perspective !== 'none') pinStyle(a, 'perspective', 'none');
+      if (s.willChange && s.willChange !== 'auto') pinStyle(a, 'will-change', 'auto');
+      if (s.contain && s.contain !== 'none') pinStyle(a, 'contain', 'none');
+      if (s.backdropFilter && s.backdropFilter !== 'none') pinStyle(a, 'backdrop-filter', 'none');
+      // Container queries imply layout containment, which also captures
+      // fixed descendants -- mde's current player skin sets this.
+      if (s.containerType && s.containerType !== 'normal') pinStyle(a, 'container-type', 'normal');
+      // Staying in place also means staying inside any ancestor stacking
+      // context -- lift those to the top too, or a fixed site header with
+      // a higher z-index would paint over the video.
+      if (s.zIndex !== 'auto' && s.position !== 'static') pinStyle(a, 'z-index', '2147483647');
+    }
+    fullscreenUndo.push([el, el.style.cssText]);
     el.style.setProperty('position', 'fixed', 'important');
     el.style.setProperty('top', '0', 'important');
     el.style.setProperty('left', '0', 'important');
@@ -746,10 +1159,41 @@ private const val DPAD_JS = """
     el.style.setProperty('background', '#000', 'important');
   }
 
+  var PAUSE_HOME_VIDEOS = __FTV_PAUSE_HOME_VIDEOS__;
+  // With a poster: autoplay off and load() back to the poster, which also
+  // releases the hardware decoder. Without one: pause once a frame is on
+  // screen -- pausing on the 'play' event itself left an empty black box,
+  // and the Spotlight clips open on black frames anyway.
+  function stopAfterFirstFrame(v){
+    if (v.poster) {
+      v.autoplay = false;
+      try { v.pause(); v.load(); } catch (e) {}
+      return;
+    }
+    if (v.readyState >= 2 && v.currentTime > 0) { try { v.pause(); } catch (e) {} return; }
+    if (v.__ftvStopping) return;
+    v.__ftvStopping = true;
+    v.addEventListener('timeupdate', function(){
+      v.__ftvStopping = false;
+      if (location.pathname === '/') { try { v.pause(); } catch (e) {} }
+    }, { once: true });
+  }
+  function pauseHomeVideos(){
+    if (!PAUSE_HOME_VIDEOS || location.pathname !== '/') return;
+    var vs = document.querySelectorAll('video');
+    for (var i = 0; i < vs.length; i++) { if (!vs[i].paused) stopAfterFirstFrame(vs[i]); }
+  }
+
   document.addEventListener('play', function(e){
     var v = e.target;
     if (!v || v.tagName !== 'VIDEO') return;
     v.disablePictureInPicture = true;
+    // Homepage previews (see pauseHomeVideos in MainActivity): stopped as
+    // they start, including each new clip the Spotlight carousel rotates to.
+    if (PAUSE_HOME_VIDEOS && location.pathname === '/') {
+      stopAfterFirstFrame(v);
+      return;
+    }
     var r = v.getBoundingClientRect();
     // Only a real, mostly-viewport-filling video is worth tracking -- a
     // homepage grid thumbnail hover-preview (commonly 150-300px) is a
@@ -772,6 +1216,7 @@ private const val DPAD_JS = """
   // it's picked up via the ordinary DOM-mutation invalidation path instead
   // -- cheap, re-checked only on the existing debounced tick, not polled.
   function checkPlayerFrame(){
+    if (location.pathname === '/' && fullscreenEl) undoFullscreen();
     var f = findPlayerFrame();
     if (!f) return;
     subscribePlayerEvents();
@@ -784,6 +1229,7 @@ private const val DPAD_JS = """
   // script starts running catch the iframe (if it's already in the initial
   // HTML) as early as possible instead of waiting for that debounce.
   checkPlayerFrame();
+  pauseHomeVideos();   // anything that started before this script was injected
   setTimeout(checkPlayerFrame, 0);
   setTimeout(checkPlayerFrame, 100);
   setTimeout(checkPlayerFrame, 300);
@@ -885,6 +1331,15 @@ private const val DPAD_JS = """
       showSeekOverlay();
       return;
     }
+    if (!findPlayerFrame()) return;
+    // Position not reported yet: ask for it and seek from the answer,
+    // rather than seeking relative to a made-up 0.
+    if (!playerState.timeKnown) {
+      pendingSeek = (pendingSeek || 0) + deltaSeconds;
+      subscribePlayerEvents();
+      sendPlayerCommand('getCurrentTime', undefined, 'ftvSeek');
+      return;
+    }
     // No getCurrentTime round trip: timeupdate keeps playerState.time fresh
     // while playing, and this optimistically advances it so back-to-back
     // seeks accumulate correctly even before the next timeupdate confirms.
@@ -923,14 +1378,23 @@ private const val DPAD_JS = """
   // mde's class-based check at all, so this also fixes fishtank always
   // defaulting onto its logo.
   function isChrome(el){
-    if (el.closest('[class*="top-bar-module"], [class*="search-module"]')) return true;
+    if (el.closest('[class*="top-bar-module"], [class*="search-module"], [class*="_topBar"]')) return true;
     return el.getBoundingClientRect().top < 70;
   }
+  function inViewport(el){
+    var r = el.getBoundingClientRect();
+    return r.bottom > 0 && r.top < window.innerHeight && r.right > 0 && r.left < window.innerWidth;
+  }
+  // The candidate list now reaches a screen past each edge, so the default
+  // landing spot has to be chosen from what's actually on screen.
   function pickDefault(list){
+    var firstVisible = null;
     for (var i = 0; i < list.length; i++) {
+      if (!inViewport(list[i])) continue;
+      if (!firstVisible) firstVisible = list[i];
       if (!isChrome(list[i])) return list[i];
     }
-    return list[0] || null;
+    return firstVisible || list[0] || null;
   }
 
   function centre(el){
@@ -944,23 +1408,43 @@ private const val DPAD_JS = """
   // before the user has touched the remote at all.
   var silentCur = false;
 
+  function isEditable(el){
+    if (!el) return false;
+    var tag = el.tagName;
+    if (tag === 'TEXTAREA' || el.isContentEditable) return true;
+    return tag === 'INPUT' && !/^(button|submit|reset|checkbox|radio|range|color|file|image)$/i.test(el.type);
+  }
+
   function mark(el, silent){
     if (cur) { cur.classList.remove('__ftv_focus', '__ftv_pulse'); }
     cur = el || null;
-    if (!cur) { dim.classList.remove('__ftv_dim_on'); silentCur = false; return; }
+    if (!cur) { silentCur = false; return; }
     if (silent) { silentCur = true; return; }
     silentCur = false;
     cur.classList.add('__ftv_focus');
-    dim.classList.add('__ftv_dim_on');
     // Double rAF so the browser paints the pulse class removed before it's
     // re-added, restarting the CSS animation without forcing a sync layout.
     requestAnimationFrame(function(){
       requestAnimationFrame(function(){ if (cur) cur.classList.add('__ftv_pulse'); });
     });
-    try { cur.focus({ preventScroll: true }); } catch (e) {}
+    // Never focus a text field just because the cursor passed over it, and
+    // let go of one the cursor has left: a focused field connects the
+    // system keyboard, which then receives the remote's keys *before* the
+    // app does even while hidden -- so the next Select "pressed" the
+    // keyboard's highlighted key and typed a stray "a". Text fields only
+    // get focus from __ftvActivate, i.e. an actual Select on them.
+    var ae = document.activeElement;
+    if (ae && ae !== cur && isEditable(ae)) { try { ae.blur(); } catch (e) {} }
+    if (!isEditable(cur)) { try { cur.focus({ preventScroll: true }); } catch (e) {} }
+    // Targets can now be off-screen in either axis (next row below, next
+    // card along a carousel), so scroll whichever axis needs it.
     var r = cur.getBoundingClientRect();
-    if (r.top < 60 || r.bottom > window.innerHeight - 60) {
-      try { cur.scrollIntoView({ block: 'center' }); } catch (e) { cur.scrollIntoView(); }
+    var needY = r.top < 60 || r.bottom > window.innerHeight - 60;
+    var needX = r.left < 0 || r.right > window.innerWidth;
+    if (needY || needX) {
+      try {
+        cur.scrollIntoView({ block: needY ? 'center' : 'nearest', inline: needX ? 'center' : 'nearest', behavior: 'auto' });
+      } catch (e) { cur.scrollIntoView(); }
     }
   }
 
@@ -1030,7 +1514,12 @@ private const val DPAD_JS = """
     var list = items();
     if (!list.length) return;
 
-    if (!cur || !document.contains(cur) || !visible(cur)) { mark(pickDefault(list)); return; }
+    // Only reset to the default when the cursor is really lost (removed,
+    // hidden, or more than a screen away). Merely scrolled off the edge --
+    // e.g. by the scroll fallback below -- it keeps navigating from where
+    // it is, instead of jumping back up to the top-left item.
+    if (cur && document.contains(cur) && list.indexOf(cur) < 0 && !dirty) { dirty = true; list = items(); }
+    if (!cur || !document.contains(cur) || list.indexOf(cur) < 0) { mark(pickDefault(list)); return; }
 
     var best = nearest(list, dir);
 
@@ -1070,8 +1559,17 @@ private const val DPAD_JS = """
   // call per animation frame instead of one full candidate search each.
   var pendingDir = null;
   var rafScheduled = false;
-  window.__ftvNavigate = function(dir){
-    if (playingVideo()) return;
+  // On a watch page the arrows don't navigate the page under the player
+  // (see playingVideo); instead left/right seek -- by a step that grows
+  // while held, computed natively from the key repeat count -- and up/down
+  // just bring up the position overlay.
+  window.__ftvNavigate = function(dir, step){
+    if (playingVideo()) {
+      if (dir === 'left') window.__ftvSeek(-(step || 10));
+      else if (dir === 'right') window.__ftvSeek(step || 10);
+      else showSeekOverlay();
+      return;
+    }
     if (silentCur) { mark(cur); return; }        // first press just reveals it
     pendingDir = dir;
     if (rafScheduled) return;
@@ -1084,14 +1582,35 @@ private const val DPAD_JS = """
     });
   };
 
+  // Client-side route to the homepage via the site's own home link (a
+  // Next.js <Link>, which intercepts the click), instead of a full reload.
+  // Returns false if there's no such link, so the caller can fall back.
+  window.__ftvGoHome = function(){
+    var link = document.querySelector('a[href="/"]') ||
+               document.querySelector('a[href="' + location.origin + '/"]') ||
+               document.querySelector('a[href="' + location.origin + '"]');
+    if (!link) return false;
+    undoFullscreen();
+    if (cur) { cur.classList.remove('__ftv_focus', '__ftv_pulse'); cur = null; }
+    link.click();
+    return true;
+  };
+
   window.__ftvActivate = function(){
-    if (playingVideo()) return;
+    if (playingVideo()) { window.__ftvTogglePlay(); return; }
     if (silentCur) { mark(cur); return; }        // first press just reveals it
     if (!cur) { window.__ftvReset(); return; }
     var tag = cur.tagName.toLowerCase();
     if (tag === 'input' || tag === 'textarea') {
-      cur.focus();                            // brings up the Fire TV keyboard
-      return;
+      // focus() alone never brings up the Fire TV keyboard: a field
+      // focused from script isn't user input, so Chromium never connects
+      // it to the IME and even a native showSoftInput() is ignored. Hand
+      // back the field's centre in device pixels instead, and MainActivity
+      // taps it with a real touch event, which opens the keyboard the same
+      // way a finger would.
+      cur.focus();
+      var r = cur.getBoundingClientRect(), d = window.devicePixelRatio || 1;
+      return 'tap:' + Math.round((r.left + r.width / 2) * d) + ',' + Math.round((r.top + r.height / 2) * d);
     }
     cur.click();
   };

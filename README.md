@@ -25,8 +25,8 @@ how to sideload the APK on a Fire TV device.
 
 ### What they do
 
-- **Remote navigation.** Arrow keys move a highlight around the page, Select
-  activates it.
+- **Remote navigation.** Arrow keys move between items on the page (the
+  selected one zooms in), Select activates it.
 - **TV-appropriate layout.** The desktop site, not the phone one, so it's
   built for a wide screen.
 - **Clutter removed.** Chat panels, nav bars, audio players and purchase
@@ -122,6 +122,11 @@ While a video is playing:
 ---
 
 ## Updating and maintenance
+
+The apps don't update themselves. To update, download the new APK from the
+[latest release](../../releases/latest) and install it the same way as the
+first time (Downloader or Apps2Fire). It installs over the old version and
+you stay signed in.
 
 I created this selfishly so I could watch this content on my TV. Anything beyond an update that breaks the app I will not be maintaining.
 

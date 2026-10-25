@@ -135,7 +135,10 @@ class UpdateChecker(private val activity: Activity) {
         AlertDialog.Builder(activity, android.R.style.Theme_Material_Dialog_Alert)
             .setTitle("Update available")
             .setMessage("Version ${release.version} is out (you have ${BuildConfig.VERSION_NAME}).\n\n" +
-                "Install it now? You'll stay signed in.")
+                "Install it now? You'll stay signed in.\n\n" +
+                // Fire OS's confirmation opens with CANCEL focused, so a
+                // reflexive Select throws the update away.
+                "When Fire TV asks, move right to INSTALL.")
             .setPositiveButton("Update") { _, _ -> startUpdate(release) }
             .setNegativeButton("Later", null)
             .setNeutralButton("Skip this version") { _, _ ->

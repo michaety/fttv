@@ -157,6 +157,26 @@ class MainActivity : Activity() {
                    of this node" -- which crashed the whole site to "This
                    page couldn't load" right after logging in. */
                 div.fixed.bottom-0.right-0.z-2 { display: none !important; }
+                /* Episodes page: the big "Latest Episode" banner at the top
+                   -- a third of the screen for one episode, pushing every
+                   row below it out of view. */
+                div.flex.flex-col.gap-5.mb-5 > a.flex.flex-col[href^="/episodes/"] { display: none !important; }
+                /* ...and the Season 1/2/3 row's oversized 400x332 cards
+                   brought down to the 180px / 4:3 size every other row
+                   uses, then the whole episodes area zoomed to 0.8 -- two
+                   full rows of ~6 episodes on screen instead of one row of
+                   2.5. */
+                a[href^="/episodes/"][class*="md:w-[400px]"] { width: 180px !important; height: auto !important; }
+                a[href^="/episodes/"][class*="md:w-[400px]"] > img { width: 180px !important; height: 135px !important; }
+                div.flex.flex-col.gap-5.mb-5:has(a[href^="/episodes/"]) { zoom: 0.8; }
+                /* homepage cam grid: 4 columns, as the site itself does from
+                   its lg breakpoint, which this viewport falls just short of
+                   -- all 8 tiles on one screen instead of 4 */
+                div.grid[class*="min-h-[calc(100vh-160px)]"] {
+                  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+                  gap: 16px !important;
+                  min-height: 0 !important;
+                }
                 /* "Log In With Google" and the "Or" divider under it --
                    Google refuses OAuth inside an embedded WebView, so it
                    can only fail. Matched by its icon, not its Tailwind
@@ -238,6 +258,18 @@ class MainActivity : Activity() {
                   document.querySelectorAll('button').forEach(function(b){
                     if (b.textContent.trim() === 'Merch') b.style.display = 'none';
                   });
+                  // Episodes page: Off-Season row moved below the seasons
+                  // and digests. Flex 'order' only -- the node stays where
+                  // React put it. Matched by its heading, not position.
+                  var rows = document.querySelector('div.flex.flex-col.gap-5.mb-5');
+                  if (rows) {
+                    for (var i = 0; i < rows.children.length; i++) {
+                      var row = rows.children[i];
+                      if (row.textContent.trim().indexOf('Off-Season') === 0 && row.style.order !== '1') {
+                        row.style.order = '1';
+                      }
+                    }
+                  }
                 };
             """.trimIndent()
             else -> ""
@@ -1554,14 +1586,10 @@ private const val DPAD_JS = """
       var st = getComputedStyle(a);
       if (st.overflowX === 'visible' && st.overflowY === 'visible') continue;
       var ar = a.getBoundingClientRect();
-      if (st.overflowX !== 'visible') {
-        L = Math.max(L, ar.left + a.clientLeft);
-        R = Math.min(R, ar.left + a.clientLeft + a.clientWidth);
-      }
-      if (st.overflowY !== 'visible') {
-        T = Math.max(T, ar.top + a.clientTop);
-        B = Math.min(B, ar.top + a.clientTop + a.clientHeight);
-      }
+      // Screen-space rect edges only: clientWidth etc. are in the
+      // element's own units, which differ under an ancestor's CSS zoom.
+      if (st.overflowX !== 'visible') { L = Math.max(L, ar.left); R = Math.min(R, ar.right); }
+      if (st.overflowY !== 'visible') { T = Math.max(T, ar.top); B = Math.min(B, ar.bottom); }
     }
     var z = Math.min(ZOOM, (R - L) / r.width, (B - T) / r.height);
     if (!(z >= 1.02)) z = 1;
@@ -1582,7 +1610,12 @@ private const val DPAD_JS = """
     savedScale = [el.style.getPropertyValue('scale'), el.style.getPropertyPriority('scale')];
     savedOrigin = [el.style.getPropertyValue('transform-origin'), el.style.getPropertyPriority('transform-origin')];
     el.classList.add('__ftv_focus');
-    el.style.setProperty('transform-origin', curOx + 'px ' + curOy + 'px', 'important');
+    // As percentages, not px: inside an ancestor with CSS zoom (fishtank's
+    // episodes page) local px are scaled, while curOx/curOy were measured
+    // in screen px -- the zoom would then anchor slightly off the lift.
+    var r = curRect || el.getBoundingClientRect();
+    var px = r.width ? curOx / r.width * 100 : 50, py = r.height ? curOy / r.height * 100 : 50;
+    el.style.setProperty('transform-origin', px + '% ' + py + '%', 'important');
     el.style.setProperty('scale', String(curZoom), 'important');
   }
   function zoomOff(el){
@@ -1601,6 +1634,9 @@ private const val DPAD_JS = """
       veil.classList.remove('__ftv_on');
       return;
     }
+    // The site's React app can rebuild <body> and drop nodes it didn't
+    // create, this one included -- put it back rather than lose the lift.
+    if (!veil.isConnected) document.body.appendChild(veil);
     var r = curRect || cur.getBoundingClientRect();
     veil.classList.toggle('__ftv_snap', !!snap);
     veil.style.left = (r.left + curOx * (1 - curZoom)) + 'px';
@@ -1692,6 +1728,12 @@ private const val DPAD_JS = """
     return null;
   }
 
+  function inBeam(el, dir){
+    var a = cur.getBoundingClientRect(), b = el.getBoundingClientRect();
+    if (dir === 'left' || dir === 'right') return b.bottom > a.top + 2 && b.top < a.bottom - 2;
+    return b.right > a.left + 2 && b.left < a.right - 2;
+  }
+
   function nearest(list, dir){
     var c = centre(cur);
     var best = null;
@@ -1723,6 +1765,12 @@ private const val DPAD_JS = """
 
       if (along <= 4) continue;              // wrong side of the cursor
       var score = along + across * 2.5;      // prefer straight ahead over diagonal
+      // Anything in line with the cursor (overlapping it across the
+      // direction of travel) beats everything that isn't, however close --
+      // as Android's own focus search does. Without this, RIGHT from a
+      // section's tabs went down into the nearby cards and that section's
+      // far-right "View All" link could never be reached.
+      if (!inBeam(el, dir)) score += 1e6;
       if (score < bestScore) { bestScore = score; best = el; }
     }
     return best;

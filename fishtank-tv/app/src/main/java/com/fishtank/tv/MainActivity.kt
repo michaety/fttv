@@ -3,7 +3,6 @@ package com.fishtank.tv
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.ActivityNotFoundException
-import android.content.Context
 import android.content.Intent
 import android.content.res.ColorStateList
 import android.graphics.Bitmap
@@ -58,6 +57,8 @@ private val BLOCKED_URL_SUBSTRINGS = listOf(
     "amplitude.com",
     "mixpanel.com",
     "hotjar.com",
+    "posthog.com",           // fishtank: product analytics / session capture
+    "cloudflareinsights.com", // both: Cloudflare Web Analytics beacon
     "fullstory.com",
     // ads
     "googlesyndication.com",
@@ -81,8 +82,6 @@ class MainActivity : Activity() {
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
                 "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 
-        private const val PREFS_NAME = "fishtank_tv_prefs"
-        private const val PREF_BLOCK_IMAGES = "block_images"
 
         /** Second BACK on the homepage within this window exits the app. */
         private const val EXIT_CONFIRM_MS = 2000L
@@ -109,7 +108,6 @@ class MainActivity : Activity() {
     private lateinit var progressBar: ProgressBar
     private lateinit var errorView: TextView
     private lateinit var homeUrl: String
-    private var blockImages: Boolean = false
     private var lastHomeBackPress = 0L
 
     /** Set when the main-frame load failed and errorView is showing; Select
@@ -215,6 +213,12 @@ class MainActivity : Activity() {
                    the (now-hidden) search wrapper's margin-left:auto --
                    without that it collapsed to sit right next to the logo */
                 div[class*="_topBar"] > div[class*="_user"] { margin-left: auto !important; }
+                /* homepage HYDEFORCE ad banner: the site advertising its own
+                   merch (the same reason fishtank's merch prompts are
+                   hidden), and a looping video ad besides. Unconditional:
+                   keying it on its contents (:has(video)) made it flicker
+                   in and out as the site re-rendered it. */
+                a[class*="_banner"] { display: none !important; }
                 /* homepage "Series" grid -- 4 columns instead of 2, so more
                    fits on screen without scrolling as far */
                 div[class*="_seriesGrid"] { grid-template-columns: repeat(4, 1fr) !important; }
@@ -389,9 +393,6 @@ class MainActivity : Activity() {
 
         homeUrl = getString(R.string.home_url)
 
-        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        blockImages = prefs.getBoolean(PREF_BLOCK_IMAGES, false)
-
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
@@ -431,7 +432,9 @@ class MainActivity : Activity() {
         webView.loadUrl(homeUrl)
 
         updateChecker = UpdateChecker(this)
-        updateChecker.checkInBackground()
+        // Not during startup: the homepage load already has the Firestick's
+        // CPU and network to itself for long enough.
+        root.postDelayed({ if (!isFinishing) updateChecker.checkInBackground() }, 10_000)
     }
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
@@ -448,13 +451,11 @@ class MainActivity : Activity() {
         with(webView.settings) {
             javaScriptEnabled = true
             domStorageEnabled = true
-            databaseEnabled = true
             mediaPlaybackRequiresUserGesture = false
             loadWithOverviewMode = false
             useWideViewPort = false
             userAgentString = desktopUserAgent()
             cacheMode = WebSettings.LOAD_DEFAULT
-            blockNetworkImage = blockImages
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                 mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
             }
@@ -496,22 +497,11 @@ class MainActivity : Activity() {
         }
         webView.webViewClient = object : WebViewClient() {
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
-                // Lift the watch-page image block *before* the homepage
-                // starts loading, not in onPageFinished: otherwise coming
-                // BACK from a video loaded the whole homepage imageless and
-                // only began fetching every thumbnail after it "finished".
-                if (isHomePath(url)) view?.settings?.blockNetworkImage = blockImages
                 showError(false)
             }
 
             override fun onPageCommitVisible(view: WebView?, url: String?) {
                 injectPageScripts(view, url)
-            }
-
-            // Fires for client-side (pushState) navigations too, which never
-            // reach onPageStarted -- both sites are Next.js SPAs.
-            override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
-                if (isHomePath(url)) view?.settings?.blockNetworkImage = blockImages
             }
 
             override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
@@ -536,18 +526,12 @@ class MainActivity : Activity() {
                 return true
             }
 
+            // No more blocking images on non-home pages to save memory while
+            // watching: it was decided per full page load, so any page loaded
+            // directly (fishtank's /episodes, say) lost all its thumbnails,
+            // while the client-side navigations it was meant for never
+            // triggered it at all.
             override fun onPageFinished(view: WebView?, url: String?) {
-                // A modest, honest mitigation, not a fix for video-decode CPU
-                // itself: dumpsys cpuinfo during playback showed kswapd0 (the
-                // kernel's memory-swap daemon) alone at ~24% CPU on this
-                // device's 1.7GB RAM, so anything that trims memory pressure
-                // during playback is worth doing even though it can't touch
-                // the actual decode cost. The homepage's own images have no
-                // reason to keep loading/decoding while a video page is
-                // showing; restore the user's real preference once back on
-                // the homepage.
-                val isWatchPage = url != null && !isHomePath(url)
-                view?.settings?.blockNetworkImage = isWatchPage || blockImages
                 injectPageScripts(view, url)
             }
 
@@ -593,9 +577,9 @@ class MainActivity : Activity() {
      * episode player was usually first in line; fishtank's only got lucky.
      *
      * So this hidden WebView, stacked under the real one and started before
-     * it loads anything, plays a tiny black clip (720p but 1fps of solid
-     * black -- next to no decode cost) full-screen on a loop, purely to occupy that one
-     * overlay slot while the app is in the foreground. It lives outside the site's DOM
+     * it loads anything, starts a tiny black clip (720p, 1fps of solid
+     * black) and pauses it, purely to occupy that one overlay slot while
+     * the app is in the foreground. It lives outside the site's DOM
      * on purpose: an element injected into the page itself gets thrown
      * away whenever the site's React app re-renders.
      */
@@ -622,9 +606,16 @@ class MainActivity : Activity() {
             }
         }
         overlayHolder = holder
-        root.addView(holder, 0, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
+        // 8px square and paused as soon as it starts. Both measured on the
+        // Firestick: the slot is decided by the clip's resolution, not how
+        // big it's drawn, and is kept while paused (checked after 4 minutes
+        // idle) -- but a full-screen holder left playing slowed every page
+        // load by ~3.5s (BACK to mde's homepage: 4.6s paused vs 6.6-7.9s).
+        root.addView(holder, 0, FrameLayout.LayoutParams(8, 8))
         val html = "<!doctype html><body style='margin:0;background:#000'>" +
-            "<video autoplay muted loop playsinline onplaying='FtvHolder.ready()' style='width:100vw;height:100vh' " +
+            "<video autoplay muted playsinline " +
+            "onplaying='FtvHolder.ready();var v=this;setTimeout(function(){v.pause()},300)' " +
+            "style='width:100vw;height:100vh' " +
             "src='data:video/mp4;base64,$OVERLAY_HOLDER_MP4'></video></body>"
         holder.loadDataWithBaseURL(null, html, "text/html", "utf-8", null)
     }
@@ -674,14 +665,24 @@ class MainActivity : Activity() {
     }
 
     /**
-     * Leaves a watch page for the homepage. Tries the site's own home link
-     * first (window.__ftvGoHome in DPAD_JS) -- both sites are Next.js SPAs,
-     * so that's a client-side route change that reuses the already-booted
-     * app instead of re-downloading and re-parsing the whole bundle the way
-     * loadUrl does, which was the multi-second black-screen on every BACK.
-     * Falls back to a full load if the script isn't there or no link matched.
+     * Leaves a watch page for the homepage.
+     *
+     * fishtank: through the page (window.__ftvGoHome in DPAD_JS) -- its
+     * pages are client-side routes of one Next.js app, so going back that
+     * way reuses the booted app.
+     *
+     * mde: a plain reload. Opening an mde episode is a full page load, so
+     * the homepage is gone either way, and measured on the Firestick the
+     * reload (~4.3-5.2s) beat both a client-side route via its home link
+     * (~7.3s: the server re-renders the homepage first) and history.back
+     * (~4.5s). Its homepage doesn't qualify for the WebView's back/forward
+     * cache either (tried: it reloads anyway).
      */
     private fun goHome() {
+        if (homeUrl.contains("mde.tv")) {
+            webView.loadUrl(homeUrl)
+            return
+        }
         webView.evaluateJavascript("window.__ftvGoHome ? window.__ftvGoHome() : false") { result ->
             if (result != "true") webView.loadUrl(homeUrl)
         }
@@ -696,15 +697,6 @@ class MainActivity : Activity() {
      */
     private fun seekVideo(deltaSeconds: Int) {
         js("window.__ftvSeek && window.__ftvSeek($deltaSeconds)")
-    }
-
-    private fun toggleBlockImages() {
-        blockImages = !blockImages
-        webView.settings.blockNetworkImage = blockImages
-        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .edit()
-            .putBoolean(PREF_BLOCK_IMAGES, blockImages)
-            .apply()
     }
 
     private fun hideSystemUi() {
@@ -736,7 +728,6 @@ class MainActivity : Activity() {
         KeyEvent.KEYCODE_MEDIA_PLAY, KeyEvent.KEYCODE_MEDIA_PAUSE, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
         KeyEvent.KEYCODE_MENU,
         KeyEvent.KEYCODE_MEDIA_FAST_FORWARD, KeyEvent.KEYCODE_MEDIA_REWIND,
-        KeyEvent.KEYCODE_MEDIA_NEXT,
         KeyEvent.KEYCODE_BACK -> true
         else -> false
     }
@@ -819,14 +810,6 @@ class MainActivity : Activity() {
 
             KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> { seekVideo(step); return true }
             KeyEvent.KEYCODE_MEDIA_REWIND -> { seekVideo(-step); return true }
-
-            KeyEvent.KEYCODE_MEDIA_NEXT -> {
-                toggleBlockImages()
-                // It's persisted, so a stray press used to silently leave the
-                // whole app imageless across restarts with no hint why.
-                Toast.makeText(this, if (blockImages) "Images off" else "Images on", Toast.LENGTH_SHORT).show()
-                return true
-            }
 
             KeyEvent.KEYCODE_BACK -> {
                 if ((event?.repeatCount ?: 0) > 0) return true
@@ -1851,7 +1834,35 @@ private const val DPAD_JS = """
   // Client-side route to the homepage via the site's own home link (a
   // Next.js <Link>, which intercepts the click), instead of a full reload.
   // Returns false if there's no such link, so the caller can fall back.
+  // The path we navigated *from* on the last client-side route change, so
+  // BACK can tell whether the page before this one was the homepage. Both
+  // sites route with history.pushState (Next.js); a popstate means we no
+  // longer know, so it resets.
+  var prevPath = null;
+  (function(){
+    var push = history.pushState;
+    history.pushState = function(){
+      var from = location.pathname;
+      var r = push.apply(this, arguments);
+      if (location.pathname !== from) prevPath = from;
+      return r;
+    };
+    window.addEventListener('popstate', function(){ prevPath = null; });
+  })();
+
   window.__ftvGoHome = function(){
+    // Came straight from the homepage: go back to it. Next.js restores a
+    // back navigation from its client cache (and keeps the scroll position)
+    // -- measured ~0.5s, where clicking the home link waits on the server to
+    // render the homepage again (~4.4s on mde, no better than a full reload).
+    if (prevPath === '/') {
+      undoFullscreen();
+      if (cur) { zoomOff(cur); cur = null; }
+      hideVeil();
+      prevPath = null;
+      history.back();
+      return true;
+    }
     var link = document.querySelector('a[href="/"]') ||
                document.querySelector('a[href="' + location.origin + '/"]') ||
                document.querySelector('a[href="' + location.origin + '"]');

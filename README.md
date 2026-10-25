@@ -29,8 +29,13 @@ how to sideload the APK on a Fire TV device.
   selected one zooms in), Select activates it.
 - **TV-appropriate layout.** The desktop site, not the phone one, so it's
   built for a wide screen.
-- **Clutter removed.** Chat panels, nav bars, audio players and purchase
-  prompts are hidden.
+- **Clutter removed.** Chat panels, nav bars, audio players, ad banners and
+  purchase prompts are hidden.
+- **Lighter on the Firestick.** About **63% less CPU** while browsing MDE's
+  homepage than v1.0 (143% → 52% on a Fire TV Stick 4K 2nd gen, average of
+  three runs), mostly by not playing preview videos and animations nobody
+  asked for. Page loads and episode start times are about the same as
+  before: those are set by the sites themselves.
 
 Navigating with the remote:
 
@@ -123,10 +128,14 @@ While a video is playing:
 
 ## Updating and maintenance
 
-The apps don't update themselves. To update, download the new APK from the
+From v1.2.0 the apps check for updates when they start and offer to install
+them. When Fire TV asks to confirm, move right to **INSTALL** (it starts on
+Cancel). The first time, it may also ask you to allow the app to install
+apps. You stay signed in.
+
+On an older version, update once by hand: download the new APK from the
 [latest release](../../releases/latest) and install it the same way as the
-first time (Downloader or Apps2Fire). It installs over the old version and
-you stay signed in.
+first time (Downloader or Apps2Fire). It installs over the old version.
 
 I created this selfishly so I could watch this content on my TV. Anything beyond an update that breaks the app I will not be maintaining.
 

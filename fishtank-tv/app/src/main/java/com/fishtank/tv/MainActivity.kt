@@ -22,6 +22,7 @@ import android.view.ViewGroup
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.WindowManager
 import android.webkit.CookieManager
+import android.webkit.JavascriptInterface
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
@@ -35,8 +36,6 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.browser.customtabs.CustomTabsIntent
-import androidx.webkit.WebViewCompat
-import androidx.webkit.WebViewFeature
 import org.json.JSONObject
 
 /**
@@ -103,6 +102,10 @@ class MainActivity : Activity() {
     private lateinit var root: FrameLayout
     private lateinit var webView: WebView
     private var overlayHolder: WebView? = null
+    private var holderReady = false
+    /** Main WebView's onResume, held back until the holder has the slot. */
+    private var resumeWhenHolderReady = false
+    private lateinit var updateChecker: UpdateChecker
     private lateinit var progressBar: ProgressBar
     private lateinit var errorView: TextView
     private lateinit var homeUrl: String
@@ -304,13 +307,6 @@ class MainActivity : Activity() {
      * fallback in case body didn't exist yet at commit time.
      */
     private fun injectPageScripts(view: WebView?, url: String?) {
-        // Fallback for a WebView without document-start scripts: too late
-        // for a player already on the page, but still in time for one that
-        // mounts after a client-side route change, which is the normal path
-        // (homepage -> episode).
-        if (hidesMediaSource(url) && !WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
-            view?.evaluateJavascript(NO_MSE_JS, null)
-        }
         val css = siteCss(url)
         if (css.isNotEmpty()) {
             val js = "(function(){if(document.getElementById('__ftv_site_css'))return;" +
@@ -355,14 +351,6 @@ class MainActivity : Activity() {
      */
     private fun pauseHomeVideos(url: String?): Boolean = url != null && url.contains("mde.tv")
 
-    /**
-     * Whether to hide Media Source Extensions from the page (NO_MSE_JS).
-     * mde only: fishtank's episodes play in Bunny's own iframe, which this
-     * never touches and which renders fine, and its homepage live cams
-     * aren't worth risking on a player change.
-     */
-    private fun hidesMediaSource(url: String?): Boolean = url != null && url.contains("mde.tv")
-
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -402,13 +390,16 @@ class MainActivity : Activity() {
         }
 
         createWebView()
-        createOverlayHolder()
+        createOverlayHolder()   // (onStart then sees it's already there)
         root.addView(errorView, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
         root.addView(progressBar, FrameLayout.LayoutParams(MATCH_PARENT, dp(4)).apply { gravity = Gravity.TOP })
 
         setContentView(root)
         hideSystemUi()
         webView.loadUrl(homeUrl)
+
+        updateChecker = UpdateChecker(this)
+        updateChecker.checkInBackground()
     }
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
@@ -435,10 +426,6 @@ class MainActivity : Activity() {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                 mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
             }
-        }
-
-        if (hidesMediaSource(homeUrl) && WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
-            WebViewCompat.addDocumentStartJavaScript(webView, NO_MSE_JS, setOf("https://www.mde.tv", "https://mde.tv"))
         }
 
         // Keep the login across restarts.
@@ -576,15 +563,23 @@ class MainActivity : Activity() {
      * So this hidden WebView, stacked under the real one and started before
      * it loads anything, plays a tiny black clip (720p but 1fps of solid
      * black -- next to no decode cost) full-screen on a loop, purely to occupy that one
-     * overlay slot for the life of the app. It lives outside the site's DOM
+     * overlay slot while the app is in the foreground. It lives outside the site's DOM
      * on purpose: an element injected into the page itself gets thrown
      * away whenever the site's React app re-renders.
      */
+    @SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
     private fun createOverlayHolder() {
+        holderReady = false
         val holder = WebView(this)
         holder.setBackgroundColor(Color.BLACK)
         holder.settings.mediaPlaybackRequiresUserGesture = false
+        holder.settings.javaScriptEnabled = true
         holder.isFocusable = false
+        // Tells us once the clip is actually playing, i.e. holds the slot.
+        holder.addJavascriptInterface(object {
+            @JavascriptInterface
+            fun ready() = runOnUiThread { onHolderReady() }
+        }, "FtvHolder")
         holder.webViewClient = object : WebViewClient() {
             override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
                 root.removeView(holder)
@@ -597,9 +592,27 @@ class MainActivity : Activity() {
         overlayHolder = holder
         root.addView(holder, 0, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
         val html = "<!doctype html><body style='margin:0;background:#000'>" +
-            "<video autoplay muted loop playsinline style='width:100vw;height:100vh' " +
+            "<video autoplay muted loop playsinline onplaying='FtvHolder.ready()' style='width:100vw;height:100vh' " +
             "src='data:video/mp4;base64,$OVERLAY_HOLDER_MP4'></video></body>"
         holder.loadDataWithBaseURL(null, html, "text/html", "utf-8", null)
+    }
+
+    private fun destroyOverlayHolder() {
+        overlayHolder?.let {
+            root.removeView(it)
+            it.destroy()
+        }
+        overlayHolder = null
+        holderReady = false
+    }
+
+    private fun onHolderReady() {
+        if (holderReady) return
+        holderReady = true
+        if (resumeWhenHolderReady) {
+            resumeWhenHolderReady = false
+            webView.onResume()
+        }
     }
 
     /** A genuine touch at (x, y) in WebView pixels -- see __ftvActivate. */
@@ -829,10 +842,41 @@ class MainActivity : Activity() {
         CookieManager.getInstance().flush()
     }
 
+    override fun onStart() {
+        super.onStart()
+        if (overlayHolder == null) createOverlayHolder()
+    }
+
+    /**
+     * Gives the overlay holder's decoder back while we're in the background
+     * -- the Firestick only has a few hardware decoders, and a holder still
+     * looping behind another app (a casting receiver, say) can leave that
+     * app without one. onStart brings it back.
+     */
+    override fun onStop() {
+        super.onStop()
+        destroyOverlayHolder()
+    }
+
     override fun onResume() {
         super.onResume()
-        webView.onResume()
+        // Resume the page only once the holder is playing again: a video
+        // that resumes first would grab the broken overlay slot (see
+        // createOverlayHolder) and play black. Falls back after 3s rather
+        // than leave the page frozen if the holder never reports in.
+        if (holderReady) {
+            webView.onResume()
+        } else {
+            resumeWhenHolderReady = true
+            root.postDelayed({
+                if (resumeWhenHolderReady) {
+                    resumeWhenHolderReady = false
+                    webView.onResume()
+                }
+            }, 3000)
+        }
         hideSystemUi()
+        updateChecker.onResume()
         if (launchedCustomTab) {
             launchedCustomTab = false
             webView.reload()
@@ -840,31 +884,12 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
-        overlayHolder?.destroy()
+        updateChecker.onDestroy()
+        destroyOverlayHolder()
         webView.destroy()
         super.onDestroy()
     }
 }
-
-/**
- * Run before any of mde's own scripts (a document-start script). Fire TV's
- * Amazon WebView currently fails to draw video fed through Media Source
- * Extensions -- the decoder runs, the clock advances, audio plays, but the
- * renderer logs "video frame queue is empty" and the picture stays black
- * (also reported by other WebView apps on Amazon's developer forum since
- * ~Oct 11 2026). Progressive and native-HLS video render fine. With
- * MediaSource absent, mde's player falls back to native HLS of the same
- * stream (as it would on an iPhone), which plays normally. Hidden rather
- * than deleted, and before the player's code loads, since it keeps its own
- * reference from first load.
- */
-private const val NO_MSE_JS = """
-(function(){
-  ['MediaSource','ManagedMediaSource','WebKitMediaSource'].forEach(function(k){
-    try { Object.defineProperty(window, k, { value: undefined, configurable: true, writable: true }); } catch (e) {}
-  });
-})();
-"""
 
 /**
  * Injected on every page load. Gives the site a synthetic focus cursor driven

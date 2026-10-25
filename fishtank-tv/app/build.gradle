@@ -11,8 +11,8 @@ android {
         applicationId "com.fishtank.tv"
         minSdk 22
         targetSdk 34
-        versionCode 3
-        versionName "1.1.1"
+        versionCode 4
+        versionName "1.2.0"
     }
 
     flavorDimensions = ["site"]
@@ -22,6 +22,8 @@ android {
             applicationId "com.fishtank.tv"
             resValue "string", "app_name", "Fishtank TV"
             resValue "string", "home_url", "https://www.fishtank.live/"
+            // GitHub release asset UpdateChecker installs (same name the README links to)
+            buildConfigField "String", "UPDATE_APK_NAME", '"fishtank-tv.apk"'
         }
         mde {
             dimension "site"
@@ -29,7 +31,12 @@ android {
             resValue "string", "app_name", "MDE TV"
             // www. directly: the bare domain 308-redirects there on every load
             resValue "string", "home_url", "https://www.mde.tv/"
+            buildConfigField "String", "UPDATE_APK_NAME", '"mde-tv.apk"'
         }
+    }
+
+    buildFeatures {
+        buildConfig true
     }
 
     buildTypes {
@@ -51,5 +58,4 @@ android {
 dependencies {
     implementation 'androidx.core:core-ktx:1.13.1'
     implementation 'androidx.browser:browser:1.8.0'
-    implementation 'androidx.webkit:webkit:1.11.0'
 }

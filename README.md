@@ -27,6 +27,10 @@ Unofficial. Not affiliated with, endorsed by, or supported by either site.
 - **63% less CPU:** compared with v1.0, measured on MDE's homepage.
 - **Subtitles:** on MDE, from the Menu (☰) button.
 - **Autoplay:** the next episode starts when one finishes. Back cancels.
+- **Continue watching:** episodes you've started are in a row at the top of
+  MDE's homepage and Fishtank's Episodes page.
+- **Tidier Fishtank episodes:** seasons run oldest to newest, and the BTS
+  videos are together in the BTS tab.
 - **Auto-updates:** the app offers new versions when it opens. On Fire TV's
   confirm screen, move right to **INSTALL** (it starts on Cancel).
 
@@ -35,6 +39,8 @@ Unofficial. Not affiliated with, endorsed by, or supported by either site.
 - **No Google sign-in:** sign in with your email and password instead.
 - **Speed:** it runs the full desktop site, so pages load slowly on a Firestick.
 - **Subtitles:** MDE only; Fishtank's player doesn't support them.
+- **Continue watching:** it only knows what you've watched on that TV.
+  Neither site saves your place to your account.
 - **Navigation:** it follows the page layout, so it can occasionally pick an
   unexpected item.
 

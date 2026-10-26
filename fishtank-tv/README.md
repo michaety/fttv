@@ -18,10 +18,13 @@ chosen at runtime from the URL.
 
 ```
 app/src/main/java/com/fishtank/tv/
-  MainActivity.kt   WebView shell, key handling, site CSS/cleanup, and the
-                    injected D-pad script (DPAD_JS, at the bottom)
+  MainActivity.kt   WebView shell, key handling, site CSS/cleanup
   FtvWebView.kt     WebView whose keyboard action key submits the field
   UpdateChecker.kt  self-update from GitHub releases
+app/src/main/assets/
+  dpad.js           the injected D-pad script (cursor, scrubbing, player
+                    control, Continue watching). An asset rather than a Kotlin
+                    string: JVM string constants max out at 64KB.
 app/src/{fishtank,mde}/res/   per-flavor icons and banners
 ```
 
@@ -40,9 +43,10 @@ and again on `onPageFinished`. Both are idempotent. It adds:
 - `siteCleanupJs(url)`: tweaks CSS can't express (text matching). Only hide or
   reorder here, never `remove()`. These nodes belong to React, and removing
   them crashed fishtank to "This page couldn't load".
-- `DPAD_JS`: the remote-driven cursor.
+- `assets/dpad.js`: the remote-driven cursor. `__FTV_*__` placeholders in it
+  are filled in by `injectPageScripts()`.
 
-**D-pad cursor (`DPAD_JS`).**
+**D-pad cursor (`dpad.js`).**
 - Candidates: everything focusable within a screen of the viewport (in scroll
   rows only, horizontally), minus anything hidden or covered. A hit-test
   rules out modals' backgrounds and clipped panes.
@@ -88,12 +92,24 @@ again.
   episode in the site's localStorage (`__ftv_pos_<id>`) and restored when
   the player first reports a time. The row an episode was opened from is
   remembered in sessionStorage (`__ftv_queue`, oldest first), and on the
-  player's `ended` event the next one plays after a 5s countdown that Back
-  cancels.
+  player's `ended` event the next one plays after a 10s countdown card that
+  Back cancels.
+- Continue watching: part-watched episodes (`__ftv_recent` in localStorage,
+  newest first, 12 max, dropped when finished) are shown as a row at the top
+  of mde's homepage and fishtank's Episodes page. The row is a clone of one
+  of the site's own rows and cards, so it matches each site's style. It's
+  per-TV: neither site stores watch progress on the account (checked by
+  logging playback traffic on both).
+- On launch the cursor starts on the first Continue watching card, or on
+  fishtank's Episodes button.
 - The screen is kept on only while `__ftvIsPlaying()` is true, polled every
   15s, so the Fire TV's screensaver works.
 - The Menu offers a subtitles toggle when the page's `<video>` has a
   subtitles track (mde). fishtank's player exposes no caption control.
+
+**fishtank Episodes page.** Seasons are sorted oldest first, season 3's two
+BTS videos are hidden there and copied into the BTS tab, and the "Digest" tab
+is labelled "Season 4 Digest" (all in `siteCleanupJs`).
 
 **Back navigation.**
 - On mde, opening an episode is a full page load, so BACK does a plain

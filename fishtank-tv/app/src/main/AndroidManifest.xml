@@ -5,6 +5,9 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- self-update from GitHub releases (UpdateChecker) -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- UPnP cast receiver: SSDP discovery is multicast on the local network -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
 
     <!-- Fire TV / Android TV requirements -->
     <uses-feature android:name="android.software.leanback" android:required="false" />

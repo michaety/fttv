@@ -2,6 +2,7 @@ package com.fishtank.tv
 
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.res.ColorStateList
@@ -105,6 +106,8 @@ class MainActivity : Activity() {
     /** Main WebView's onResume, held back until the holder has the slot. */
     private var resumeWhenHolderReady = false
     private lateinit var updateChecker: UpdateChecker
+    private lateinit var castPlayer: CastPlayer
+    private lateinit var upnp: UpnpRenderer
     private lateinit var progressBar: ProgressBar
     private lateinit var errorView: TextView
     private lateinit var homeUrl: String
@@ -447,6 +450,12 @@ class MainActivity : Activity() {
 
         createWebView()
         createOverlayHolder()   // (onStart then sees it's already there)
+        // UPnP cast receiver, named after the app; runs while the app is in
+        // the foreground (onStart/onStop).
+        castPlayer = CastPlayer(this, root, homeUrl, desktopUserAgent()) {
+            js("window.__ftvPause && window.__ftvPause()")
+        }
+        upnp = UpnpRenderer(this, getString(R.string.app_name), castPlayer)
         root.addView(errorView, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
         root.addView(progressBar, FrameLayout.LayoutParams(MATCH_PARENT, dp(4)).apply { gravity = Gravity.TOP })
 
@@ -673,6 +682,21 @@ class MainActivity : Activity() {
         }
     }
 
+    /** The remote's Menu (☰) button: app-level actions. */
+    private fun showAppMenu() {
+        val items = arrayOf("Check for updates", "Reload page", "Reset cursor")
+        AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
+            .setTitle("${getString(R.string.app_name)} ${BuildConfig.VERSION_NAME}")
+            .setItems(items) { _, which ->
+                when (which) {
+                    0 -> updateChecker.checkNow()
+                    1 -> webView.reload()
+                    2 -> js("window.__ftvReset && window.__ftvReset()")
+                }
+            }
+            .show()
+    }
+
     private fun showError(show: Boolean) {
         errorShown = show
         errorView.visibility = if (show) View.VISIBLE else View.GONE
@@ -762,6 +786,7 @@ class MainActivity : Activity() {
         keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_BUTTON_A
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (castPlayer.isActive && castPlayer.handleKey(event, seekStep(event))) return true
         if (isSelectKey(event.keyCode)) {
             selectHeld = event.action == KeyEvent.ACTION_DOWN
             if (event.action == KeyEvent.ACTION_UP) {
@@ -829,7 +854,7 @@ class MainActivity : Activity() {
             KeyEvent.KEYCODE_MEDIA_PAUSE,
             KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> { js("window.__ftvTogglePlay && window.__ftvTogglePlay()"); return true }
 
-            KeyEvent.KEYCODE_MENU -> { js("window.__ftvReset && window.__ftvReset()"); return true }
+            KeyEvent.KEYCODE_MENU -> { showAppMenu(); return true }
 
             KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> { seekVideo(step); return true }
             KeyEvent.KEYCODE_MEDIA_REWIND -> { seekVideo(-step); return true }
@@ -883,6 +908,7 @@ class MainActivity : Activity() {
     override fun onStart() {
         super.onStart()
         if (overlayHolder == null) createOverlayHolder()
+        upnp.start()
     }
 
     /**
@@ -894,6 +920,10 @@ class MainActivity : Activity() {
     override fun onStop() {
         super.onStop()
         destroyOverlayHolder()
+        // No cast receiving (or casting) in the background: Fire OS would
+        // kill us anyway, and the decoder is better given back.
+        upnp.stop()
+        castPlayer.stopNow()
     }
 
     override fun onResume() {

@@ -115,6 +115,7 @@ and you're done.
 | **Back** | Returns to the homepage; press twice on the homepage to exit |
 | **Play/Pause** | Play or pause the video |
 | **Fast-forward** / **Rewind** | Seek 10s; hold to speed up (30s, then 60s steps) |
+| **Menu (☰)** | App menu: check for updates, reload the page, reset the cursor |
 
 While a video is playing:
 
@@ -126,10 +127,26 @@ While a video is playing:
 
 ---
 
+## Casting from your phone
+
+While the app is open, it shows up as a cast target (**MDE TV** or
+**Fishtank TV**) in UPnP/DLNA casting apps on your phone, such as BubbleUPnP
+or Web Video Caster. Cast a video from the site and it plays full-screen on
+the TV. Your phone can play, pause, seek, change volume and stop, and so can
+the remote: Select plays or pauses, left and right seek, and Back stops.
+
+This is UPnP/DLNA, not Chromecast. The cast button on the website itself
+won't find the TV, because only Google-certified devices can receive
+Chromecast. Cast videos play outside the website, so they don't count
+towards your watch progress there.
+
+---
+
 ## Updating and maintenance
 
-From v1.2.0 the apps check for updates when they start and offer to install
-them. When Fire TV asks to confirm, move right to **INSTALL** (it starts on
+From v1.2.0 the apps check for updates when they start, download any new
+version in the background, and offer to install it. You can also check any
+time from the remote's **Menu (☰)** button (from v1.3.0). When Fire TV asks to confirm, move right to **INSTALL** (it starts on
 Cancel). The first time, it may also ask you to allow the app to install
 apps. You stay signed in.
 

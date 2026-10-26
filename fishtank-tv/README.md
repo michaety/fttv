@@ -20,9 +20,8 @@ chosen at runtime from the URL.
 app/src/main/java/com/fishtank/tv/
   MainActivity.kt   WebView shell, key handling, site CSS/cleanup, and the
                     injected D-pad script (DPAD_JS, at the bottom)
+  FtvWebView.kt     WebView whose keyboard action key submits the field
   UpdateChecker.kt  self-update from GitHub releases
-  UpnpRenderer.kt   UPnP/DLNA MediaRenderer (SSDP + HTTP + SOAP)
-  CastPlayer.kt     ExoPlayer that plays what's cast to UpnpRenderer
 app/src/{fishtank,mde}/res/   per-flavor icons and banners
 ```
 
@@ -92,13 +91,16 @@ Menu (☰) button runs a manual check. Fire OS 8 is Android 11, so one INSTALL
 press on the system confirmation is unavoidable (silent self-updates need
 API 31).
 
-**Cast receiver (`UpnpRenderer` + `CastPlayer`).**
-- Runs while the app is in the foreground. Friendly name = app name; HTTP on
-  port 49494; persistent UUID in prefs.
-- Services: AVTransport, RenderingControl and ConnectionManager. GENA
-  subscriptions are accepted, but no events are sent, so controllers poll.
-- Casts play in Media3/ExoPlayer over the WebView, sending the site URL as
-  Referer/Origin.
+**Keyboard.** Select on a text field focuses it and sends a real touch to
+raise the Fire TV keyboard (a script focus alone won't). The tap waits for
+Select's key-up, or the key-up "presses" the keyboard's highlighted key. The
+Fire TV keyboard always shows Previous/Next, so `FtvWebView` turns any
+editor action into "submit the focused field's form".
+
+**Casting.** Casting into the app was tried and removed in v1.4.0. The
+website's cast button is Chromecast-only, and a Chromecast receiver needs a
+Google-signed device certificate. A UPnP/DLNA receiver worked, but it only
+appears in DLNA casting apps, not the cast button people actually use.
 
 ## Build
 

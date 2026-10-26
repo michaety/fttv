@@ -31,6 +31,8 @@ how to sideload the APK on a Fire TV device.
   built for a wide screen.
 - **Clutter removed.** Chat panels, nav bars, audio players, ad banners and
   purchase prompts are hidden.
+- **Search on MDE.** The search box sits in the header: move up to it, press
+  Select, type, then press **Next** on the keyboard to search.
 - **Lighter on the Firestick.** About **63% less CPU** while browsing MDE's
   homepage than v1.0 (143% → 52% on a Fire TV Stick 4K 2nd gen, average of
   three runs), mostly by not playing preview videos and animations nobody
@@ -124,21 +126,6 @@ While a video is playing:
 | **Select** | Play or pause |
 | **Left** / **Right** | Seek back / forward (hold to speed up) |
 | **Up** / **Down** | Show the time bar |
-
----
-
-## Casting from your phone
-
-While the app is open, it shows up as a cast target (**MDE TV** or
-**Fishtank TV**) in UPnP/DLNA casting apps on your phone, such as BubbleUPnP
-or Web Video Caster. Cast a video from the site and it plays full-screen on
-the TV. Your phone can play, pause, seek, change volume and stop, and so can
-the remote: Select plays or pauses, left and right seek, and Back stops.
-
-This is UPnP/DLNA, not Chromecast. The cast button on the website itself
-won't find the TV, because only Google-certified devices can receive
-Chromecast. Cast videos play outside the website, so they don't count
-towards your watch progress there.
 
 ---
 

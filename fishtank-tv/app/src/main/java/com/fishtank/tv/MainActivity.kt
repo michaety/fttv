@@ -106,8 +106,6 @@ class MainActivity : Activity() {
     /** Main WebView's onResume, held back until the holder has the slot. */
     private var resumeWhenHolderReady = false
     private lateinit var updateChecker: UpdateChecker
-    private lateinit var castPlayer: CastPlayer
-    private lateinit var upnp: UpnpRenderer
     private lateinit var progressBar: ProgressBar
     private lateinit var errorView: TextView
     private lateinit var homeUrl: String
@@ -219,12 +217,25 @@ class MainActivity : Activity() {
                    images it isn't rendering. (Not present in the current
                    build, kept in case it returns.) */
                 div[class*="_chatBar"] { display: none !important; }
-                /* search button */
-                div[class*="mobileSearch"] { display: none !important; }
                 /* "want to be on one of the shows?" call-in promo (logged-in
                    only). Also a 942px animated GIF that never stops
                    decoding, so it costs CPU as well as space. */
                 button[class*="_callInWidget"] { display: none !important; }
+                /* search: a permanent box in the header between the logo and
+                   the profile, instead of the icon that pops a full-width
+                   bar (the site's narrow-screen layout, which this viewport
+                   falls into). Select on it opens the Fire TV keyboard. */
+                div[class*="_topBar"] > div[class*="_mobileSearch"] { display: none !important; }
+                /* (*= not $=: the site adds "_clearable" once there's text) */
+                div[class*="_topBar"] > div[class*="_search"] {
+                  display: flex !important;
+                  position: static !important;
+                  flex: 1 1 auto !important;
+                  min-width: 0 !important;
+                  height: 32px !important;
+                  margin: 0 24px !important;
+                }
+                div[class*="_topBar"] [class*="_mobileBack"] { display: none !important; }
                 /* notification bell next to the logo */
                 button[class*="notification-center-module"], button[class*="_notificationCenter"] { display: none !important; }
                 /* the account/login control's right-alignment depended on
@@ -450,12 +461,6 @@ class MainActivity : Activity() {
 
         createWebView()
         createOverlayHolder()   // (onStart then sees it's already there)
-        // UPnP cast receiver, named after the app; runs while the app is in
-        // the foreground (onStart/onStop).
-        castPlayer = CastPlayer(this, root, homeUrl, desktopUserAgent()) {
-            js("window.__ftvPause && window.__ftvPause()")
-        }
-        upnp = UpnpRenderer(this, getString(R.string.app_name), castPlayer)
         root.addView(errorView, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
         root.addView(progressBar, FrameLayout.LayoutParams(MATCH_PARENT, dp(4)).apply { gravity = Gravity.TOP })
 
@@ -477,7 +482,7 @@ class MainActivity : Activity() {
      */
     @SuppressLint("SetJavaScriptEnabled")
     private fun createWebView() {
-        webView = WebView(this)
+        webView = FtvWebView(this)
         webView.setBackgroundColor(Color.BLACK)
 
         with(webView.settings) {
@@ -786,7 +791,6 @@ class MainActivity : Activity() {
         keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_BUTTON_A
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        if (castPlayer.isActive && castPlayer.handleKey(event, seekStep(event))) return true
         if (isSelectKey(event.keyCode)) {
             selectHeld = event.action == KeyEvent.ACTION_DOWN
             if (event.action == KeyEvent.ACTION_UP) {
@@ -908,7 +912,6 @@ class MainActivity : Activity() {
     override fun onStart() {
         super.onStart()
         if (overlayHolder == null) createOverlayHolder()
-        upnp.start()
     }
 
     /**
@@ -920,10 +923,6 @@ class MainActivity : Activity() {
     override fun onStop() {
         super.onStop()
         destroyOverlayHolder()
-        // No cast receiving (or casting) in the background: Fire OS would
-        // kill us anyway, and the decoder is better given back.
-        upnp.stop()
-        castPlayer.stopNow()
     }
 
     override fun onResume() {
@@ -1632,19 +1631,42 @@ private const val DPAD_JS = """
       if (st.overflowX !== 'visible') { L = Math.max(L, ar.left); R = Math.min(R, ar.right); }
       if (st.overflowY !== 'visible') { T = Math.max(T, ar.top); B = Math.min(B, ar.bottom); }
     }
-    var z = Math.min(ZOOM, (R - L) / r.width, (B - T) / r.height);
+    // Growth allowed on each side: what a centred zoom would use there
+    // (half the extra), but no more than the room to the edge/clip box.
+    // So a card against an edge grows inward only as much as a middle card
+    // would on that side -- zooming less overall rather than spilling
+    // twice as far onto its neighbour.
+    // ...and no further than the gap to the nearest neighbouring item
+    // that way, less a couple of px, so it never paints over the next card.
+    var nL = L, nR = R, nT = T, nB = B, list = cache || [];
+    for (var i = 0; i < list.length; i++) {
+      var o = list[i];
+      if (o === el || el.contains(o) || o.contains(el)) continue;
+      var q = o.getBoundingClientRect();
+      if (q.bottom > r.top && q.top < r.bottom) {          // same row
+        if (q.left >= r.right) nR = Math.min(nR, q.left - 2);
+        if (q.right <= r.left) nL = Math.max(nL, q.right + 2);
+      }
+      if (q.right > r.left && q.left < r.right) {          // same column
+        if (q.top >= r.bottom) nB = Math.min(nB, q.top - 2);
+        if (q.bottom <= r.top) nT = Math.max(nT, q.bottom + 2);
+      }
+    }
+    function rooms(pos, size, lo, hi){
+      var half = (ZOOM - 1) * size / 2;
+      return [Math.max(0, Math.min(half, pos - lo)), Math.max(0, Math.min(half, hi - (pos + size)))];
+    }
+    var rx = rooms(r.left, r.width, nL, nR), ry = rooms(r.top, r.height, nT, nB);
+    var z = Math.min(1 + (rx[0] + rx[1]) / r.width, 1 + (ry[0] + ry[1]) / r.height);
     if (!(z >= 1.02)) z = 1;
-    // Per axis: where the zoomed box would ideally sit (centred), pushed
-    // back inside [lo, hi], expressed as the origin that produces it.
-    function origin(pos, size, lo, hi){
-      if (z === 1) return size / 2;
-      var ns = size * z;
-      var want = Math.max(lo, Math.min(pos - (ns - size) / 2, hi - ns));
-      return Math.max(0, Math.min(size, (pos - want) / (z - 1)));
+    // Origin that splits the growth in proportion to the room each side.
+    function origin(size, room){
+      if (z === 1 || room[0] + room[1] === 0) return size / 2;
+      return size * room[0] / (room[0] + room[1]);
     }
     curZoom = z;
-    curOx = origin(r.left, r.width, L, R);
-    curOy = origin(r.top, r.height, T, B);
+    curOx = origin(r.width, rx);
+    curOy = origin(r.height, ry);
   }
 
   function zoomOn(el){

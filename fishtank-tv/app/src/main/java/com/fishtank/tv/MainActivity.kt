@@ -1697,10 +1697,32 @@ private const val DPAD_JS = """
     return hm ? hm[1] : 'vz-a2fe5bfa-400.b-cdn.net';
   }
 
+  // Sprite sheets already loaded (url -> true) or loading (url -> Image).
+  // A tile is only shown once its sheet has loaded, so a fast scrub into
+  // a new sheet keeps the last good tile instead of flashing black; the
+  // following sheet is preloaded so moving forward rarely waits at all.
+  var sprites = {};
+  function loadSprite(url, then){
+    if (sprites[url] === true) { if (then) then(); return true; }
+    if (!sprites[url]) {
+      var im = new Image();
+      im.onload = function(){ sprites[url] = true; if (im.__then) im.__then(); };
+      im.src = url;
+      sprites[url] = im;
+    }
+    if (then) sprites[url].__then = then;
+    return false;
+  }
+
   function renderThumb(t){
     var th = null;
     try { th = thumbAt(t); } catch (e) {}
     if (!th) { seekThumbEl.classList.remove('__ftv_has'); return; }
+    try { var ahead = thumbAt(t + 72); if (ahead) loadSprite(ahead.url); } catch (e) {}
+    if (!loadSprite(th.url, function(){ if (scrubTime !== null) renderThumb(scrubTime); })) {
+      if (seekThumbEl.style.backgroundImage) seekThumbEl.classList.add('__ftv_has');
+      return;
+    }
     var k = THUMB_W / th.w;
     seekThumbEl.style.width = THUMB_W + 'px';
     seekThumbEl.style.height = Math.round(th.h * k) + 'px';

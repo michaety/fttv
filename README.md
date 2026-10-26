@@ -6,157 +6,157 @@ built by [soon](https://x.com/emty_h3v) @ [fishtank.news](https://fishtank.news)
 
 Unofficial. Not affiliated with, endorsed by, or supported by either site.
 
----
-
 | | | |
 |---|---|---|
 | <img src="assets/icons/fishtank-tv.png" width="64" alt="Fishtank TV icon"> | **Fishtank TV** — fishtank.live | [Download](https://github.com/michaety/fttv/releases/latest/download/fishtank-tv.apk) |
 | <img src="assets/icons/mde-tv.png" width="64" alt="MDE TV icon"> | **MDE TV** — mde.tv | [Download](https://github.com/michaety/fttv/releases/latest/download/mde-tv.apk) |
 
-Install one or both. See [Installing](#installing) below for
-how to sideload the APK on a Fire TV device.
+Install one or both. See [Installing](#installing) for how to sideload them.
 
 <table>
 <tr>
-<td><img src="assets/screenshots/fishtank-tv.jpg" alt="Fishtank TV screenshot" width="480"></td>
-<td><img src="assets/screenshots/mde-tv.jpg" alt="MDE TV screenshot" width="480"></td>
+<td><img src="assets/screenshots/nav-demo-fishtank.gif" alt="Navigating Fishtank TV's Episodes page with the remote" width="480"></td>
+<td><img src="assets/screenshots/nav-demo.gif" alt="Navigating MDE TV's homepage with the remote" width="480"></td>
 </tr>
 </table>
 
-### What they do
+---
 
-- **Remote navigation.** Arrow keys move between items on the page (the
-  selected one zooms in), Select activates it.
-- **TV-appropriate layout.** The desktop site, not the phone one, so it's
-  built for a wide screen.
+## Features
+
+**Browsing**
+- **Made for the remote.** The arrows move between items, and the selected
+  one zooms in. Select opens it.
 - **Clutter removed.** Chat panels, nav bars, audio players, ad banners and
   purchase prompts are hidden.
-- **Search on MDE.** The search box sits in the header: move up to it, press
-  Select, type, then press **Next** on the keyboard to search.
-- **Lighter on the Firestick.** About **63% less CPU** while browsing MDE's
-  homepage than v1.0 (143% → 52% on a Fire TV Stick 4K 2nd gen, average of
-  three runs), mostly by not playing preview videos and animations nobody
-  asked for. Page loads and episode start times are about the same as
-  before: those are set by the sites themselves.
+- **Search on MDE.** Move up to the search box in the header and press
+  Select. Type your search, then press **Next** on the keyboard.
+- **Fishtank Episodes page tidied up.** Two full rows fit on screen, and every
+  section's **View All** can be reached. All 8 cams fit on the homepage.
 
-Navigating with the remote:
+**Watching**
+- **Scrubbing with previews.** Left and right move a marker along the time
+  bar and show a thumbnail of that point, without interrupting the video.
+- **Resume where you left off**, and **Up next**: when an episode finishes, a
+  card shows the next one's thumbnail and title with a countdown.
+- **Subtitles** on MDE, from the Menu (☰) button.
+- **Notifications show over the video.** Achievement, mission and reward
+  pop-ups appear along the bottom of the screen.
+
+**Under the hood**
+- **Updates itself.** The app checks for new versions when it opens and
+  offers to install them.
+- **Lighter on the Firestick.** MDE's homepage uses about **63% less CPU**
+  than v1.0 (143% → 52% on a Fire TV Stick 4K 2nd gen, averaged over three
+  runs). Page loads and episode start times are set by the sites themselves,
+  so they're about the same.
+- **The TV can sleep.** The screen stays on only while something is playing.
+- **Video works on current Fire TV software.** It includes a workaround for an
+  Amazon bug that plays video as a black screen in apps like this one.
 
 <table>
 <tr>
-<td><img src="assets/screenshots/nav-demo-fishtank.gif" alt="Navigating Fishtank TV's Episodes page with the D-pad" width="480"></td>
-<td><img src="assets/screenshots/nav-demo.gif" alt="Navigating MDE TV's homepage with the D-pad" width="480"></td>
+<td><img src="assets/screenshots/scrubbing.jpg" alt="Scrubbing with a preview thumbnail" width="480"></td>
+<td><img src="assets/screenshots/up-next.jpg" alt="Up next card with countdown" width="480"></td>
+</tr>
+<tr>
+<td align="center">Scrubbing with a preview</td>
+<td align="center">Up next</td>
 </tr>
 </table>
 
-### What they don't do
+### Limitations
 
-These are websites in a wrapper, not native TV apps. **Expect some rough edges**:
+These are the websites in a wrapper, not native TV apps:
 
-- Navigation is approximate. Can be buggy.
-- The Firestick is running a full desktop web app. **It is not fast.**
-- Anything the site changes on their end may break something here.
-- Sign in with Google. See requirements below.
-
----
-
-## Requirements
-
-- A Fire TV Stick or Fire TV device. **Developed and tested on a Fire TV Stick
-  4K (2nd gen)** — anything older than this may be unusable. It's a standard
-  Android TV app under the hood, so it should work fine on any Android TV
-  device too, just untested there.
-- An account on whichever site you're installing for — these apps don't
-  create accounts or bypass anything
-- **A password on that account.** Google sign-in does not work. If your account is Google-only, use "forgot
-  password" on the site to set one first, then sign in with email and
-  password on the TV. This won't disable you from logging in with Google elsewhere in future.
-
----
-
-## Installing
-
-First, enable Developer Options: Settings → My Fire TV → About, then click
-your device name seven times.
-
-**1. Allow app installs**
-
-Settings → My Fire TV → Developer Options → Install Unknown Apps → enable it
-for whichever app you'll install from (Downloader, or your file manager).
-
-**2. Get the APK**
-
-Download the latest release from the
-[Releases](../../releases) page. Each release has two files:
-
-- `fishtank-tv.apk`
-- `mde-tv.apk`
-
-**3. Install it**
-
-Option 1: **[Downloader](https://www.amazon.com.au/AFTVnews-com-Downloader/dp/B01N0BP507?dplnkId=e9566ed7-f213-4ad2-89a4-d1566c14b1ee)**
-app from the Amazon Appstore — enter the release URL (or go to this url), it downloads and prompts
-to install.
-
-Option 2: **[Apps2Fire](https://play.google.com/store/apps/details?id=mobi.koni.appstofiretv)**
-pushes an APK from your Android phone over wifi. Install Apps2Fire, then the apks of your choosing and push the installs to your Firestick.
-
-**4. Launch and sign in**
-
-The app appears in your apps row. Open it, sign in with email and password,
-and you're done.
+- **The Firestick runs a full desktop web app.** It's usable, not fast.
+- **Navigation is approximate.** It follows the page layout, so it can
+  occasionally pick an unexpected item.
+- **Site changes can break things.** If either site is redesigned, some
+  hiding or navigation may stop working until the app is updated.
+- **No Google sign-in.** See [Requirements](#requirements).
+- **No casting to the app.** The cast button on the websites only finds
+  Chromecast devices.
 
 ---
 
 ## Remote controls
 
-| Button | Does |
-|---|---|
-| **Arrows** | Navigation |
-| **Select** | Selects |
-| **Back** | Returns to the homepage; press twice on the homepage to exit |
-| **Play/Pause** | Play or pause the video |
-| **Fast-forward** / **Rewind** | Scrub forward / back (see below) |
-| **Menu (☰)** | App menu: subtitles on/off (MDE, while watching), check for updates, reload the page, reset the cursor |
+| Button | Browsing | While watching |
+|---|---|---|
+| **Arrows** | Move between items | **Left/Right:** scrub (hold to go faster) · **Up/Down:** show the time bar |
+| **Select** | Open the selected item | Play/pause, or jump to the scrub point |
+| **Back** | Back to the homepage · press twice there to exit | Cancel a scrub or Up next · otherwise back to the homepage |
+| **Play/Pause** | | Play/pause |
+| **Fast-forward / Rewind** | | Scrub forward / back |
+| **Menu (☰)** | App menu: check for updates, reload, reset the cursor | Also: subtitles on/off (MDE) |
 
-While a video is playing:
+**Scrubbing:** each press moves 10 seconds, and holding speeds up to 30 and
+then 60 second steps. The video jumps when you press Select, or by itself a
+moment after you stop pressing.
 
-| Button | Does |
-|---|---|
-| **Select** | Play or pause (or jump to the scrub point, while scrubbing) |
-| **Left** / **Right** | Scrub back / forward, with a preview thumbnail. Each press moves 10s; hold to speed up (30s, then 60s steps) |
-| **Back** | While scrubbing: cancel and stay where you were |
-| **Up** / **Down** | Show the time bar |
-
-Scrubbing moves a marker without touching the video. It jumps when you
-press **Select**, or by itself a moment after you stop pressing.
-
-Episodes resume where you left off. When one finishes, an **Up next** card
-shows the next episode's thumbnail and title with a countdown, then plays it.
-**Back** cancels. On Fishtank, "next" is the next episode in the row you
-opened it from. The TV can go to sleep or start
-its screensaver whenever nothing is playing.
+**Up next:** on MDE, the site picks the next episode. On Fishtank, it's the
+next episode in the row you opened the current one from.
 
 ---
 
-## Updating and maintenance
+## Requirements
 
-From v1.2.0 the apps check for updates when they start, download any new
-version in the background, and offer to install it. You can also check any
-time from the remote's **Menu (☰)** button (from v1.3.0). When Fire TV asks to confirm, move right to **INSTALL** (it starts on
-Cancel). The first time, it may also ask you to allow the app to install
-apps. You stay signed in.
+- **A Fire TV Stick or other Fire TV device.** The apps were developed and
+  tested on a Fire TV Stick 4K (2nd gen); older devices may be too slow.
+  Other Android TV devices should work, but are untested.
+- **An account on the site.** The apps don't create accounts or bypass
+  anything.
+- **A password on that account.** Google sign-in doesn't work inside the apps.
+  If your account is Google-only, use "forgot password" on the site to set
+  one, then sign in on the TV with email and password. You can still use
+  Google sign-in everywhere else.
 
-On an older version, update once by hand: download the new APK from the
-[latest release](../../releases/latest) and install it the same way as the
-first time (Downloader or Apps2Fire). It installs over the old version.
+---
 
-I created this selfishly so I could watch this content on my TV. Anything beyond an update that breaks the app I will not be maintaining.
+## Installing
+
+**1. Enable Developer Options.** Settings → My Fire TV → About, then select
+your device name seven times.
+
+**2. Allow app installs.** Settings → My Fire TV → Developer Options →
+Install Unknown Apps, and turn it on for the app you'll install with.
+
+**3. Install the APK.** Use one of these:
+
+- **[Downloader](https://www.amazon.com.au/AFTVnews-com-Downloader/dp/B01N0BP507)**
+  (Amazon Appstore). Enter one of these addresses and follow the prompts:
+  - `https://github.com/michaety/fttv/releases/latest/download/fishtank-tv.apk`
+  - `https://github.com/michaety/fttv/releases/latest/download/mde-tv.apk`
+- **[Apps2Fire](https://play.google.com/store/apps/details?id=mobi.koni.appstofiretv)**
+  on an Android phone. Download the APK from the
+  [Releases](../../releases/latest) page to your phone, then push it to the
+  Fire TV over Wi-Fi.
+
+**4. Open the app and sign in** with your email and password. It appears in
+your apps row.
+
+---
+
+## Updating
+
+From v1.2.0, the apps check for updates when they open, download them in
+the background, and ask before installing. You can also check any time from
+the **Menu (☰)** button. When Fire TV asks you to confirm, move right to
+**INSTALL**, because it starts on Cancel. The first time, Fire TV may also ask
+you to let the app install apps. You stay signed in.
+
+On an older version, update once by hand: install the latest APK the same
+way as the first time. It installs over the old one.
+
+I made these so I could watch this content on my TV. Beyond fixing updates
+that break the apps, I'm not maintaining them.
 
 ---
 
 ## Notes
 
-These apps display websites you already have accounts for. They don't
-circumvent payment, DRM, or access controls, and they don't collect anything —
-there's no analytics, no telemetry, and no server involved beyond the sites
-themselves.
+These apps show websites you already have accounts for. They don't get around
+payment, DRM or access controls, and they don't collect anything: there's no
+analytics or telemetry. The only connections besides the sites themselves are
+the update check and downloads, which go to this GitHub repository.

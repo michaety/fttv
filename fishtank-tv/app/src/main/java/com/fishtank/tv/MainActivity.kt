@@ -167,6 +167,21 @@ class MainActivity : Activity() {
                 a[href^="/episodes/"][class*="md:w-[400px]"] { width: 180px !important; height: auto !important; }
                 a[href^="/episodes/"][class*="md:w-[400px]"] > img { width: 180px !important; height: 135px !important; }
                 div.flex.flex-col.gap-5.mb-5:has(a[href^="/episodes/"]) { zoom: 0.8; }
+                /* achievement / mission toasts (Sonner): over the fullscreen
+                   video (which sits just below the top layer for this), at
+                   the bottom of the screen */
+                [data-sonner-toaster] {
+                  z-index: 2147483647 !important;
+                  top: auto !important;
+                  bottom: 32px !important;
+                }
+                /* a toaster configured for the top hangs its toasts down
+                   from the anchor -- moved to the bottom, they'd drop off
+                   the screen, so hang them upward instead */
+                [data-sonner-toaster] [data-sonner-toast][data-y-position="top"] {
+                  top: auto !important;
+                  bottom: 0 !important;
+                }
                 /* homepage cam grid: 4 columns, as the site itself does from
                    its lg breakpoint, which this viewport falls just short of
                    -- all 8 tiles on one screen instead of 4 */
@@ -213,6 +228,14 @@ class MainActivity : Activity() {
                    the (now-hidden) search wrapper's margin-left:auto --
                    without that it collapsed to sit right next to the logo */
                 div[class*="_topBar"] > div[class*="_user"] { margin-left: auto !important; }
+                /* reward / badge toasts (react-hot-toast): over the
+                   fullscreen video and at the bottom of the screen. The
+                   library stacks toasts down from the top, so the container
+                   is flipped vertically and each toast flipped back upright
+                   -- with 'scale', which composes with the transforms the
+                   toasts animate with instead of replacing them. */
+                [data-rht-toaster] { z-index: 2147483647 !important; scale: 1 -1; }
+                [data-rht-toaster] > div > * { scale: 1 -1; }
                 /* homepage HYDEFORCE ad banner: the site advertising its own
                    merch (the same reason fishtank's merch prompts are
                    hidden), and a looping video ad besides. Unconditional:
@@ -1224,6 +1247,11 @@ private const val DPAD_JS = """
   // breadcrumbs) shares the layout with it. Pinning the player element
   // itself to cover the viewport achieves the same visual result without
   // ever calling the blocked API.
+  // The fullscreen player stays just under the very top layer, which is
+  // left for the sites' achievement/reward toasts (see siteCss) and the
+  // app's own seek overlay.
+  var FULLSCREEN_Z = 2147483000;
+
   function pinStyle(el, prop, value){
     fullscreenUndo.push([el, el.style.cssText]);
     el.style.setProperty(prop, value, 'important');
@@ -1274,7 +1302,7 @@ private const val DPAD_JS = """
       // Staying in place also means staying inside any ancestor stacking
       // context -- lift those to the top too, or a fixed site header with
       // a higher z-index would paint over the video.
-      if (s.zIndex !== 'auto' && s.position !== 'static') pinStyle(a, 'z-index', '2147483647');
+      if (s.zIndex !== 'auto' && s.position !== 'static') pinStyle(a, 'z-index', String(FULLSCREEN_Z));
     }
     fullscreenUndo.push([el, el.style.cssText]);
     el.style.setProperty('position', 'fixed', 'important');
@@ -1289,7 +1317,7 @@ private const val DPAD_JS = """
     // right than the left.
     el.style.setProperty('width', window.innerWidth + 'px', 'important');
     el.style.setProperty('height', window.innerHeight + 'px', 'important');
-    el.style.setProperty('z-index', '2147483647', 'important');
+    el.style.setProperty('z-index', String(FULLSCREEN_Z), 'important');
     el.style.setProperty('background', '#000', 'important');
     hideVeil();
   }

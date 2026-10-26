@@ -54,7 +54,6 @@ These are websites in a wrapper, not native TV apps. **Expect some rough edges**
 
 - Navigation is approximate. Can be buggy.
 - The Firestick is running a full desktop web app. **It is not fast.**
-- No on-screen scrubber. Seeking is in steps from the remote (see below).
 - Anything the site changes on their end may break something here.
 - Sign in with Google. See requirements below.
 
@@ -116,16 +115,20 @@ and you're done.
 | **Select** | Selects |
 | **Back** | Returns to the homepage; press twice on the homepage to exit |
 | **Play/Pause** | Play or pause the video |
-| **Fast-forward** / **Rewind** | Seek 10s; hold to speed up (30s, then 60s steps) |
+| **Fast-forward** / **Rewind** | Scrub forward / back (see below) |
 | **Menu (☰)** | App menu: check for updates, reload the page, reset the cursor |
 
 While a video is playing:
 
 | Button | Does |
 |---|---|
-| **Select** | Play or pause |
-| **Left** / **Right** | Seek back / forward (hold to speed up) |
+| **Select** | Play or pause (or jump to the scrub point, while scrubbing) |
+| **Left** / **Right** | Scrub back / forward, with a preview thumbnail. Each press moves 10s; hold to speed up (30s, then 60s steps) |
+| **Back** | While scrubbing: cancel and stay where you were |
 | **Up** / **Down** | Show the time bar |
+
+Scrubbing moves a marker without touching the video. It jumps when you
+press **Select**, or by itself a moment after you stop pressing.
 
 ---
 

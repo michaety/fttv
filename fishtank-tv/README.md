@@ -53,9 +53,15 @@ and again on `onPageFinished`. Both are idempotent. It adds:
   inside clipping ancestors), and a separate fixed "lift" element draws the
   shadow and light edge.
 - Keys on a watch page:
-  - Select: play/pause
-  - Left/right: seek
+  - Select: play/pause, or commit a scrub
+  - Left/right, FF/RW: scrub (`__ftvScrub`). The target moves and the
+    overlay shows a preview tile, but the player is only seeked once, on
+    Select or 1.5s after the last press. Back cancels.
   - Up/down: show the time bar
+- Scrub previews: both players are Bunny Stream, whose seek previews are
+  6x6 sprite sheets with one tile every 2s. mde exposes them as a
+  `thumbnails` metadata text track on its `<video>`. fishtank's are public
+  at `<cdn>/<video id>/seek/_N.jpg`.
 - Players:
   - mde: a same-origin `<video>`.
   - fishtank: Bunny's cross-origin iframe, driven through player.js

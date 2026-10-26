@@ -748,7 +748,7 @@ class MainActivity : Activity() {
      * (player.js protocol) there instead of a property write.
      */
     private fun seekVideo(deltaSeconds: Int) {
-        js("window.__ftvSeek && window.__ftvSeek($deltaSeconds)")
+        js("window.__ftvScrub && window.__ftvScrub($deltaSeconds)")
     }
 
     private fun hideSystemUi() {
@@ -870,6 +870,17 @@ class MainActivity : Activity() {
                     exitCustomView()
                     return true
                 }
+                // A scrub in progress: BACK cancels it, and only that.
+                webView.evaluateJavascript("window.__ftvScrubCancel ? window.__ftvScrubCancel() : false") { r ->
+                    if (r != "true") leavePage()
+                }
+                return true
+            }
+        }
+        return super.onKeyDown(keyCode, event)
+    }
+
+    private fun leavePage() {
                 // Belt-and-suspenders alongside disablePictureInPicture in
                 // DPAD_JS: a paused video can't trigger auto-PiP on navigate-away.
                 // Covers both a same-origin <video> and (the common case) a
@@ -894,10 +905,6 @@ class MainActivity : Activity() {
                         Toast.makeText(this, "Press BACK again to exit", Toast.LENGTH_SHORT).show()
                     }
                 }
-                return true
-            }
-        }
-        return super.onKeyDown(keyCode, event)
     }
 
     override fun onPause() {
@@ -1432,6 +1439,12 @@ private const val DPAD_JS = """
   // overlay itself, was what got removed for performance earlier).
   var seekOverlayEl = null, seekOverlayTimeEl = null, seekOverlayFillEl = null, seekOverlayHideTimer = null;
   var seekOverlayVisible = false;
+  var seekThumbEl = null;
+  // Scrubbing: left/right and FF/RW move this target without touching the
+  // player; one seek happens on Select, or after SCRUB_COMMIT_MS without a
+  // key press. Back cancels. null when not scrubbing.
+  var scrubTime = null, scrubTimer = null;
+  var SCRUB_COMMIT_MS = 1500;
 
   function currentPlaybackInfo(){
     if (trackedVideo && document.contains(trackedVideo)) {
@@ -1461,11 +1474,18 @@ private const val DPAD_JS = """
       '#__ftv_seek_time{color:#fff;font:600 18px/1.2 sans-serif;text-align:center;margin-bottom:6px;' +
         'text-shadow:0 1px 3px rgba(0,0,0,.8);}' +
       '#__ftv_seek_bar{width:100%;height:5px;border-radius:3px;background:rgba(255,255,255,.3);overflow:hidden;}' +
-      '#__ftv_seek_fill{height:100%;width:0%;background:__FTV_ACCENT_HEX__;}';
+      '#__ftv_seek_fill{height:100%;width:0%;background:__FTV_ACCENT_HEX__;}' +
+      '#__ftv_seek.__ftv_scrub{min-width:520px;}' +
+      '#__ftv_seek_thumb{display:none;margin:0 auto 8px;border-radius:6px;background-color:#000;' +
+        'background-repeat:no-repeat;box-shadow:0 2px 10px rgba(0,0,0,.6);}' +
+      '#__ftv_seek.__ftv_scrub #__ftv_seek_thumb.__ftv_has{display:block;}';
     (document.head || document.documentElement).appendChild(style);
 
     seekOverlayEl = document.createElement('div');
     seekOverlayEl.id = '__ftv_seek';
+    seekThumbEl = document.createElement('div');
+    seekThumbEl.id = '__ftv_seek_thumb';
+    seekOverlayEl.appendChild(seekThumbEl);
     seekOverlayTimeEl = document.createElement('div');
     seekOverlayTimeEl.id = '__ftv_seek_time';
     var bar = document.createElement('div');
@@ -1481,9 +1501,61 @@ private const val DPAD_JS = """
   function renderSeekOverlay(){
     ensureSeekOverlay();
     var info = currentPlaybackInfo();
+    var t = scrubTime !== null ? scrubTime : info.time;
     var hours = isFinite(info.duration) && info.duration >= 3600;
-    seekOverlayTimeEl.textContent = fmtSeekTime(info.time, hours) + ' / ' + fmtSeekTime(info.duration, hours);
-    seekOverlayFillEl.style.width = (info.duration ? (info.time / info.duration * 100) : 0) + '%';
+    seekOverlayTimeEl.textContent = fmtSeekTime(t, hours) + ' / ' + fmtSeekTime(info.duration, hours);
+    seekOverlayFillEl.style.width = (info.duration ? (t / info.duration * 100) : 0) + '%';
+    seekOverlayEl.classList.toggle('__ftv_scrub', scrubTime !== null);
+    if (scrubTime !== null) renderThumb(scrubTime);
+  }
+
+  // Preview thumbnail for time t. Both sites' players are Bunny Stream,
+  // whose seek previews are sprite sheets of 6x6 tiles, one every 2s:
+  //  - mde's own <video> carries them as a 'thumbnails' metadata track
+  //    (cue text "<sprite url>#xywh=x,y,w,h"), signed URLs included;
+  //  - fishtank's player is a cross-origin iframe, but its sprites are
+  //    public at <cdn>/<video id>/seek/_N.jpg (1800x1008, tiles 300x168).
+  // No preview (just the bar) if neither is available.
+  var THUMB_W = 240;
+  function thumbAt(t){
+    var v = trackedVideo && document.contains(trackedVideo) ? trackedVideo : null;
+    if (v) {
+      var track = null;
+      for (var i = 0; i < v.textTracks.length; i++) {
+        var tt = v.textTracks[i];
+        if (tt.kind === 'metadata' && /thumb/i.test(tt.label)) { track = tt; break; }
+      }
+      var cues = track && track.cues;
+      if (!cues || !cues.length) return null;
+      var lo = 0, hi = cues.length - 1;
+      while (lo < hi) { var mid = (lo + hi + 1) >> 1; if (cues[mid].startTime <= t) lo = mid; else hi = mid - 1; }
+      var m = /^(\S+?)#xywh=(\d+),(\d+),(\d+),(\d+)/.exec(String(cues[lo].text).trim());
+      if (!m) return null;
+      return { url: m[1], x: +m[2], y: +m[3], w: +m[4], h: +m[5] };
+    }
+    var f = findPlayerFrame();
+    var id = f && /\/embed\/\d+\/([0-9a-f-]{36})/.exec(f.src);
+    if (!id) return null;
+    var host = 'vz-a2fe5bfa-400.b-cdn.net';
+    var img = document.querySelector('img[src*=".b-cdn.net/"]');
+    var hm = img && /\/\/(vz-[^/]+\.b-cdn\.net)\//.exec(img.src);
+    if (hm) host = hm[1];
+    var n = Math.floor(Math.max(0, t) / 2), k = n % 36;
+    return { url: 'https://' + host + '/' + id[1] + '/seek/_' + Math.floor(n / 36) + '.jpg',
+             x: (k % 6) * 300, y: Math.floor(k / 6) * 168, w: 300, h: 168 };
+  }
+
+  function renderThumb(t){
+    var th = null;
+    try { th = thumbAt(t); } catch (e) {}
+    if (!th) { seekThumbEl.classList.remove('__ftv_has'); return; }
+    var k = THUMB_W / th.w;
+    seekThumbEl.style.width = THUMB_W + 'px';
+    seekThumbEl.style.height = Math.round(th.h * k) + 'px';
+    seekThumbEl.style.backgroundImage = 'url("' + th.url + '")';
+    seekThumbEl.style.backgroundSize = (th.w * 6 * k) + 'px ' + (th.h * 6 * k) + 'px';
+    seekThumbEl.style.backgroundPosition = (-th.x * k) + 'px ' + (-th.y * k) + 'px';
+    seekThumbEl.classList.add('__ftv_has');
   }
 
   function showSeekOverlay(){
@@ -1491,6 +1563,7 @@ private const val DPAD_JS = """
     seekOverlayEl.classList.add('__ftv_show');
     seekOverlayVisible = true;
     if (seekOverlayHideTimer) clearTimeout(seekOverlayHideTimer);
+    if (scrubTime !== null) return;   // stays up until the scrub ends
     seekOverlayHideTimer = setTimeout(function(){
       seekOverlayEl.classList.remove('__ftv_show');
       seekOverlayVisible = false;
@@ -1545,6 +1618,49 @@ private const val DPAD_JS = """
     playerState.time = next;
     sendPlayerCommand('setCurrentTime', next);
     showSeekOverlay();
+  };
+
+  window.__ftvScrub = function(deltaSeconds){
+    if (scrubTime === null) {
+      // Position not known yet (fishtank, before the player reports in):
+      // fall back to a plain relative seek rather than scrub from 0.
+      if (!(trackedVideo && document.contains(trackedVideo)) && !playerState.timeKnown) {
+        window.__ftvSeek(deltaSeconds);
+        return;
+      }
+      scrubTime = currentPlaybackInfo().time;
+    }
+    var dur = currentPlaybackInfo().duration;
+    scrubTime = Math.max(0, scrubTime + deltaSeconds);
+    if (dur) scrubTime = Math.min(scrubTime, Math.max(0, dur - 1));
+    if (scrubTimer) clearTimeout(scrubTimer);
+    scrubTimer = setTimeout(window.__ftvScrubCommit, SCRUB_COMMIT_MS);
+    showSeekOverlay();
+  };
+
+  // Seek to the scrub target. Returns true if a scrub was in progress.
+  window.__ftvScrubCommit = function(){
+    if (scrubTime === null) return false;
+    var target = scrubTime;
+    scrubTime = null;
+    if (scrubTimer) { clearTimeout(scrubTimer); scrubTimer = null; }
+    if (trackedVideo && document.contains(trackedVideo)) {
+      trackedVideo.currentTime = target;
+    } else {
+      playerState.time = target;
+      sendPlayerCommand('setCurrentTime', target);
+    }
+    showSeekOverlay();
+    return true;
+  };
+
+  // Drop the scrub without seeking. Returns true if one was in progress.
+  window.__ftvScrubCancel = function(){
+    if (scrubTime === null) return false;
+    scrubTime = null;
+    if (scrubTimer) { clearTimeout(scrubTimer); scrubTimer = null; }
+    showSeekOverlay();
+    return true;
   };
 
   // True on any dedicated watch page (never the homepage -- see the
@@ -1899,8 +2015,8 @@ private const val DPAD_JS = """
   // just bring up the position overlay.
   window.__ftvNavigate = function(dir, step){
     if (playingVideo()) {
-      if (dir === 'left') window.__ftvSeek(-(step || 10));
-      else if (dir === 'right') window.__ftvSeek(step || 10);
+      if (dir === 'left') window.__ftvScrub(-(step || 10));
+      else if (dir === 'right') window.__ftvScrub(step || 10);
       else showSeekOverlay();
       return;
     }
@@ -1960,7 +2076,7 @@ private const val DPAD_JS = """
   };
 
   window.__ftvActivate = function(){
-    if (playingVideo()) { window.__ftvTogglePlay(); return; }
+    if (playingVideo()) { if (!window.__ftvScrubCommit()) window.__ftvTogglePlay(); return; }
     if (silentCur) { mark(cur); return; }        // first press just reveals it
     if (!cur) { window.__ftvReset(); return; }
     var tag = cur.tagName.toLowerCase();

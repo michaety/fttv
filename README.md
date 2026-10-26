@@ -82,5 +82,4 @@ and you're done.
 
 These are just a TV-friendly wrapper around the websites, so expect some
 rough edges, and a site redesign may break things until the app is updated. They don't
-collect anything or bypass anything. I made them for myself, and I'll only
-fix updates that break them.
+collect anything or bypass anything.

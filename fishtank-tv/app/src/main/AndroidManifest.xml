@@ -24,6 +24,7 @@
 
         <activity
             android:name=".MainActivity"
+            android:banner="@drawable/banner"
             android:exported="true"
             android:screenOrientation="landscape"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|uiMode|keyboard|keyboardHidden|navigation">

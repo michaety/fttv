@@ -1,84 +1,156 @@
-# Fishtank TV
+# fishtank-tv — developer notes
 
-A Fire TV / Android TV shell that loads **fishtank.live** or **mde.tv** in a fullscreen
-WebView and injects D-pad navigation, so the site is usable from the remote without
-plugging in a mouse.
+The Android project behind both apps. For what the apps do and how to install
+them, see the [main README](../README.md).
 
-Rebuild of the March 2026 project, with the two outstanding changes already applied:
-desktop user-agent, and a two-site launcher instead of two separate APKs.
+One codebase, two product flavors:
 
-## What it does
+| Flavor | App | Package | Home URL | Release asset |
+|---|---|---|---|---|
+| `fishtank` | Fishtank TV | `com.fishtank.tv` | `https://www.fishtank.live/` | `fishtank-tv.apk` |
+| `mde` | MDE TV | `com.mde.tv` | `https://www.mde.tv/` | `mde-tv.apk` |
 
-- **Launcher screen** — two focusable tiles, fishtank.live and mde.tv
-- **Fullscreen WebView** — desktop Chrome user-agent, so you get the desktop layout
-  rather than the phone one
-- **Injected D-pad navigation** — arrows do a geometric nearest-neighbour search for
-  the next focusable element; amber ring shows what is selected
-- **Select** activates. Text inputs get focus so the Fire TV keyboard appears;
-  video elements toggle play/pause
-- **Menu button** re-acquires focus if it ever gets stuck
-- **Back** goes back through history, then drops to the launcher
-- **Play/Pause** on the remote controls the page's `<video>` element
-- **Cookies persist**, so you stay logged in between launches
-- **Dead-end handling** — if there's nothing focusable in the direction you pressed,
-  the page scrolls instead
+Per-flavor values (name, home URL, update asset name) live in
+`app/build.gradle`. Everything else is shared, and site-specific behaviour is
+chosen at runtime from the URL.
+
+## Layout
+
+```
+app/src/main/java/com/fishtank/tv/
+  MainActivity.kt   WebView shell, key handling, site CSS/cleanup, and the
+                    injected D-pad script (DPAD_JS, at the bottom)
+  UpdateChecker.kt  self-update from GitHub releases
+  UpnpRenderer.kt   UPnP/DLNA MediaRenderer (SSDP + HTTP + SOAP)
+  CastPlayer.kt     ExoPlayer that plays what's cast to UpnpRenderer
+app/src/{fishtank,mde}/res/   per-flavor icons and banners
+```
+
+## How it works
+
+**WebView shell.** A fullscreen WebView loads the site's *desktop* layout,
+using a desktop Chrome user agent that carries the WebView's real Chrome
+version. The Firestick renders the web at 2x, so the page is laid out at
+960x540 CSS pixels, just under both sites' `lg` breakpoints.
+
+**Injection.** `injectPageScripts()` runs on `onPageCommitVisible` (first paint)
+and again on `onPageFinished`. Both are idempotent. It adds:
+- `siteCss(url)`: hides clutter and adjusts layout. Match on stable parts of
+  class names, never on build hashes. mde uses CSS-module classes like
+  `5R0ZAa_music`, so match `[class*="_music"]`.
+- `siteCleanupJs(url)`: tweaks CSS can't express (text matching). Only hide or
+  reorder here, never `remove()`. These nodes belong to React, and removing
+  them crashed fishtank to "This page couldn't load".
+- `DPAD_JS`: the remote-driven cursor.
+
+**D-pad cursor (`DPAD_JS`).**
+- Candidates: everything focusable within a screen of the viewport (in scroll
+  rows only, horizontally), minus anything hidden or covered. A hit-test
+  rules out modals' backgrounds and clipped panes.
+- Movement: nearest in the pressed direction. Items in line with the cursor
+  win ("beam" rule, as Android does), and left/right stays inside a scrolling
+  row.
+- Selection style: the item zooms (up to 10%, fitted so it stays on screen and
+  inside clipping ancestors), and a separate fixed "lift" element draws the
+  shadow and light edge.
+- Keys on a watch page:
+  - Select: play/pause
+  - Left/right: seek
+  - Up/down: show the time bar
+- Players:
+  - mde: a same-origin `<video>`.
+  - fishtank: Bunny's cross-origin iframe, driven through player.js
+    `postMessage` (subscribe with `addEventListener`, not `on`).
+- Fullscreen pins the player in place and neutralises ancestors that would
+  trap `position: fixed`. It never reparents: moving an iframe reloads it.
+
+**Amazon WebView video overlay (important).** Amazon's WebView gives the first
+large playing video in the app a hardware overlay. It allows one per app
+(`AWV Unable to create overlay; MAX_OVERLAYS limit hit`), and on current Fire
+OS the overlay never gets frames, so that video plays with sound but a
+black/grey picture. `createOverlayHolder()` runs a second, hidden 8px WebView
+that plays a 720p black clip, then pauses it. This holds the slot, so the
+sites' videos are composited normally. The clip has to be a real resolution
+(128x72 was ignored) and has to live outside the site's DOM (React discards
+injected nodes). Left playing, the holder slowed every page load by about
+3.5s, which is why it's paused. It's destroyed in `onStop` and recreated in
+`onStart`, and the main WebView resumes only once the holder is playing
+again.
+
+**Back navigation.**
+- On mde, opening an episode is a full page load, so BACK does a plain
+  `loadUrl(home)`. That was measured fastest: the home link waits on a server
+  re-render, and the back/forward cache doesn't apply.
+- On fishtank, BACK routes through the page.
+- On the homepage, pressing BACK twice exits.
+
+**Self-update (`UpdateChecker`).** Ten seconds after launch, the app asks
+`api.github.com/repos/michaety/fttv/releases/latest` for the latest release.
+If it's newer than `BuildConfig.VERSION_NAME`, it downloads the flavor's asset
+into an uncommitted `PackageInstaller` session, then offers to install it. The
+Menu (☰) button runs a manual check. Fire OS 8 is Android 11, so one INSTALL
+press on the system confirmation is unavoidable (silent self-updates need
+API 31).
+
+**Cast receiver (`UpnpRenderer` + `CastPlayer`).**
+- Runs while the app is in the foreground. Friendly name = app name; HTTP on
+  port 49494; persistent UUID in prefs.
+- Services: AVTransport, RenderingControl and ConnectionManager. GENA
+  subscriptions are accepted, but no events are sent, so controllers poll.
+- Casts play in Media3/ExoPlayer over the WebView, sending the site URL as
+  Referer/Origin.
 
 ## Build
 
-Requirements: **JDK 17** and the **Android SDK command-line tools**. Android Studio is
-not needed — the Gradle wrapper is included and complete (jar and both launcher
-scripts), so `gradlew` works straight out of the box.
-
-```powershell
-winget install EclipseAdoptium.Temurin.17.JDK
-winget install Google.AndroidStudio     # or just the standalone cmdline-tools
-sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools"
-```
-
-Create `local.properties` in the project root pointing at your SDK:
+Needs JDK 17 and the Android SDK (platform 34, build-tools 34). Point
+`local.properties` at the SDK:
 
 ```properties
-sdk.dir=C\:\\Users\\<you>\\AppData\\Local\\Android\\Sdk
+sdk.dir=C:/Users/<you>/AppData/Local/Android/Sdk
 ```
 
-Then:
-
-```powershell
-.\gradlew assembleDebug
+```bash
+./gradlew assembleDebug          # both flavors
+./gradlew assembleMdeDebug       # just one
+# -> app/build/outputs/apk/<flavor>/debug/app-<flavor>-debug.apk
 ```
 
-APK lands at `app\build\outputs\apk\debug\app-debug.apk`.
+## Run and debug on a Fire TV
 
-## Install
+Enable ADB debugging on the Fire TV (Developer Options), then:
 
-Push it over with Apps2Fire from your phone, as usual. Alternatively, enable
-*Settings → My Fire TV → Developer Options → Install Unknown Apps* and sideload with
-Downloader, or use `adb install -r app-debug.apk` over the network.
-
-## Configuration
-
-Both URLs live at the top of `LauncherActivity.kt`:
-
-```kotlin
-const val FISHTANK_URL = "https://www.fishtank.live"
-const val MDE_URL = "https://mde.tv"
+```bash
+adb connect <firestick-ip>:5555
+adb install -r app/build/outputs/apk/mde/debug/app-mde-debug.apk
+adb shell am start -n com.mde.tv/com.fishtank.tv.MainActivity
 ```
 
-The user-agent string is at the top of `MainActivity.kt` as `DESKTOP_UA`. If a site
-serves something broken to a desktop UA, try a tablet string there instead.
+WebView debugging is enabled, so the page can be inspected live. Find the
+app's PID, forward its devtools socket, then open `chrome://inspect` or talk
+CDP to `http://127.0.0.1:9333`:
 
-## Tuning the navigation
+```bash
+adb forward tcp:9333 localabstract:webview_devtools_remote_$(adb shell pidof com.mde.tv)
+```
 
-The injected script is `DPAD_JS` at the bottom of `MainActivity.kt`. Two knobs matter:
+Useful facts:
+- `adb shell input keyevent <code>` drives the remote: 19/20/21/22 arrows,
+  23 Select, 4 Back, 82 Menu.
+- `adb exec-out screencap -p` can't capture video on the hardware overlay
+  (it shows as flat grey), but normally composited video does show up, which
+  makes it a handy check.
+- When video misbehaves, check logcat for `SurfaceViewOverlayCore`,
+  `Unable to create overlay` and `video frame queue is empty`.
 
-- `SEL` — the CSS selector defining what counts as focusable. If elements on the site
-  are unreachable, they're probably not matching this; add their class or role.
-- `across * 2.5` in the scoring — how strongly straight-ahead movement is preferred
-  over diagonal. Raise it if the cursor jumps sideways too eagerly.
+## Release
 
-## Known limits
+1. Bump `versionCode` and `versionName` in `app/build.gradle`. The updater
+   compares `versionName` as dotted numbers.
+2. `./gradlew clean assembleDebug`.
+3. Create a GitHub release tagged `v<versionName>` with the two APKs named
+   exactly `fishtank-tv.apk` and `mde-tv.apk`. The README's download links
+   and `UpdateChecker` both rely on those names.
 
-- It is a website on a TV, not a real leanback app. Expect some awkwardness.
-- Video that needs DRM/Widevine may not play in a plain WebView. If a stream is black
-  but audio works, that's the likely cause.
-- Debug-signed. For a cleaner install, generate a keystore and run `assembleRelease`.
+Releases are debug-signed with `~/.android/debug.keystore` on the build
+machine. Keep using the same key: an APK signed with a different key won't
+install over an existing one, so updates (and logins) would break.

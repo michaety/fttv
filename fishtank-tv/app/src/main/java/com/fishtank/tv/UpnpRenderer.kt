@@ -245,7 +245,11 @@ class UpnpRenderer(
         val body = if (length > 0) String(ByteArray(length).also { var n = 0; while (n < length) { val r = input.read(it, n, length - n); if (r < 0) break; n += r } }) else ""
 
         when {
-            method == "GET" && path == "/description.xml" -> respond(socket, 200, "text/xml", deviceDescription())
+            method == "GET" && path == "/description.xml" -> respond(socket, 200, "text/xml; charset=\"utf-8\"", deviceDescription())
+            method == "GET" && path.startsWith("/icon") -> {
+                val png = icon(if (path.contains("48")) 48 else 120)
+                if (png != null) respondBytes(socket, "image/png", png) else respond(socket, 404, "text/plain", "")
+            }
             method == "GET" && path.startsWith("/scpd/") -> {
                 val name = path.removePrefix("/scpd/").removeSuffix(".xml")
                 val xml = scpd(name)
@@ -278,6 +282,27 @@ class UpnpRenderer(
         }
         socket.getOutputStream().apply { write(head.toByteArray()); write(bytes); flush() }
     }
+
+    private fun respondBytes(socket: Socket, type: String, bytes: ByteArray) {
+        val head = "HTTP/1.1 200 OK\r\nContent-Type: $type\r\nContent-Length: ${bytes.size}\r\n" +
+            "Server: Android/1 UPnP/1.0 FireTV/1\r\nConnection: close\r\n\r\n"
+        socket.getOutputStream().apply { write(head.toByteArray()); write(bytes); flush() }
+    }
+
+    private val iconCache = mutableMapOf<Int, ByteArray>()
+
+    /** The app's launcher icon as a PNG, on white -- shown in the phone's device list. */
+    @Synchronized
+    private fun icon(size: Int): ByteArray? = iconCache[size] ?: try {
+        val d = context.packageManager.getApplicationIcon(context.packageName)
+        val bmp = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
+        val c = android.graphics.Canvas(bmp)
+        c.drawColor(android.graphics.Color.WHITE)
+        d.setBounds(0, 0, size, size)
+        d.draw(c)
+        java.io.ByteArrayOutputStream().also { bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+            .toByteArray().also { iconCache[size] = it }
+    } catch (e: Exception) { null }
 
     private fun arg(body: String, name: String): String =
         Regex("<(?:\\w+:)?$name(?:\\s[^>]*)?>([\\s\\S]*?)</(?:\\w+:)?$name>").find(body)?.groupValues?.get(1)?.let(::unescape) ?: ""
@@ -392,8 +417,16 @@ class UpnpRenderer(
         return "<?xml version=\"1.0\"?><root xmlns=\"urn:schemas-upnp-org:device-1-0\" xmlns:dlna=\"urn:schemas-dlna-org:device-1-0\">" +
             "<specVersion><major>1</major><minor>0</minor></specVersion><device>" +
             "<deviceType>$DEVICE_TYPE</deviceType><friendlyName>${escape(friendlyName)}</friendlyName>" +
-            "<manufacturer>fttv</manufacturer><modelName>${escape(friendlyName)}</modelName>" +
-            "<dlna:X_DLNADOC>DMR-1.50</dlna:X_DLNADOC><UDN>$udn</UDN>" +
+            "<manufacturer>fttv</manufacturer><manufacturerURL>https://github.com/michaety/fttv</manufacturerURL>" +
+            "<modelDescription>${escape(friendlyName)} Media Renderer</modelDescription>" +
+            "<modelName>${escape(friendlyName)}</modelName><modelNumber>${BuildConfig.VERSION_NAME}</modelNumber>" +
+            "<modelURL>https://github.com/michaety/fttv</modelURL><serialNumber>${udn.removePrefix("uuid:")}</serialNumber>" +
+            "<UDN>$udn</UDN><dlna:X_DLNADOC>DMR-1.50</dlna:X_DLNADOC>" +
+            // Several phone casting apps silently skip renderers without icons.
+            "<iconList>" +
+            "<icon><mimetype>image/png</mimetype><width>120</width><height>120</height><depth>24</depth><url>/icon120.png</url></icon>" +
+            "<icon><mimetype>image/png</mimetype><width>48</width><height>48</height><depth>24</depth><url>/icon48.png</url></icon>" +
+            "</iconList>" +
             "<serviceList>$services</serviceList></device></root>"
     }
 

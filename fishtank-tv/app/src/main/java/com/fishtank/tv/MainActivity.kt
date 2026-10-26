@@ -1440,10 +1440,14 @@ private const val DPAD_JS = """
     return { time: playerState.time, duration: playerState.duration };
   }
 
-  function fmtSeekTime(t){
+  // h:mm:ss when the video is an hour or longer (both sides of the
+  // "position / duration" readout, so they line up), else m:ss.
+  function fmtSeekTime(t, hours){
     if (!isFinite(t) || t < 0) t = 0;
-    var m = Math.floor(t / 60), s = Math.floor(t % 60);
-    return m + ':' + (s < 10 ? '0' : '') + s;
+    var h = Math.floor(t / 3600), m = Math.floor(t % 3600 / 60), s = Math.floor(t % 60);
+    var ss = (s < 10 ? '0' : '') + s;
+    if (hours) return h + ':' + (m < 10 ? '0' : '') + m + ':' + ss;
+    return Math.floor(t / 60) + ':' + ss;
   }
 
   function ensureSeekOverlay(){
@@ -1477,7 +1481,8 @@ private const val DPAD_JS = """
   function renderSeekOverlay(){
     ensureSeekOverlay();
     var info = currentPlaybackInfo();
-    seekOverlayTimeEl.textContent = fmtSeekTime(info.time) + ' / ' + fmtSeekTime(info.duration);
+    var hours = isFinite(info.duration) && info.duration >= 3600;
+    seekOverlayTimeEl.textContent = fmtSeekTime(info.time, hours) + ' / ' + fmtSeekTime(info.duration, hours);
     seekOverlayFillEl.style.width = (info.duration ? (info.time / info.duration * 100) : 0) + '%';
   }
 

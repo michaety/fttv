@@ -116,7 +116,7 @@ and you're done.
 | **Back** | Returns to the homepage; press twice on the homepage to exit |
 | **Play/Pause** | Play or pause the video |
 | **Fast-forward** / **Rewind** | Scrub forward / back (see below) |
-| **Menu (☰)** | App menu: check for updates, reload the page, reset the cursor |
+| **Menu (☰)** | App menu: subtitles on/off (MDE, while watching), check for updates, reload the page, reset the cursor |
 
 While a video is playing:
 
@@ -129,6 +129,11 @@ While a video is playing:
 
 Scrubbing moves a marker without touching the video. It jumps when you
 press **Select**, or by itself a moment after you stop pressing.
+
+Episodes resume where you left off. When one finishes, the next plays
+automatically (on Fishtank, the next in the row you opened it from, after a
+5-second countdown that **Back** cancels). The TV can go to sleep or start
+its screensaver whenever nothing is playing.
 
 ---
 

@@ -82,6 +82,19 @@ injected nodes). Left playing, the holder slowed every page load by about
 `onStart`, and the main WebView resumes only once the holder is playing
 again.
 
+**Resume, up next, screen.**
+- mde resumes and auto-plays the next episode itself.
+- fishtank does neither, so the app does it there: positions are saved per
+  episode in the site's localStorage (`__ftv_pos_<id>`) and restored when
+  the player first reports a time. The row an episode was opened from is
+  remembered in sessionStorage (`__ftv_queue`, oldest first), and on the
+  player's `ended` event the next one plays after a 5s countdown that Back
+  cancels.
+- The screen is kept on only while `__ftvIsPlaying()` is true, polled every
+  15s, so the Fire TV's screensaver works.
+- The Menu offers a subtitles toggle when the page's `<video>` has a
+  subtitles track (mde). fishtank's player exposes no caption control.
+
 **Back navigation.**
 - On mde, opening an episode is a full page load, so BACK does a plain
   `loadUrl(home)`. That was measured fastest: the home link waits on a server

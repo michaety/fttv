@@ -430,7 +430,6 @@ class MainActivity : Activity() {
 
         homeUrl = getString(R.string.home_url)
 
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
             WebView.setWebContentsDebuggingEnabled(true)
@@ -687,19 +686,41 @@ class MainActivity : Activity() {
         }
     }
 
+    /**
+     * Screen stays on only while a video is actually playing, so the Fire
+     * TV can dim and start its screensaver when the app sits on a menu or a
+     * paused episode (it used to hold the screen on the whole time).
+     * Polled: screensaver timeouts are minutes, so 15s is plenty.
+     */
+    private val screenPoll = object : Runnable {
+        override fun run() {
+            webView.evaluateJavascript("window.__ftvIsPlaying ? window.__ftvIsPlaying() : false") { r ->
+                if (r == "true") window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            }
+            root.postDelayed(this, 15_000)
+        }
+    }
+
     /** The remote's Menu (☰) button: app-level actions. */
     private fun showAppMenu() {
-        val items = arrayOf("Check for updates", "Reload page", "Reset cursor")
-        AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
-            .setTitle("${getString(R.string.app_name)} ${BuildConfig.VERSION_NAME}")
-            .setItems(items) { _, which ->
-                when (which) {
-                    0 -> updateChecker.checkNow()
-                    1 -> webView.reload()
-                    2 -> js("window.__ftvReset && window.__ftvReset()")
+        // Subtitles entry only when the playing video has a subtitle track.
+        webView.evaluateJavascript("window.__ftvCaptions ? window.__ftvCaptions('state') : 'none'") { r ->
+            val captions = r?.trim('"') ?: "none"
+            val items = mutableListOf("Check for updates", "Reload page", "Reset cursor")
+            if (captions != "none") items.add(0, if (captions == "on") "Subtitles: turn off" else "Subtitles: turn on")
+            AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
+                .setTitle("${getString(R.string.app_name)} ${BuildConfig.VERSION_NAME}")
+                .setItems(items.toTypedArray()) { _, which ->
+                    when (items[which]) {
+                        "Check for updates" -> updateChecker.checkNow()
+                        "Reload page" -> webView.reload()
+                        "Reset cursor" -> js("window.__ftvReset && window.__ftvReset()")
+                        else -> js("window.__ftvCaptions && window.__ftvCaptions('toggle')")
+                    }
                 }
-            }
-            .show()
+                .show()
+        }
     }
 
     private fun showError(show: Boolean) {
@@ -919,6 +940,7 @@ class MainActivity : Activity() {
     override fun onStart() {
         super.onStart()
         if (overlayHolder == null) createOverlayHolder()
+        root.post(screenPoll)
     }
 
     /**
@@ -930,6 +952,7 @@ class MainActivity : Activity() {
     override fun onStop() {
         super.onStop()
         destroyOverlayHolder()
+        root.removeCallbacks(screenPoll)
     }
 
     override fun onResume() {
@@ -1195,6 +1218,7 @@ private const val DPAD_JS = """
       playerFrame = f || null;
       playerSubscribed = false;
       playerState = { playing: false, time: 0, duration: 0, timeKnown: false };
+      resumeChecked = false;
     }
     return playerFrame;
   }
@@ -1220,6 +1244,7 @@ private const val DPAD_JS = """
     sendPlayerCommand('addEventListener', 'play', 'ftvPlay');
     sendPlayerCommand('addEventListener', 'pause', 'ftvPause');
     sendPlayerCommand('addEventListener', 'timeupdate', 'ftvTime');
+    sendPlayerCommand('addEventListener', 'ended', 'ftvEnded');
     // Autoplay starts (and often finishes its first play/pause transition)
     // before we ever get a chance to subscribe to those events, so
     // playerState.playing's default of false is wrong from the start on
@@ -1263,8 +1288,95 @@ private const val DPAD_JS = """
       playerState.duration = data.value.duration || 0;
       playerState.timeKnown = true;
       if (seekOverlayVisible) { renderSeekOverlay(); }
+      rememberPosition(playerState.time, playerState.duration);
     }
+    else if (data.event === 'ended') { onEpisodeEnded(); }
   });
+
+  // ---- Resume (fishtank) ---------------------------------------------
+  // mde's site saves and restores watch position itself; fishtank's
+  // doesn't, so its episodes always restarted from 0. Positions are kept
+  // per episode in the site's localStorage, saved every ~5s while playing,
+  // restored once when that episode's player first reports a time, and
+  // dropped near the end so a finished episode starts over next time.
+  var resumeChecked = false, lastSaved = 0;
+  function episodeId(){
+    var f = playerFrame;
+    var m = f && /\/embed\/\d+\/([0-9a-f-]{36})/.exec(f.src);
+    return m ? m[1] : null;
+  }
+  function rememberPosition(t, dur){
+    var id = episodeId();
+    if (!id) return;
+    if (!resumeChecked) {
+      resumeChecked = true;
+      var saved = 0;
+      try { saved = parseFloat(localStorage.getItem('__ftv_pos_' + id)) || 0; } catch (e) {}
+      if (saved > 20 && t < 15 && (!dur || saved < dur - 30)) {
+        playerState.time = saved;
+        sendPlayerCommand('setCurrentTime', saved);
+        return;
+      }
+    }
+    if (Math.abs(t - lastSaved) < 5) return;
+    lastSaved = t;
+    try {
+      if (dur && t > dur - 30) localStorage.removeItem('__ftv_pos_' + id);
+      else if (t > 20) localStorage.setItem('__ftv_pos_' + id, String(Math.floor(t)));
+    } catch (e) {}
+  }
+
+  // ---- Up next (fishtank) --------------------------------------------
+  // fishtank's player just stops at the end. When an episode is opened
+  // from a row on the Episodes page, that row is remembered (oldest
+  // first) and, at the end, the next episode in it plays after a short
+  // countdown that Back cancels. mde does this itself.
+  var nextTimer = null, nextOverlay = null;
+  function rememberQueue(link){
+    var row = link.closest('div.w-full') || link.parentElement;
+    if (!row) return;
+    var seen = {}, items = [];
+    row.querySelectorAll('a[href^="/episodes/"]').forEach(function(a){
+      var m = /\/episodes\/([0-9a-f-]{36})/.exec(a.getAttribute('href'));
+      if (m && !seen[m[1]]) { seen[m[1]] = 1; items.push({ id: m[1], title: a.textContent.trim() }); }
+    });
+    if (items.length < 2) return;
+    // Rows list newest first ("10 - Finale", "09 - ..."); play oldest->newest.
+    var first = parseInt(items[0].title, 10), last = parseInt(items[items.length - 1].title, 10);
+    if (!(first < last)) items.reverse();
+    try { sessionStorage.setItem('__ftv_queue', JSON.stringify(items)); } catch (e) {}
+  }
+  function nextEpisode(){
+    var id = episodeId(), q = [];
+    try { q = JSON.parse(sessionStorage.getItem('__ftv_queue') || '[]'); } catch (e) {}
+    for (var i = 0; i < q.length - 1; i++) if (q[i].id === id) return q[i + 1];
+    return null;
+  }
+  function onEpisodeEnded(){
+    var id = episodeId();
+    try { if (id) localStorage.removeItem('__ftv_pos_' + id); } catch (e) {}
+    var next = nextEpisode();
+    if (!next || nextTimer) return;
+    if (!nextOverlay) {
+      nextOverlay = document.createElement('div');
+      nextOverlay.style.cssText = 'position:fixed;right:5%;bottom:20%;z-index:2147483647;max-width:40%;' +
+        'padding:14px 20px;border-radius:10px;background:rgba(0,0,0,.8);color:#fff;font:600 18px/1.35 sans-serif;';
+      document.body.appendChild(nextOverlay);
+    }
+    var n = 5;
+    var tick = function(){
+      nextOverlay.textContent = 'Next: ' + next.title + ' in ' + n + 's — Back to cancel';
+      if (n-- <= 0) { cancelNext(); location.assign('/episodes/' + next.id); return; }
+      nextTimer = setTimeout(tick, 1000);
+    };
+    tick();
+  }
+  function cancelNext(){
+    if (!nextTimer && !nextOverlay) return false;
+    if (nextTimer) { clearTimeout(nextTimer); nextTimer = null; }
+    if (nextOverlay) { nextOverlay.remove(); nextOverlay = null; }
+    return true;
+  }
 
   // Auto-fullscreen the player once per page -- gated to "not the
   // homepage" rather than "large enough", because both sites' homepages
@@ -1639,6 +1751,33 @@ private const val DPAD_JS = """
   };
 
   // Seek to the scrub target. Returns true if a scrub was in progress.
+  // Whether a video is actually playing -- MainActivity keeps the screen
+  // on only while this is true.
+  window.__ftvIsPlaying = function(){
+    if (trackedVideo && document.contains(trackedVideo)) return !trackedVideo.paused && !trackedVideo.ended;
+    return !!(findPlayerFrame() && playerState.playing);
+  };
+
+  // Subtitles on the page's own <video> (mde): 'state' -> "on" | "off" |
+  // "none"; 'toggle' flips them. fishtank's cross-origin player exposes no
+  // caption control, so it reports "none".
+  window.__ftvCaptions = function(op){
+    var v = trackedVideo && document.contains(trackedVideo) ? trackedVideo : null;
+    if (!v) return 'none';
+    var subs = [];
+    for (var i = 0; i < v.textTracks.length; i++) {
+      var t = v.textTracks[i];
+      if (t.kind === 'subtitles' || t.kind === 'captions') subs.push(t);
+    }
+    if (!subs.length) return 'none';
+    var on = subs.some(function(t){ return t.mode === 'showing'; });
+    if (op === 'toggle') {
+      subs.forEach(function(t, i){ t.mode = (!on && i === 0) ? 'showing' : 'disabled'; });
+      on = !on;
+    }
+    return on ? 'on' : 'off';
+  };
+
   window.__ftvScrubCommit = function(){
     if (scrubTime === null) return false;
     var target = scrubTime;
@@ -1656,6 +1795,7 @@ private const val DPAD_JS = """
 
   // Drop the scrub without seeking. Returns true if one was in progress.
   window.__ftvScrubCancel = function(){
+    if (cancelNext()) return true;
     if (scrubTime === null) return false;
     scrubTime = null;
     if (scrubTimer) { clearTimeout(scrubTimer); scrubTimer = null; }
@@ -2091,6 +2231,8 @@ private const val DPAD_JS = """
       var r = cur.getBoundingClientRect(), d = window.devicePixelRatio || 1;
       return 'tap:' + Math.round((r.left + r.width / 2) * d) + ',' + Math.round((r.top + r.height / 2) * d);
     }
+    var ep = cur.closest && cur.closest('a[href^="/episodes/"]');
+    if (ep) rememberQueue(ep);
     cur.click();
   };
 

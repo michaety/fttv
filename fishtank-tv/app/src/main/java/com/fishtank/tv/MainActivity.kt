@@ -250,6 +250,26 @@ class MainActivity : Activity() {
                    toasts animate with instead of replacing them. */
                 [data-rht-toaster] { z-index: 2147483647 !important; scale: 1 -1; }
                 [data-rht-toaster] > div > * { scale: 1 -1; }
+                /* the player's own "Up next in N" card: above the fullscreen
+                   video (it was underneath, only showing once the video had
+                   ended), as a TV-sized card bottom-right. Same look as the
+                   app's card on fishtank (#__ftv_next). Back presses its
+                   close button (see __ftvScrubCancel). */
+                div[class*="_nextVideo"] {
+                  position: fixed !important; inset: 0 !important;
+                  z-index: 2147483001 !important; background: transparent !important;
+                }
+                div[class*="_nextVideo"] > div[class*="_inner"] {
+                  position: absolute !important; right: 4% !important; bottom: 12% !important;
+                  left: auto !important; top: auto !important; transform: none !important;
+                  width: 340px !important; padding: 14px !important; border-radius: 10px !important;
+                  background: rgba(0,0,0,.85) !important; box-shadow: 0 4px 18px rgba(0,0,0,.6) !important;
+                }
+                div[class*="_nextVideo"] [class*="_label"] { font-size: 16px !important; margin-bottom: 8px !important; }
+                div[class*="_nextVideo"] [class*="_close"] { display: none !important; }
+                div[class*="_nextVideo"] [class*="_label"]::after { content: " \00b7  Back to cancel"; opacity: .7; }
+                div[class*="_nextVideo"] [class*="_thumbnail"] img { width: 100% !important; height: auto !important; border-radius: 6px !important; }
+                div[class*="_nextVideo"] [class*="_title"] { font-size: 18px !important; margin-top: 8px !important; }
                 /* homepage HYDEFORCE ad banner: the site advertising its own
                    merch (the same reason fishtank's merch prompts are
                    hidden), and a looping video ad besides. Unconditional:
@@ -1358,14 +1378,30 @@ private const val DPAD_JS = """
     var next = nextEpisode();
     if (!next || nextTimer) return;
     if (!nextOverlay) {
+      // Same look as mde's own card (restyled in siteCss).
       nextOverlay = document.createElement('div');
-      nextOverlay.style.cssText = 'position:fixed;right:5%;bottom:20%;z-index:2147483647;max-width:40%;' +
-        'padding:14px 20px;border-radius:10px;background:rgba(0,0,0,.8);color:#fff;font:600 18px/1.35 sans-serif;';
+      nextOverlay.id = '__ftv_next';
+      nextOverlay.style.cssText = 'position:fixed;right:4%;bottom:16%;z-index:2147483647;width:340px;' +
+        'padding:14px;border-radius:10px;background:rgba(0,0,0,.85);box-shadow:0 4px 18px rgba(0,0,0,.6);' +
+        'color:#fff;font:600 16px/1.3 sans-serif;';
+      var label = document.createElement('div');
+      label.style.cssText = 'margin-bottom:8px;';
+      var img = document.createElement('img');
+      img.src = 'https://' + bunnyHost() + '/' + next.id + '/thumbnail.jpg';
+      img.style.cssText = 'display:block;width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:6px;background:#111;';
+      img.onerror = function(){ img.style.display = 'none'; };
+      var title = document.createElement('div');
+      title.style.cssText = 'margin-top:8px;font-size:18px;';
+      title.textContent = next.title.replace(/\.(mp4|mov|mkv|webm)$/i, '');   // some titles carry the file extension
+      nextOverlay.appendChild(label);
+      nextOverlay.appendChild(img);
+      nextOverlay.appendChild(title);
       document.body.appendChild(nextOverlay);
+      nextOverlay.__label = label;
     }
-    var n = 5;
+    var n = 10;
     var tick = function(){
-      nextOverlay.textContent = 'Next: ' + next.title + ' in ' + n + 's — Back to cancel';
+      nextOverlay.__label.innerHTML = 'Up next in ' + n + ' <span style="opacity:.7">\u00b7 Back to cancel</span>';
       if (n-- <= 0) { cancelNext(); location.assign('/episodes/' + next.id); return; }
       nextTimer = setTimeout(tick, 1000);
     };
@@ -1648,13 +1684,17 @@ private const val DPAD_JS = """
     var f = findPlayerFrame();
     var id = f && /\/embed\/\d+\/([0-9a-f-]{36})/.exec(f.src);
     if (!id) return null;
-    var host = 'vz-a2fe5bfa-400.b-cdn.net';
-    var img = document.querySelector('img[src*=".b-cdn.net/"]');
-    var hm = img && /\/\/(vz-[^/]+\.b-cdn\.net)\//.exec(img.src);
-    if (hm) host = hm[1];
+    var host = bunnyHost();
     var n = Math.floor(Math.max(0, t) / 2), k = n % 36;
     return { url: 'https://' + host + '/' + id[1] + '/seek/_' + Math.floor(n / 36) + '.jpg',
              x: (k % 6) * 300, y: Math.floor(k / 6) * 168, w: 300, h: 168 };
+  }
+
+  // fishtank's Bunny CDN host, read off any of its images on the page.
+  function bunnyHost(){
+    var img = document.querySelector('img[src*=".b-cdn.net/"]');
+    var hm = img && /\/\/(vz-[^/]+\.b-cdn\.net)\//.exec(img.src);
+    return hm ? hm[1] : 'vz-a2fe5bfa-400.b-cdn.net';
   }
 
   function renderThumb(t){
@@ -1796,6 +1836,9 @@ private const val DPAD_JS = """
   // Drop the scrub without seeking. Returns true if one was in progress.
   window.__ftvScrubCancel = function(){
     if (cancelNext()) return true;
+    // mde's own up-next card: press its close button.
+    var close = document.querySelector('[class*="_nextVideo"] [class*="_close"]');
+    if (close) { close.click(); return true; }
     if (scrubTime === null) return false;
     scrubTime = null;
     if (scrubTimer) { clearTimeout(scrubTimer); scrubTimer = null; }

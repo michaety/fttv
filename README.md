@@ -130,9 +130,10 @@ While a video is playing:
 Scrubbing moves a marker without touching the video. It jumps when you
 press **Select**, or by itself a moment after you stop pressing.
 
-Episodes resume where you left off. When one finishes, the next plays
-automatically (on Fishtank, the next in the row you opened it from, after a
-5-second countdown that **Back** cancels). The TV can go to sleep or start
+Episodes resume where you left off. When one finishes, an **Up next** card
+shows the next episode's thumbnail and title with a countdown, then plays it.
+**Back** cancels. On Fishtank, "next" is the next episode in the row you
+opened it from. The TV can go to sleep or start
 its screensaver whenever nothing is playing.
 
 ---

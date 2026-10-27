@@ -38,8 +38,6 @@ Unofficial. Not affiliated with, endorsed by, or supported by either site.
 - **Pause Snack Continue by game:** MDE's PSC page has a row for each game
   (Oblivion, Resident Evil, Front Mission...), from episode 1, with watched
   ones marked. Autoplay stays in the same game.
-- **Faster Fishtank thumbnails:** episode pictures appear about four times
-  faster on the Episodes page.
 - **Auto-updates:** the app offers new versions when it opens. On Fire TV's
   confirm screen, move right to **INSTALL** (it starts on Cancel).
 

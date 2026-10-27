@@ -42,15 +42,16 @@ as the TV.
 
 Your phone gets the app's rows and search: Continue watching, MDE's
 Spotlight, playlists and series, or Fishtank's seasons and live cameras. Tap
-something and it plays on the TV, then pause, skip and scrub from the bar at
-the bottom.
+something and it plays on the TV. Tap the bar at the bottom for the full
+player: pause, skip, scrub, subtitles, and Up next. Tap **+** on any episode
+to queue it.
 
 <table>
 <tr>
 <td><img src="assets/screenshots/phone-mde-home.jpg" alt="MDE phone remote" width="200"></td>
-<td><img src="assets/screenshots/phone-mde-series.jpg" alt="An MDE series on the phone remote" width="200"></td>
+<td><img src="assets/screenshots/phone-mde-player.jpg" alt="The player on the phone remote" width="200"></td>
 <td><img src="assets/screenshots/phone-fishtank-home.jpg" alt="Fishtank phone remote" width="200"></td>
-<td><img src="assets/screenshots/phone-fishtank-season.jpg" alt="A Fishtank season on the phone remote" width="200"></td>
+<td><img src="assets/screenshots/phone-fishtank-upnext.jpg" alt="Up next on the phone remote" width="200"></td>
 </tr>
 </table>
 

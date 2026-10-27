@@ -190,7 +190,7 @@ page.
   must keep the browser's default referrer policy.
 - Why not the site's Cast button: it only casts to Google-certified Cast
   devices (Default Media Receiver `CC1AD845` plus device authentication), so
-  a sideloaded Fire TV app can't appear there. See CHROMECAST_HANDOFF.md.
+  a sideloaded Fire TV app can't appear there.
 
 **mde Pause Snack Continue page.** `renderPscRows` in `dpad.js` hides the
 series list and puts one row per game in its place, newest game first.

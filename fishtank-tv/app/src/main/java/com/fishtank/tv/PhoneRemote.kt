@@ -23,16 +23,17 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 /**
- * "Phone remote" for mde: a small web server on the TV's LAN address.
+ * "Phone remote": a small web server on the TV's LAN address.
  *
  * The app menu shows a QR code for `http://<tv-ip>:8765/?k=<key>`. The page
- * (assets/remote.html) lists Continue watching, mde's New and Popular
- * playlists and search; tapping an episode opens it in the TV's WebView,
- * signed in, so progress and achievements count as normal. While something
- * plays, the page is a remote (play/pause, skip, seek bar).
+ * (assets/remote.html) lists Continue watching and search, plus mde's New and
+ * Popular playlists, or fishtank's live cameras and its episodes by season.
+ * Tapping an episode opens it in the TV's WebView, signed in, so progress and
+ * achievements count as normal; tapping a camera switches the TV to it. While
+ * something plays, the page is a remote (play/pause, skip, seek bar).
  *
- * The phone can't call mde's API itself (CORS), so the server fetches it,
- * with the WebView's cookies so watched flags come through. Every request
+ * The phone can't call the sites' APIs itself (CORS), so the server fetches
+ * them, with the WebView's cookies (mde's watched flags need them). Every request
  * needs the key from the QR code, which stays the same between launches so
  * a bookmark keeps working. Runs only while the app is in the foreground.
  */
@@ -52,6 +53,10 @@ class PhoneRemote(private val context: Context, private val host: Host) {
     private var server: ServerSocket? = null
     private var pool = Executors.newFixedThreadPool(4)
     private var seriesTags: Map<String, String>? = null
+    private val fishtank = context.getString(R.string.home_url).contains("fishtank")
+    /** fishtank's episodes (all ~140 come in one request); kept for search. */
+    private var ftVideos: JSONArray? = null
+    private var ftCameras: List<String> = emptyList()
 
     /** The address to put in the QR code, or null without a LAN address. */
     fun url(): String? = lanAddress()?.let { "http://$it:$PORT/?k=$key" }
@@ -104,15 +109,31 @@ class PhoneRemote(private val context: Context, private val host: Host) {
         if (q["k"] != key) return Triple("403 Forbidden", "text/plain", "Scan the QR code in the TV app's menu again.")
         return when (path) {
             "/" -> Triple("200 OK", "text/html; charset=utf-8",
-                context.assets.open("remote.html").bufferedReader().use { it.readText() })
+                context.assets.open("remote.html").bufferedReader().use { it.readText() }
+                    .replace("__FTV_SITE__", if (fishtank) "fishtank" else "mde"))
             "/api/home" -> json(home())
             "/api/search" -> json(search(q["q"].orEmpty()))
             "/api/status" -> json(JSONObject(evalOnMain("window.__ftvRemoteStatus ? window.__ftvRemoteStatus() : ''")
                 ?.let { unquote(it) }?.takeIf { it.startsWith("{") } ?: "{}"))
             "/api/play" -> {
                 val p = q["path"].orEmpty()
-                if (!EPISODE_PATH.matches(p)) Triple("400 Bad Request", "text/plain", "bad path")
-                else { main.post { host.openPath(p) }; json(JSONObject().put("ok", true)) }
+                when {
+                    fishtank && FT_EPISODE_PATH.matches(p) -> {
+                        evalOnMain("window.__ftvRemoteEpisode && window.__ftvRemoteEpisode(" +
+                            JSONObject.quote(p.substringAfterLast('/')) + "," + JSONObject.quote(q["title"].orEmpty()) + ")")
+                        json(JSONObject().put("ok", true))
+                    }
+                    !fishtank && EPISODE_PATH.matches(p) -> { main.post { host.openPath(p) }; json(JSONObject().put("ok", true)) }
+                    else -> Triple("400 Bad Request", "text/plain", "bad path")
+                }
+            }
+            "/api/camera" -> {
+                val name = q["name"].orEmpty()
+                if (!fishtank || name !in ftCameras) Triple("400 Bad Request", "text/plain", "bad camera")
+                else {
+                    evalOnMain("window.__ftvRemoteCamera && window.__ftvRemoteCamera(" + JSONObject.quote(name) + ")")
+                    json(JSONObject().put("ok", true))
+                }
             }
             "/api/cmd" -> {
                 val code = when (q["c"]) {
@@ -133,6 +154,12 @@ class PhoneRemote(private val context: Context, private val host: Host) {
     // ---- Data -------------------------------------------------------------
 
     private fun home(): JSONObject {
+        val out = if (fishtank) fishtankHome() else mdeHome()
+        return out.put("recent", recent())
+    }
+
+    /** Continue watching, from the app's own list in the WebView's localStorage. */
+    private fun recent(): JSONArray {
         val recent = JSONArray()
         evalOnMain("localStorage.getItem('__ftv_recent')")?.let { unquote(it) }?.let { raw ->
             val list = try { JSONArray(raw) } catch (e: Exception) { JSONArray() }
@@ -148,6 +175,10 @@ class PhoneRemote(private val context: Context, private val host: Host) {
                     .put("progress", if (dur > 0) x.optDouble("t", 0.0) / dur else 0.0))
             }
         }
+        return recent
+    }
+
+    private fun mdeHome(): JSONObject {
         // The homepage's own source: unlike /playlists/<id>, it has watched flags.
         val lists = api("/site/landing")?.optJSONArray("playlists") ?: JSONArray()
         fun playlist(label: String): JSONArray {
@@ -159,14 +190,74 @@ class PhoneRemote(private val context: Context, private val host: Host) {
             }
             return JSONArray()
         }
-        return JSONObject()
-            .put("recent", recent)
-            .put("new", playlist("New"))
-            .put("popular", playlist("Popular"))
+        return JSONObject().put("sections", JSONArray()
+            .put(JSONObject().put("title", "New").put("items", playlist("New")))
+            .put(JSONObject().put("title", "Popular").put("items", playlist("Popular"))))
     }
+
+    /** fishtank: live cameras (online first), then episodes by collection. */
+    private fun fishtankHome(): JSONObject {
+        val streams = ftApi("/live-streams")
+        val status = streams?.optJSONObject("liveStreamStatus") ?: JSONObject()
+        // Thumbnails only exist on the TV's live page, in the camera tiles.
+        val thumbs = evalOnMain(CAMERA_THUMBS_JS)?.let { unquote(it) }
+            ?.let { try { JSONObject(it) } catch (e: Exception) { null } } ?: JSONObject()
+        val cams = mutableListOf<JSONObject>()
+        val list = streams?.optJSONArray("liveStreams") ?: JSONArray()
+        for (i in 0 until list.length()) {
+            val c = list.optJSONObject(i) ?: continue
+            if (c.optBoolean("hidden")) continue
+            val name = c.optString("name")
+            cams.add(JSONObject().put("name", name).put("thumb", thumbs.optString(name))
+                .put("online", status.optString(c.optString("id")) == "online"))
+        }
+        ftCameras = cams.map { it.optString("name") }
+        cams.sortBy { if (it.optBoolean("online")) 0 else 1 }
+
+        val videos = ftApi("/videos")?.optJSONArray("videos")?.also { ftVideos = it } ?: ftVideos ?: JSONArray()
+        val byCollection = linkedMapOf<String, MutableList<JSONObject>>()
+        for (i in 0 until videos.length()) {
+            val v = videos.optJSONObject(i) ?: continue
+            byCollection.getOrPut(v.optString("collection").ifEmpty { "Other" }) { mutableListOf() }.add(v)
+        }
+        val sections = JSONArray()
+        // Collections we know in a sensible order; a new one (next season) goes on top.
+        byCollection.entries
+            .sortedWith(compareBy<Map.Entry<String, MutableList<JSONObject>>> { COLLECTION_ORDER.indexOf(it.key) }
+                .thenByDescending { e -> e.value.maxOf { it.optLong("createdAt") } })
+            .forEach { (name, vs) ->
+                // Seasons run from episode 1 ("01 - ...", "S3E1 - ..."): upload
+                // dates don't follow the numbering. The rest newest first.
+                val num = { v: JSONObject -> NUMBERED.find(v.optString("title"))?.groupValues?.get(1)?.toIntOrNull() }
+                val numbered = vs.count { num(it) != null } > vs.size / 2
+                val sorted = if (numbered) vs.sortedBy { num(it) ?: Int.MAX_VALUE } else vs.sortedByDescending { it.optLong("createdAt") }
+                val label = if (name == "Digest") "Season 4 Digest" else name
+                sections.put(JSONObject().put("title", label).put("items", JSONArray(sorted.map { ftItem(it, label) })))
+            }
+        return JSONObject().put("cameras", JSONArray(cams)).put("sections", sections)
+    }
+
+    private fun ftItem(v: JSONObject, collection: String): JSONObject = JSONObject()
+        .put("path", "/episodes/${v.optString("id")}")
+        .put("title", v.optString("title").replace(VIDEO_EXT, "").trim())
+        .put("series", collection)
+        .put("thumb", v.optString("thumbnail"))
+        .put("dur", v.optInt("duration"))
 
     private fun search(text: String): JSONObject {
         if (text.isBlank()) return JSONObject().put("results", JSONArray())
+        if (fishtank) {
+            // No search API: match titles in the episode list.
+            val videos = ftVideos ?: ftApi("/videos")?.optJSONArray("videos")?.also { ftVideos = it } ?: JSONArray()
+            val words = text.lowercase().split(' ').filter { it.isNotBlank() }
+            val out = JSONArray()
+            for (i in 0 until videos.length()) {
+                val v = videos.optJSONObject(i) ?: continue
+                val t = v.optString("title").lowercase()
+                if (words.all { t.contains(it) }) out.put(ftItem(v, v.optString("collection")))
+            }
+            return JSONObject().put("results", out)
+        }
         val tags = seriesTags ?: (api("/series")?.optJSONArray("series")?.let { list ->
             (0 until list.length()).mapNotNull { list.optJSONObject(it) }
                 .associate { it.optString("id") to it.optString("tag") }
@@ -195,18 +286,22 @@ class PhoneRemote(private val context: Context, private val host: Host) {
     }
 
     /** GET api.mde.tv/v1[path] with the WebView's cookies (watched flags need them). */
-    private fun api(path: String): JSONObject? {
-        val conn = URL("https://api.mde.tv/v1$path").openConnection() as HttpURLConnection
+    private fun api(path: String): JSONObject? = get("https://api.mde.tv/v1$path", "https://www.mde.tv")
+
+    private fun ftApi(path: String): JSONObject? = get("https://api.fishtank.live/v1$path", "https://www.fishtank.live")
+
+    private fun get(url: String, origin: String): JSONObject? {
+        val conn = URL(url).openConnection() as HttpURLConnection
         return try {
             conn.connectTimeout = 8_000
             conn.readTimeout = 10_000
-            conn.setRequestProperty("Origin", "https://www.mde.tv")
-            conn.setRequestProperty("Referer", "https://www.mde.tv/")
-            CookieManager.getInstance().getCookie("https://api.mde.tv")?.let { conn.setRequestProperty("Cookie", it) }
+            conn.setRequestProperty("Origin", origin)
+            conn.setRequestProperty("Referer", "$origin/")
+            CookieManager.getInstance().getCookie(url)?.let { conn.setRequestProperty("Cookie", it) }
             if (conn.responseCode != 200) null
             else JSONObject(conn.inputStream.bufferedReader().use { it.readText() })
         } catch (e: Exception) {
-            Log.w(TAG, "api $path: $e")
+            Log.w(TAG, "GET $url: $e")
             null
         } finally {
             conn.disconnect()
@@ -252,5 +347,15 @@ class PhoneRemote(private val context: Context, private val host: Host) {
         private const val TAG = "PhoneRemote"
         const val PORT = 8765
         private val EPISODE_PATH = Regex("^/series/[A-Za-z0-9_-]+/[A-Za-z0-9_-]+$")
+        private val FT_EPISODE_PATH = Regex("^/episodes/[0-9a-f-]{36}$")
+        private val NUMBERED = Regex("^\\s*(?:S\\d+E)?(\\d+)\\b", RegexOption.IGNORE_CASE)
+        private val COLLECTION_ORDER = listOf("Season 5 Digests", "Off-Season", "Digest", "Season 3", "Season 2",
+            "Season 1", "Shorts", "BTS")
+        private val VIDEO_EXT = Regex("\\.(mp4|mov|mkv|webm)$", RegexOption.IGNORE_CASE)
+        /** name -> thumbnail of each camera tile on fishtank's live page. */
+        private const val CAMERA_THUMBS_JS = "(function(){var o={};" +
+            "document.querySelectorAll('button[aria-label^=\"Watch \"]').forEach(function(b){" +
+            "var i=b.querySelector('img');if(i&&i.src)o[b.getAttribute('aria-label').slice(6)]=i.src;});" +
+            "return JSON.stringify(o);})()"
     }
 }

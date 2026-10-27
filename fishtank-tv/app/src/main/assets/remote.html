@@ -1,63 +1,91 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-site="__FTV_SITE__">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#04080b">
-<title>MDE TV Remote</title>
+<title>TV Remote</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Doto:wght@900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Doto:wght@900&family=Share+Tech+Mono&family=Fredoka:wght@500;700&display=swap" rel="stylesheet">
 <style>
-  /* Served by the MDE TV app (PhoneRemote.kt) on the TV's Wi-Fi address. */
+  /* Served by the TV app (PhoneRemote.kt) on the TV's Wi-Fi address.
+     data-site is "mde" or "fishtank"; each gets its site's look. */
   :root {
-    --bg: #04080b; --panel: #12191f; --line: #1a272b;
-    --accent: #25ff06; --yellow: #fff105; --text: #ffffff; --dim: #8fa3ad;
+    --bg: #04080b; --panel: #12191f; --line: #1a272b; --field: #000;
+    --accent: #25ff06; --on-accent: #000; --yellow: #fff105; --text: #fff; --dim: #8fa3ad;
+    --font: 'Share Tech Mono', ui-monospace, monospace; --head: 'Doto', monospace;
+    --radius: 0; --head-size: 20px; --head-spacing: 3px;
+  }
+  [data-site="fishtank"] {
+    --bg: #56749f; --panel: #e6e2cd; --line: #c9c3a6; --field: #fffdf2;
+    --accent: #e8643a; --on-accent: #fff; --yellow: #fff; --text: #1d2430; --dim: #5b6372;
+    --font: 'Fredoka', system-ui, sans-serif; --head: 'Fredoka', system-ui, sans-serif;
+    --radius: 10px; --head-size: 19px; --head-spacing: .5px;
   }
   * { box-sizing: border-box; }
-  html, body { margin: 0; background: var(--bg); color: var(--text);
-    font-family: 'Share Tech Mono', ui-monospace, monospace; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--font);
+    -webkit-tap-highlight-color: transparent; }
   body { padding: 0 0 calc(150px + env(safe-area-inset-bottom)); }
+  [data-site="fishtank"] body { color: #fff; }
   header { position: sticky; top: 0; z-index: 5; background: var(--bg); padding: 14px 16px 10px;
     border-bottom: 1px solid var(--line); }
+  [data-site="fishtank"] header { border-bottom-color: rgba(0,0,0,.15); }
   .brand { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; }
-  .brand b { font-family: 'Doto', monospace; font-size: 28px; letter-spacing: 2px; }
+  .brand b { font-family: var(--head); font-size: 28px; letter-spacing: 2px; }
   .brand span { color: var(--accent); font-size: 14px; letter-spacing: 1px; }
+  [data-site="fishtank"] .brand b { letter-spacing: 0; }
+  [data-site="fishtank"] .brand span { color: #fff; opacity: .85; }
   form { display: flex; }
-  input[type=search] { flex: 1; min-width: 0; background: #000; color: var(--text); border: 2px solid var(--line);
-    border-right: 0; padding: 10px 12px; font: inherit; font-size: 16px; border-radius: 0; -webkit-appearance: none; }
+  input[type=search] { flex: 1; min-width: 0; background: var(--field); color: var(--text); border: 2px solid var(--line);
+    border-right: 0; padding: 10px 12px; font: inherit; font-size: 16px; border-radius: var(--radius) 0 0 var(--radius);
+    -webkit-appearance: none; }
   input[type=search]:focus { outline: none; border-color: var(--accent); }
-  form button { background: var(--panel); color: var(--text); border: 2px solid var(--line); font: inherit;
-    font-size: 15px; letter-spacing: 1px; padding: 0 14px; }
+  form button { background: var(--accent); color: var(--on-accent); border: 2px solid var(--accent); font: inherit;
+    font-size: 15px; letter-spacing: 1px; padding: 0 14px; border-radius: 0 var(--radius) var(--radius) 0; }
+  [data-site="mde"] form button { background: var(--panel); color: var(--text); border-color: var(--line); }
   section { padding: 18px 0 4px; }
-  h2 { font-family: 'Doto', monospace; font-size: 20px; letter-spacing: 3px; margin: 0 16px 10px; text-transform: uppercase; }
-  h2::before { content: '[ '; color: var(--accent); }
-  h2::after { content: ' ]'; color: var(--accent); }
-  .row { display: flex; gap: 12px; overflow-x: auto; padding: 0 16px 6px; scrollbar-width: none; scroll-snap-type: x proximity; }
+  h2 { font-family: var(--head); font-size: var(--head-size); letter-spacing: var(--head-spacing); margin: 0 16px 10px; }
+  [data-site="mde"] h2 { text-transform: uppercase; }
+  [data-site="mde"] h2::before { content: '[ '; color: var(--accent); }
+  [data-site="mde"] h2::after { content: ' ]'; color: var(--accent); }
+  [data-site="fishtank"] h2 { display: inline-block; background: var(--accent); color: #fff; padding: 4px 14px;
+    border-radius: 8px 8px 0 0; margin-bottom: 0; }
+  .row { display: flex; align-items: flex-start; gap: 12px; overflow-x: auto; padding: 0 16px 6px; scrollbar-width: none;
+    scroll-snap-type: x proximity; }
   .row::-webkit-scrollbar { display: none; }
+  [data-site="fishtank"] .row, [data-site="fishtank"] .grid { background: var(--panel); margin: 0 12px; padding: 12px;
+    border-radius: 0 var(--radius) var(--radius) var(--radius); }
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px 12px; padding: 0 16px; }
   .card { flex: 0 0 62%; max-width: 260px; scroll-snap-align: start; background: none; border: 0; padding: 0;
     color: inherit; text-align: left; font: inherit; cursor: pointer;
     display: flex; flex-direction: column; justify-content: flex-start; }
-  .row { align-items: flex-start; }
+  [data-site="fishtank"] .card { color: var(--text); }
   .grid .card { max-width: none; }
-  .thumb { position: relative; aspect-ratio: 16 / 9; background: var(--panel) center / cover no-repeat;
-    border: 2px solid var(--line); }
+  .thumb { position: relative; aspect-ratio: 16 / 9; background: var(--field) center / cover no-repeat;
+    border: 2px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+  [data-site="mde"] .thumb { background-color: var(--panel); }
   .card:active .thumb { border-color: var(--accent); }
   .bar { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: rgba(255,255,255,.3); }
   .bar i { display: block; height: 100%; background: var(--accent); }
   .tag { position: absolute; left: 0; right: 0; bottom: 0; padding: 2px 8px; background: rgba(0,0,0,.78);
     color: var(--accent); font-size: 12px; letter-spacing: 1px; }
   .seen { position: absolute; top: 6px; right: 6px; padding: 1px 6px; background: rgba(0,0,0,.8);
-    color: var(--accent); font-size: 11px; }
-  .series { color: var(--dim); font-size: 12px; margin-top: 6px; text-transform: uppercase;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .series::before { content: '['; color: var(--yellow); } .series::after { content: ']'; color: var(--yellow); }
+    color: var(--accent); font-size: 11px; border-radius: 4px; }
+  .live { position: absolute; top: 6px; left: 6px; padding: 1px 7px; border-radius: 4px; font-size: 12px;
+    background: #d6262b; color: #fff; }
+  .live.off { background: rgba(0,0,0,.7); color: #ccc; }
+  .cam .thumb { display: flex; align-items: center; justify-content: center; font-size: 13px; color: var(--dim); }
+  .series { color: var(--dim); font-size: 12px; margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  [data-site="mde"] .series { text-transform: uppercase; }
+  [data-site="mde"] .series::before { content: '['; color: var(--yellow); }
+  [data-site="mde"] .series::after { content: ']'; color: var(--yellow); }
   .title { font-size: 15px; line-height: 1.25; margin-top: 2px; display: -webkit-box; -webkit-line-clamp: 2;
     -webkit-box-orient: vertical; overflow: hidden; }
   .empty { color: var(--dim); margin: 0 16px; font-size: 14px; }
-  #banner { display: none; margin: 12px 16px 0; padding: 10px 12px; border: 2px solid var(--yellow); color: var(--yellow); font-size: 14px; }
+  [data-site="fishtank"] .empty { margin: 0; }
+  #banner { display: none; margin: 12px 16px 0; padding: 10px 12px; border: 2px solid var(--yellow); color: var(--yellow);
+    font-size: 14px; border-radius: var(--radius); }
   /* Now playing */
-  #now { position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; background: var(--panel);
+  #now { position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; background: var(--panel); color: var(--text);
     border-top: 3px solid var(--accent); padding: 10px 14px calc(12px + env(safe-area-inset-bottom));
     transform: translateY(110%); transition: transform .2s; }
   #now.on { transform: none; }
@@ -69,15 +97,15 @@
   .seek { display: flex; align-items: center; gap: 8px; margin: 10px 0 6px; font-size: 12px; color: var(--dim); }
   .seek input { flex: 1; accent-color: var(--accent); }
   .ctrls { display: flex; justify-content: space-between; gap: 8px; }
-  .ctrls button { flex: 1; background: #000; color: var(--text); border: 2px solid var(--line); font: inherit;
-    font-size: 16px; padding: 10px 0; }
+  .ctrls button { flex: 1; background: var(--field); color: var(--text); border: 2px solid var(--line); font: inherit;
+    font-size: 16px; padding: 10px 0; border-radius: var(--radius); }
   .ctrls button:active { border-color: var(--accent); color: var(--accent); }
-  .ctrls .play { flex: 1.4; background: var(--accent); color: #000; border-color: var(--accent); font-weight: bold; }
+  .ctrls .play { flex: 1.4; background: var(--accent); color: var(--on-accent); border-color: var(--accent); font-weight: bold; }
 </style>
 </head>
 <body>
 <header>
-  <div class="brand"><b>MDE</b><span>TV REMOTE</span></div>
+  <div class="brand"><b id="brand">MDE</b><span>TV REMOTE</span></div>
   <form id="search">
     <input type="search" id="q" placeholder="Search" enterkeyhint="search" autocomplete="off">
     <button>SEARCH</button>
@@ -86,9 +114,9 @@
 <div id="banner"></div>
 <main id="main">
   <section id="results" hidden><h2>Results</h2><div class="grid"></div></section>
+  <section id="cameras" hidden><h2>Live</h2><div class="row"></div></section>
   <section id="recent" hidden><h2>Continue watching</h2><div class="row"></div></section>
-  <section id="new"><h2>New</h2><div class="row"><p class="empty">Loading…</p></div></section>
-  <section id="popular"><h2>Popular</h2><div class="row"></div></section>
+  <div id="sections"><p class="empty" style="margin-top:18px">Loading…</p></div>
 </main>
 <div id="now">
   <div class="np">
@@ -106,8 +134,14 @@
 </div>
 <script>
 (function(){
+  var site = document.documentElement.dataset.site;
+  var fishtank = site === 'fishtank';
   var key = new URLSearchParams(location.search).get('k') || '';
   var $ = function(s){ return document.querySelector(s); };
+  document.title = (fishtank ? 'Fishtank' : 'MDE') + ' TV Remote';
+  $('#brand').textContent = fishtank ? 'fishtank' : 'MDE';
+  document.head.insertAdjacentHTML('beforeend', '<meta name="theme-color" content="' + (fishtank ? '#56749f' : '#04080b') + '">');
+
   function api(path, params){
     var u = new URLSearchParams(params || {}); u.set('k', key);
     return fetch(path + '?' + u, { cache: 'no-store' }).then(function(r){
@@ -121,29 +155,46 @@
     var h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60;
     return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(x).padStart(2, '0');
   }
+  function el(tag, cls, text){
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text) e.textContent = text;
+    return e;
+  }
+  function bg(e, url){ if (url) e.style.backgroundImage = 'url("' + url.replace(/"/g, '%22') + '")'; }
 
   function card(v){
-    var b = document.createElement('button');
-    b.className = 'card';
-    var t = document.createElement('div');
-    t.className = 'thumb';
-    if (v.thumb) t.style.backgroundImage = 'url("' + v.thumb.replace(/"/g, '%22') + '")';
-    if (v.next) { var n = document.createElement('div'); n.className = 'tag'; n.textContent = 'UP NEXT'; t.appendChild(n); }
-    else if (v.progress > 0) { var bar = document.createElement('div'); bar.className = 'bar';
-      bar.innerHTML = '<i style="width:' + Math.min(100, Math.max(2, v.progress * 100)) + '%"></i>'; t.appendChild(bar); }
-    if (v.watched) { var w = document.createElement('div'); w.className = 'seen'; w.textContent = '✓ WATCHED'; t.appendChild(w); }
-    var s = document.createElement('div'); s.className = 'series'; s.textContent = v.series || '';
-    var ti = document.createElement('div'); ti.className = 'title'; ti.textContent = v.title || '';
-    b.appendChild(t); if (v.series) b.appendChild(s); b.appendChild(ti);
+    var b = el('button', 'card'), t = el('div', 'thumb');
+    bg(t, v.thumb);
+    if (v.next) t.appendChild(el('div', 'tag', 'UP NEXT'));
+    else if (v.progress > 0) {
+      var bar = el('div', 'bar'), fill = el('i');
+      fill.style.width = Math.min(100, Math.max(2, v.progress * 100)) + '%';
+      bar.appendChild(fill); t.appendChild(bar);
+    }
+    if (v.watched) t.appendChild(el('div', 'seen', '✓ WATCHED'));
+    b.appendChild(t);
+    if (v.series) b.appendChild(el('div', 'series', v.series));
+    b.appendChild(el('div', 'title', v.title || ''));
     b.onclick = function(){ play(v); };
     return b;
   }
-  function fill(id, list, emptyText){
-    var sec = $('#' + id), box = sec.querySelector('.row, .grid');
+  function cameraCard(c){
+    var b = el('button', 'card cam'), t = el('div', 'thumb', c.thumb ? '' : c.name);
+    bg(t, c.thumb);
+    t.appendChild(el('div', 'live' + (c.online ? '' : ' off'), c.online ? '● LIVE' : 'Offline'));
+    b.appendChild(t);
+    b.appendChild(el('div', 'title', c.name));
+    b.onclick = function(){ camera(c); };
+    return b;
+  }
+  function fill(sec, list, make, emptyText){
+    var box = sec.querySelector('.row, .grid');
     box.innerHTML = '';
-    (list || []).forEach(function(v){ box.appendChild(card(v)); });
+    (list || []).forEach(function(v){ box.appendChild(make(v)); });
     if (!list || !list.length) {
-      if (emptyText) box.innerHTML = '<p class="empty">' + emptyText + '</p>'; else { sec.hidden = true; return; }
+      if (!emptyText) { sec.hidden = true; return; }
+      box.appendChild(el('p', 'empty', emptyText));
     }
     sec.hidden = false;
   }
@@ -151,42 +202,60 @@
   function load(){
     api('/api/home').then(function(d){
       banner('');
-      fill('recent', d.recent);
-      fill('new', d['new'], 'Nothing here right now.');
-      fill('popular', d.popular, 'Nothing here right now.');
+      if (fishtank) {
+        var anyOnline = (d.cameras || []).some(function(c){ return c.online; });
+        fill($('#cameras'), anyOnline ? d.cameras : [], cameraCard, 'No cameras are live right now.');
+      }
+      fill($('#recent'), d.recent, card);
+      var box = $('#sections');
+      box.innerHTML = '';
+      (d.sections || []).forEach(function(s){
+        var sec = el('section'), h = el('h2', '', s.title);
+        sec.appendChild(h);
+        if (fishtank) sec.appendChild(document.createElement('br'));
+        sec.appendChild(el('div', 'row'));
+        fill(sec, s.items, card, 'Nothing here right now.');
+        box.appendChild(sec);
+      });
     }).catch(offline);
   }
   function offline(e){
     banner(String(e && e.message) === '403'
       ? 'This link has expired. Scan the QR code in the TV app’s menu again.'
-      : 'Can’t reach the TV. Open MDE TV on the TV and check you’re on the same Wi-Fi.');
+      : 'Can’t reach the TV. Open the app on the TV and check you’re on the same Wi-Fi.');
   }
 
   $('#search').onsubmit = function(e){
     e.preventDefault();
     var q = $('#q').value.trim();
     $('#q').blur();
-    if (!q) { $('#results').hidden = true; return; }
     var sec = $('#results');
+    if (!q) { sec.hidden = true; return; }
     sec.hidden = false;
     sec.querySelector('.grid').innerHTML = '<p class="empty">Searching…</p>';
-    api('/api/search', { q: q }).then(function(d){ fill('results', d.results, 'No results for “' + q + '”.'); window.scrollTo(0, 0); })
-      .catch(offline);
+    api('/api/search', { q: q }).then(function(d){
+      fill(sec, d.results, card, 'No results for “' + q + '”.');
+      window.scrollTo(0, 0);
+    }).catch(offline);
   };
 
   function play(v){
-    showNow({ title: v.title, series: v.series, thumb: v.thumb, playing: true, t: 0, dur: v.dur || 0 });
-    api('/api/play', { path: v.path }).then(function(){ setTimeout(poll, 3000); }).catch(offline);
+    showNow({ video: true, title: v.title, series: v.series, thumb: v.thumb, playing: true, t: 0, dur: v.dur || 0 });
+    api('/api/play', { path: v.path, title: v.title || '' }).then(function(){ setTimeout(poll, 3000); }).catch(offline);
+  }
+  function camera(c){
+    api('/api/camera', { name: c.name }).then(function(){ setTimeout(poll, 3000); }).catch(offline);
   }
 
   // ---- Now playing ----
   var dragging = false, pollTimer = null;
   function showNow(s){
     $('#now').classList.add('on');
-    $('#npTitle').textContent = s.title || '';
+    $('#npTitle').textContent = s.title || 'Playing on the TV';
     $('#npSeries').textContent = s.series || '';
     $('#npSeries').style.display = s.series ? '' : 'none';
-    $('#npThumb').style.backgroundImage = s.thumb ? 'url("' + s.thumb.replace(/"/g, '%22') + '")' : '';
+    $('#npThumb').style.backgroundImage = '';
+    bg($('#npThumb'), s.thumb);
     $('#npPlay').textContent = s.playing ? '❚❚' : '▶';
     if (!dragging) {
       $('#npBar').max = Math.max(1, Math.floor(s.dur || 0));
@@ -203,7 +272,9 @@
       if (s.video) showNow(s); else $('#now').classList.remove('on');
     }).catch(offline).then(function(){ pollTimer = setTimeout(poll, 1500); });
   }
-  function cmd(c, v){ return api('/api/cmd', v === undefined ? { c: c } : { c: c, v: v }).then(function(){ setTimeout(poll, 400); }).catch(offline); }
+  function cmd(c, v){
+    return api('/api/cmd', v === undefined ? { c: c } : { c: c, v: v }).then(function(){ setTimeout(poll, 400); }).catch(offline);
+  }
   $('#npPlay').onclick = function(){ cmd('toggle'); };
   document.querySelectorAll('[data-seek]').forEach(function(b){ b.onclick = function(){ cmd('seek', b.dataset.seek); }; });
   var bar = $('#npBar');

@@ -1273,23 +1273,56 @@
   // an absolute seek for its progress bar.
   window.__ftvRemoteStatus = function(){
     var p = currentPlaybackInfo();
-    var og = function(k){ var m = document.querySelector('meta[property="og:' + k + '"]'); return m ? m.content : ''; };
-    var crumb = document.querySelector('a[href="/series/' + location.pathname.split('/')[2] + '"]');
     var video = !!((trackedVideo && document.contains(trackedVideo)) || findPlayerFrame());
-    return JSON.stringify({
-      path: location.pathname,
-      video: video,
-      title: video ? cleanTitle((og('title') || document.title).replace(/\s*\|\s*MDE\.tv\s*$/i, '')) : '',
-      series: video && crumb ? cleanTitle(crumb.textContent) : '',
-      thumb: video ? og('image') : '',
-      playing: window.__ftvIsPlaying(),
-      t: p.time || 0,
-      dur: p.duration || 0
-    });
+    var s = { path: location.pathname, video: video, title: '', series: '', thumb: '',
+              playing: window.__ftvIsPlaying(), t: p.time || 0, dur: p.duration || 0 };
+    if (video && location.host.indexOf('mde.tv') >= 0) {
+      var og = function(k){ var m = document.querySelector('meta[property="og:' + k + '"]'); return m ? m.content : ''; };
+      var crumb = document.querySelector('a[href="/series/' + location.pathname.split('/')[2] + '"]');
+      s.title = cleanTitle((og('title') || document.title).replace(/\s*\|\s*MDE\.tv\s*$/i, ''));
+      s.series = crumb ? cleanTitle(crumb.textContent) : '';
+      s.thumb = og('image');
+    } else if (video) {
+      var id = episodeId();
+      try { s.title = localStorage.getItem('__ftv_title_' + id) || ''; } catch (e) {}
+      s.thumb = id ? 'https://' + bunnyHost() + '/' + id + '/thumbnail.jpg' : '';
+    }
+    return JSON.stringify(s);
   };
   window.__ftvRemoteSeekTo = function(t){
     window.__ftvSeek(t - (currentPlaybackInfo().time || 0));
   };
+  // fishtank: open an episode from the phone, keeping its title for
+  // Continue watching (the episode page itself doesn't say).
+  window.__ftvRemoteEpisode = function(id, title){
+    try { localStorage.setItem('__ftv_title_' + id, cleanTitle(title)); } catch (e) {}
+    location.assign('/episodes/' + id);
+  };
+  // fishtank: switch to a live camera. Cameras are picked on the live page
+  // (/) by its "Watch <name>" tile buttons; there's no URL for one. If
+  // we're elsewhere, go there first and wait for the tile.
+  window.__ftvRemoteCamera = function(name){
+    var label = 'Watch ' + name, tries = 0;
+    if (location.pathname !== '/') {
+      try { sessionStorage.setItem('__ftv_cam', name); } catch (e) {}
+      undoFullscreen();
+      location.assign('/');
+      return;
+    }
+    (function attempt(){
+      var b = [].filter.call(document.querySelectorAll('button[aria-label]'), function(x){
+        return x.getAttribute('aria-label') === label;
+      })[0];
+      if (b) { b.click(); return; }
+      if (++tries < 40) setTimeout(attempt, 250);
+    })();
+  };
+  // A camera asked for while the live page was still loading (above).
+  try {
+    var pendingCam = sessionStorage.getItem('__ftv_cam');
+    sessionStorage.removeItem('__ftv_cam');
+    if (pendingCam && location.pathname === '/') setTimeout(function(){ window.__ftvRemoteCamera(pendingCam); }, 500);
+  } catch (e) {}
 
   // Subtitles on the page's own <video> (mde): 'state' -> "on" | "off" |
   // "none"; 'toggle' flips them. fishtank's cross-origin player exposes no

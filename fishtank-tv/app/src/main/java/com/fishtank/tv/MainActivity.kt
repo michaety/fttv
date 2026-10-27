@@ -113,7 +113,7 @@ class MainActivity : Activity() {
     private lateinit var errorView: TextView
     private lateinit var homeUrl: String
     private val thumbCache by lazy { ThumbCache(cacheDir) }
-    /** mde only: browse and control from a phone (see PhoneRemote). */
+    /** Browse and control from a phone (see PhoneRemote). */
     private var phoneRemote: PhoneRemote? = null
     private var lastHomeBackPress = 0L
 
@@ -528,11 +528,11 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
 
         homeUrl = getString(R.string.home_url)
-        if (homeUrl.contains("mde.tv")) phoneRemote = PhoneRemote(this, object : PhoneRemote.Host {
+        phoneRemote = PhoneRemote(this, object : PhoneRemote.Host {
             override fun evalJs(code: String, result: (String?) -> Unit) = webView.evaluateJavascript(code) { result(it) }
             override fun openPath(path: String) {
                 showError(false)
-                webView.loadUrl("https://www.mde.tv$path")
+                webView.loadUrl(homeUrl.trimEnd('/') + path)
             }
         })
 

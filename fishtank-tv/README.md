@@ -22,9 +22,9 @@ app/src/main/java/com/fishtank/tv/
   FtvWebView.kt     WebView whose keyboard action key submits the field
   UpdateChecker.kt  self-update from GitHub releases
   ThumbCache.kt     480px copies of fishtank's episode thumbnails
-  PhoneRemote.kt    mde: web server for the phone remote page
+  PhoneRemote.kt    web server for the phone remote page
 app/src/main/assets/
-  remote.html       mde: the phone remote page (served by PhoneRemote)
+  remote.html       the phone remote page (served by PhoneRemote)
   dpad.js           the injected D-pad script (cursor, scrubbing, player
                     control, Continue watching). An asset rather than a Kotlin
                     string: JVM string constants max out at 64KB.
@@ -127,7 +127,7 @@ shrinks it to 480px wide once (Bunny wants fishtank's Referer, so the page's
 request headers are passed along), and serves the small copy after that. Copies
 expire after a week. The Bunny player iframe's own requests aren't touched.
 
-**mde phone remote.** Menu -> "Use your phone as a remote" shows a QR code
+**Phone remote (both apps).** Menu -> "Use your phone as a remote" shows a QR code
 for `http://<tv-ip>:8765/?k=<key>`. `PhoneRemote.kt` serves `remote.html` and a
 small JSON API while the app is in the foreground (started in `onStart`,
 stopped in `onStop`).
@@ -136,6 +136,17 @@ stopped in `onStop`).
   `/v1/playlists/<id>`, that endpoint has `watched` flags.
 - `/api/search?q=`: `/v1/search?query=`. Results carry a series id, not a
   tag, so `/v1/series` maps it to `/series/<tag>/<video>`.
+- fishtank: `/api/home` has the cameras from `/v1/live-streams` (online ones
+  first; thumbnails come from the tiles on the TV's live page) and episodes
+  from `/v1/videos` (public, all ~140 at once) by collection. Seasons are
+  sorted by the number in the title, since upload dates don't follow it.
+  Search matches titles in that list; there's no search API.
+- fishtank `/api/camera?name=`: there's no URL for a camera. The live page
+  (/) picks one with its `Watch <name>` tile buttons, so
+  `__ftvRemoteCamera` goes to / and clicks that tile. Off-season there are
+  no tiles, so this is untested against a live season.
+- fishtank `/api/play` goes through `__ftvRemoteEpisode`, which stores the
+  title (`__ftv_title_<id>`) so Continue watching can show it.
 - `/api/play?path=`: opens the episode in the WebView, signed in, so progress
   and achievements count. Only `/series/<tag>/<tag>` paths are accepted.
 - `/api/status` and `/api/cmd?c=toggle|seek|seekto`: via

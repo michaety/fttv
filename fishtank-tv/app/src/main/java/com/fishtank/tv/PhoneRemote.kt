@@ -244,16 +244,21 @@ class PhoneRemote(private val context: Context, private val host: Host) {
     /** Continue watching, from the app's own list in the WebView's localStorage. */
     private fun recent(): JSONArray {
         val recent = JSONArray()
+        // fishtank entries can carry a guessed thumbnail (see ftThumb in dpad.js).
+        val ftThumbs = if (!fishtank) emptyMap() else ftVideoList().let { v ->
+            (0 until v.length()).mapNotNull { v.optJSONObject(it) }.associate { it.optString("id") to it.optString("thumbnail") }
+        }
         evalOnMain("localStorage.getItem('__ftv_recent')")?.let { unquote(it) }?.let { raw ->
             val list = try { JSONArray(raw) } catch (e: Exception) { JSONArray() }
             for (i in 0 until list.length()) {
                 val x = list.optJSONObject(i) ?: continue
                 val dur = x.optDouble("dur", 0.0)
+                val path = x.optString("path")
                 recent.put(JSONObject()
-                    .put("path", x.optString("path"))
+                    .put("path", path)
                     .put("title", x.optString("title"))
                     .put("series", x.optString("series"))
-                    .put("thumb", x.optString("thumb"))
+                    .put("thumb", ftThumbs[path.substringAfterLast('/')]?.takeIf { it.isNotEmpty() } ?: x.optString("thumb"))
                     .put("next", x.optBoolean("next"))
                     .put("progress", if (dur > 0) x.optDouble("t", 0.0) / dur else 0.0))
             }

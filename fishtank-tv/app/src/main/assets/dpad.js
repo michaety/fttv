@@ -353,7 +353,7 @@
     var title = '';
     try { title = localStorage.getItem('__ftv_title_' + id) || ''; } catch (e) {}
     recordRecent({ path: '/episodes/' + id, title: title || 'Episode',
-                   thumb: 'https://' + bunnyHost() + '/' + id + '/thumbnail.jpg', t: t, dur: dur });
+                   thumb: ftThumb(id), t: t, dur: dur });
     if (dur > 60 && t > dur - 30) queueFishtankNextUp();
   }
 
@@ -396,7 +396,7 @@
     nextUpFor = id;
     try { localStorage.setItem('__ftv_title_' + next.id, cleanTitle(next.title)); } catch (e) {}
     recordNextUp({ path: '/episodes/' + next.id, title: cleanTitle(next.title),
-                   thumb: 'https://' + bunnyHost() + '/' + next.id + '/thumbnail.jpg' });
+                   thumb: ftThumb(next.id) });
   }
   function onEpisodeEnded(){
     var id = episodeId();
@@ -415,7 +415,7 @@
       var label = document.createElement('div');
       label.style.cssText = 'margin-bottom:8px;';
       var img = document.createElement('img');
-      img.src = 'https://' + bunnyHost() + '/' + next.id + '/thumbnail.jpg';
+      img.src = ftThumb(next.id);
       img.style.cssText = 'display:block;width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:6px;background:#111;';
       img.onerror = function(){ img.style.display = 'none'; };
       var title = document.createElement('div');
@@ -479,7 +479,7 @@
       if (q[i].id !== id) continue;
       for (var j = i + 1; j < q.length && out.length < 5; j++) {
         out.push({ path: '/episodes/' + q[j].id, title: cleanTitle(q[j].title),
-                   thumb: 'https://' + bunnyHost() + '/' + q[j].id + '/thumbnail.jpg' });
+                   thumb: ftThumb(q[j].id) });
       }
       break;
     }
@@ -752,6 +752,11 @@
     var row = document.getElementById('__ftv_recent_row');
     var list = slot ? loadRecent() : [];
     if (!slot || !list.length) { if (row) row.remove(); recentSig = ''; return; }
+    // Entries saved with a guessed fishtank thumbnail get the real one.
+    list.forEach(function(x){
+      var m = ftThumbs && /^\/episodes\/([0-9a-f-]{36})$/.exec(x.path);
+      if (m && ftThumbs[m[1]]) x.thumb = ftThumbs[m[1]];
+    });
     var sig = JSON.stringify(list.map(function(x){ return [x.path, Math.round(x.t / 30)]; }));
     // Up to date -- unless it's the plain fallback, which is swapped for the
     // themed version as soon as the site's own rows have rendered.
@@ -1226,6 +1231,22 @@
     var hm = img && /\/\/(vz-[^/]+\.b-cdn\.net)\//.exec(img.src);
     return hm ? hm[1] : 'vz-a2fe5bfa-400.b-cdn.net';
   }
+  // A fishtank episode's thumbnail. Not always <id>/thumbnail.jpg (Season 2's
+  // are thumbnail_<hash>.jpg), so the real ones come from the public episode
+  // list, fetched once per page; the guess is only for before that arrives.
+  var ftThumbs = null;
+  function ftThumb(id){
+    return (ftThumbs && ftThumbs[id]) || 'https://' + bunnyHost() + '/' + id + '/thumbnail.jpg';
+  }
+  if (location.host.indexOf('fishtank') >= 0) {
+    fetch('https://api.fishtank.live/v1/videos').then(function(r){ return r.json(); }).then(function(j){
+      var map = {};
+      (j.videos || []).forEach(function(v){ if (v.id && v.thumbnail) map[v.id] = v.thumbnail; });
+      ftThumbs = map;
+      recentSig = '';   // redraw Continue watching with them
+      scheduleInvalidate();
+    }).catch(function(){});
+  }
 
   // Sprite sheets already loaded (url -> true) or loading (url -> Image).
   // A tile is only shown once its sheet has loaded, so a fast scrub into
@@ -1367,7 +1388,7 @@
     } else if (video) {
       var id = episodeId();
       try { s.title = localStorage.getItem('__ftv_title_' + id) || ''; } catch (e) {}
-      s.thumb = id ? 'https://' + bunnyHost() + '/' + id + '/thumbnail.jpg' : '';
+      s.thumb = id ? ftThumb(id) : '';
     }
     return JSON.stringify(s);
   };

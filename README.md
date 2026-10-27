@@ -27,10 +27,7 @@ Unofficial. Not affiliated with, endorsed by, or supported by either site.
 - **63% less CPU:** compared with v1.0, measured on MDE's homepage.
 - **Subtitles:** on MDE, from the Menu (☰) button.
 - **Autoplay:** the next episode starts when one finishes. Back cancels.
-- **Continue watching:** episodes you've started are in a row at the top of
-  MDE's homepage and Fishtank's Episodes page. When you finish one, the next
-  episode appears there marked "Up next". This skips collections like
-  Stand-Up, Films and The Vault.
+- **Continue watching:** pick up where you left off, or start the next episode.
 - **Tidier Fishtank episodes:** seasons run oldest to newest, and the BTS
   videos are together in the BTS tab.
 - **Auto-updates:** the app offers new versions when it opens. On Fire TV's

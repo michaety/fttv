@@ -179,6 +179,7 @@
       checkPlayerFrame();
       pauseHomeVideos();
       try { renderRecent(); } catch (e) {}
+      try { renderPscRows(); } catch (e) {}
     }, 250);
   }
   // Mutations entirely inside an ignored subtree (hidden live chat that the
@@ -631,6 +632,125 @@
     recentSig = sig;
     built.id = '__ftv_recent_row';
     slot.insertBefore(built, slot.firstElementChild);
+  }
+
+  // ---- Pause Snack Continue by game (mde) -----------------------------
+  // PSC is one long list of 130+ episodes across a dozen games. On its
+  // series page the site's list is hidden and replaced with one row per
+  // game (newest game first, episodes Ep. 1 onwards), built from the
+  // series API in a single request and from clones of the site's own
+  // card. Titles that aren't "<Game> - Ep. N" go in a Specials row.
+  var PSC_PATH = '/series/pause-snack-continue';
+  var pscVideos = null, pscLoading = false, pscSig = '';
+
+  function pscGame(title){
+    var t = String(title).replace(/^\s*(Scary Mondays|PSC Wildcard Wednesday)\s*:\s*/i, '');
+    var m = /^(.*?)\s*[-–—]\s*Ep\.?\s*(\d+)/i.exec(t);
+    return m ? { game: m[1].trim(), ep: +m[2] } : { game: 'Specials', ep: 0 };
+  }
+  function fmtDuration(s){
+    var h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60);
+    return (h ? h + 'h ' : '') + m + 'm';
+  }
+
+  function renderPscRows(){
+    var box = document.getElementById('__ftv_psc');
+    var list = null;
+    if (location.host.indexOf('mde.tv') >= 0 && location.pathname === PSC_PATH) {
+      // Our rows copy the list's class too, so skip those.
+      var lists = document.querySelectorAll('[class*="_seriesVideoList"]');
+      for (var i = 0; i < lists.length; i++) if (!lists[i].closest('#__ftv_psc')) { list = lists[i]; break; }
+    }
+    if (!list) { if (box) box.remove(); pscSig = ''; return; }
+    var wrapper = list.parentElement;
+    if (!pscVideos) {
+      if (pscLoading) return;
+      // The API caps pageSize at 200 (pages count from 0).
+      pscLoading = true;
+      var got = [];
+      var page = function(p){
+        return fetch('https://api.mde.tv/v1/series/pause-snack-continue/videos?page=' + p + '&pageSize=200', { credentials: 'include' })
+          .then(function(r){ return r.json(); })
+          .then(function(j){
+            got = got.concat(j.videos || []);
+            if (j.videos && j.videos.length && got.length < j.total && p < 10) return page(p + 1);
+          });
+      };
+      page(0)
+        .then(function(){ pscVideos = got.filter(function(v){ return !v.hidden; }); scheduleInvalidate(); })
+        .catch(function(){})
+        .then(function(){ pscLoading = false; });
+      return;
+    }
+    if (!pscVideos.length) return;
+    if (box && box.nextElementSibling === wrapper && pscSig) { wrapper.style.display = 'none'; return; }
+    var tpl = list.querySelector('a[class*="_video"]');
+    if (!tpl) return;
+
+    var games = {}, order = [];
+    pscVideos.forEach(function(v){
+      var g = pscGame(v.title);
+      if (!games[g.game]) { games[g.game] = { name: g.game, eps: [], latest: 0 }; order.push(games[g.game]); }
+      games[g.game].eps.push({ v: v, ep: g.ep });
+      games[g.game].latest = Math.max(games[g.game].latest, v.episode);
+    });
+    order.sort(function(a, b){
+      if ((a.name === 'Specials') !== (b.name === 'Specials')) return a.name === 'Specials' ? 1 : -1;
+      return b.latest - a.latest;
+    });
+
+    // The card styles are scoped to the list, so each row is a copy of the
+    // list element itself, turned into a single scrolling line.
+    var cardW = Math.round(tpl.getBoundingClientRect().width) || renderPscRows.cardW || 290;
+    renderPscRows.cardW = cardW;
+    var head = document.querySelector('[class*="_subtitle"]');
+    var hs = head ? getComputedStyle(head) : null;
+    var out = document.createElement('div');
+    out.id = '__ftv_psc';
+    out.style.cssText = 'display:flex;flex-direction:column;gap:22px;margin:8px 0 24px;';
+    order.forEach(function(g){
+      g.eps.sort(function(a, b){ return (a.ep - b.ep) || (a.v.episode - b.v.episode); });
+      var row = document.createElement('div');
+      var label = document.createElement('div');
+      label.textContent = g.name + '  ·  ' + g.eps.length + (g.eps.length === 1 ? ' episode' : ' episodes');
+      label.style.cssText = 'margin:0 0 10px 2px;' + (hs ? 'font-family:' + hs.fontFamily + ';color:' + hs.color +
+        ';font-size:' + hs.fontSize + ';letter-spacing:' + hs.letterSpacing + ';text-shadow:' + hs.textShadow + ';' : '');
+      var track = list.cloneNode(false);
+      track.style.cssText = 'display:flex;flex-wrap:nowrap;gap:16px;overflow-x:auto;scrollbar-width:none;' +
+        'padding:4px 2px 8px;grid-template-columns:none;';
+      g.eps.forEach(function(e, n){
+        var v = e.v, c = tpl.cloneNode(true);
+        c.id = v.id;
+        c.href = PSC_PATH + '/' + v.tag;
+        c.removeAttribute('data-ftv');
+        c.style.flex = '0 0 ' + cardW + 'px';
+        var set = function(sel, text){ var el = c.querySelector('[class*="' + sel + '"]'); if (el) el.textContent = text; };
+        set('_episode', '#' + (e.ep || n + 1));
+        // The row already names the game: show "Ep. 3: Title".
+        set('_title', g.name === 'Specials' ? v.title : v.title.replace(/^.*?(Ep\.?\s*\d+)\s*:?\s*/i, '$1: '));
+        set('_views', v.views + ' Views');
+        set('_duration', fmtDuration(v.duration || 0));
+        set('_date', String(v.published_at || v.created_at || '').slice(0, 10));
+        var img = c.querySelector('img');
+        if (img) { img.src = v.small_thumbnail || v.thumbnail || ''; img.removeAttribute('srcset'); img.loading = n < 6 ? 'eager' : 'lazy'; }
+        if (v.watched && img) {
+          var tick = document.createElement('div');
+          tick.textContent = '✓ WATCHED';
+          tick.style.cssText = 'position:absolute;top:8px;right:8px;z-index:2;padding:2px 8px;border-radius:4px;' +
+            'background:rgba(0,0,0,.8);color:__FTV_ACCENT_HEX__;font:700 13px/1.4 sans-serif;';
+          img.parentElement.style.position = 'relative';
+          img.parentElement.appendChild(tick);
+        }
+        track.appendChild(c);
+      });
+      row.appendChild(label);
+      row.appendChild(track);
+      out.appendChild(row);
+    });
+    if (box) box.remove();
+    wrapper.parentElement.insertBefore(out, wrapper);
+    wrapper.style.display = 'none';
+    pscSig = 'built';
   }
 
   // Auto-fullscreen the player once per page -- gated to "not the

@@ -111,6 +111,16 @@ again.
 BTS videos are hidden there and copied into the BTS tab, and the "Digest" tab
 is labelled "Season 4 Digest" (all in `siteCleanupJs`).
 
+**mde Pause Snack Continue page.** `renderPscRows` in `dpad.js` hides the
+series list and puts one row per game in its place, newest game first.
+- Data: `api.mde.tv/v1/series/pause-snack-continue/videos`. Pages start at 0,
+  pageSize is capped at 200, and each video has a `watched` flag.
+- The game is the title before " - Ep. N", without "Scary Mondays:" or "PSC
+  Wildcard Wednesday:". Anything else goes in a Specials row.
+- Rows are copies of the site's `_seriesVideoList` element and cards, because
+  the card styles are scoped to that list. So skip our copies (inside
+  `#__ftv_psc`) when looking for the site's list.
+
 **Back navigation.**
 - On mde, opening an episode is a full page load, so BACK does a plain
   `loadUrl(home)`. That was measured fastest: the home link waits on a server

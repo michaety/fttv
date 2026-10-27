@@ -22,6 +22,8 @@ Unofficial. Not affiliated with, endorsed by, or supported by either site.
 
 - **TV layout:** clutter removed and easy navigation for your TV.
 - **Remote control:** browse the site with the arrows and Select.
+- **Remote control from your phone:** browse, search and play on the TV from
+  your phone. See [Phone remote](#phone-remote).
 - **Search:** MDE's search box is in the header.
 - **Scrubbing:** left and right show a preview of where you'll jump to.
 - **63% less CPU:** compared with v1.0, measured on MDE's homepage.
@@ -32,6 +34,33 @@ Unofficial. Not affiliated with, endorsed by, or supported by either site.
   videos are together in the BTS tab.
 - **Auto-updates:** the app offers new versions when it opens. On Fire TV's
   confirm screen, move right to **INSTALL** (it starts on Cancel).
+
+## Phone remote
+
+On the TV, press the Menu (☰) button and choose **Link your phone**, then scan
+the QR code with your phone's camera. Your phone needs to be on the same Wi-Fi
+as the TV.
+
+<img src="assets/screenshots/link-phone-tv.jpg" alt="Link your phone screen on the TV" width="720">
+
+Your phone gets the app's rows and search: Continue watching, MDE's
+Spotlight, playlists and series, or Fishtank's seasons and live cameras. Tap
+something and it plays on the TV, then pause, skip and scrub from the bar at
+the bottom.
+
+<table>
+<tr>
+<td><img src="assets/screenshots/phone-mde-home.jpg" alt="MDE phone remote" width="200"></td>
+<td><img src="assets/screenshots/phone-mde-series.jpg" alt="An MDE series on the phone remote" width="200"></td>
+<td><img src="assets/screenshots/phone-fishtank-home.jpg" alt="Fishtank phone remote" width="200"></td>
+<td><img src="assets/screenshots/phone-fishtank-season.jpg" alt="A Fishtank season on the phone remote" width="200"></td>
+</tr>
+</table>
+
+To skip the QR code next time, add the page to your home screen (Chrome:
+⋮ → Add to Home screen → Create shortcut; Safari: Share → Add to Home
+Screen). The link keeps working as long as the TV app is open and the TV
+keeps the same address on your network.
 
 ## Limitations
 

@@ -127,19 +127,28 @@ shrinks it to 480px wide once (Bunny wants fishtank's Referer, so the page's
 request headers are passed along), and serves the small copy after that. Copies
 expire after a week. The Bunny player iframe's own requests aren't touched.
 
-**Phone remote (both apps).** Menu -> "Use your phone as a remote" shows a QR code
+**Phone remote (both apps).** Menu -> "Link your phone" shows a QR code
 for `http://<tv-ip>:8765/?k=<key>`. `PhoneRemote.kt` serves `remote.html` and a
 small JSON API while the app is in the foreground (started in `onStart`,
-stopped in `onStop`).
-- `/api/home`: Continue watching (`__ftv_recent`, read from the WebView) and
-  the New and Popular playlists from `/v1/site/landing`. Unlike
+stopped in `onStop`). Both apps use port 8765; switching from one to the other
+runs the new app's `onStart` before the old one's `onStop` frees the port, so
+`start()` binds on a thread and retries for ~10s. The dialog (picture:
+`res/<flavor>/drawable-nodpi/link_phone.png`) closes once a phone loads the
+page.
+- `/api/home`: Continue watching (`__ftv_recent`, read from the WebView) and,
+  from `/v1/site/landing`, every playlist (New, Popular, Free...), the
+  Spotlight (its "Featured" playlist) and the series list. Unlike
   `/v1/playlists/<id>`, that endpoint has `watched` flags.
+- `/api/series?tag=`: one series' episodes from `/v1/series/<tag>/videos`,
+  newest first.
 - `/api/search?q=`: `/v1/search?query=`. Results carry a series id, not a
   tag, so `/v1/series` maps it to `/series/<tag>/<video>`.
 - fishtank: `/api/home` has the cameras from `/v1/live-streams` (online ones
   first; thumbnails come from the tiles on the TV's live page) and episodes
-  from `/v1/videos` (public, all ~140 at once) by collection. Seasons are
-  sorted by the number in the title, since upload dates don't follow it.
+  from `/v1/videos` (public, all ~140 at once) by collection: Seasons 1-3
+  first, then any collection we don't know yet, then digests, Shorts and BTS
+  (`COLLECTIONS_TOP`/`COLLECTIONS_BOTTOM`). Seasons are sorted by the number
+  in the title, since upload dates don't follow it.
   Search matches titles in that list; there's no search API.
 - fishtank `/api/camera?name=`: there's no URL for a camera. The live page
   (/) picks one with its `Watch <name>` tile buttons, so
@@ -157,6 +166,28 @@ stopped in `onStop`).
 - Every request needs the key from the QR code (403 otherwise). The key is
   random, kept in SharedPreferences, and stays the same, so a bookmark keeps
   working while the TV's IP doesn't change.
+- Player page (tap the Now playing bar): `/api/episode?path=` gives the
+  details and the episodes it belongs with in watching order (mde: the series
+  by `episode` number, or for PSC the same game; fishtank: its season, with
+  "(Extras)" after their episode). `/api/cmd` also takes `restart`, `captions`
+  (`__ftvCaptions`) and `stop` (`leavePage`, as BACK).
+- Queue: `/api/queue[/add|/remove|/top]?path=`. It lives on the TV in
+  localStorage `__ftv_playqueue` (`__ftvQueue` in dpad.js), and an entry comes
+  off when its page loads or is pushState'd to. At the end of an episode it
+  goes first: mde's own up-next card is fed it by the `/videos/next` XHR
+  swap (the site only asks just before showing the card, so something queued
+  mid-episode still counts); fishtank's countdown takes it in
+  `nextEpisode()`. mde entries carry the API's video object for that; fishtank
+  entries carry their season (`row`) so autoplay carries on from there.
+  `/api/queue` also lists "auto", what autoplay would play next (mde: worked
+  out on the server, skipping `NO_NEXT_UP`; fishtank: the TV's remembered
+  row).
+- Home screen: `/manifest.webmanifest` (needs the key; its `start_url`
+  carries it) and `/icon.png` (no key; `assets/remote-icon-<flavor>.png`).
+  Chrome only offers a real install on HTTPS, so on the LAN it's "Create
+  shortcut", which still uses the name and icon.
+- fishtank's thumbnail CDN refuses requests without a Referer, so the page
+  must keep the browser's default referrer policy.
 - Why not the site's Cast button: it only casts to Google-certified Cast
   devices (Default Media Receiver `CC1AD845` plus device authentication), so
   a sideloaded Fire TV app can't appear there. See CHROMECAST_HANDOFF.md.

@@ -69,7 +69,10 @@
   // Rebuilds the candidate list. Rects are read in one batch pass up front
   // (interleaving getBoundingClientRect with getComputedStyle forces a
   // layout per element) and off-screen elements are dropped by geometry
-  // alone before any survivor pays for a getComputedStyle call.
+  // alone before any survivor pays for a getComputedStyle call. Whether an
+  // item is covered is NOT checked here: hit-testing every card cost ~30ms
+  // a rebuild on the Firestick, so only the items the cursor is about to
+  // land on are tested (isCovered, below).
   function computeItems(){
     var all = document.querySelectorAll(SEL);
     var n = all.length;
@@ -108,7 +111,6 @@
       if (s.visibility === 'hidden' || s.display === 'none') continue;
       if (parseFloat(s.opacity) < 0.1) continue;
       if (el.disabled) continue;
-      if (covered(el)) continue;
       out.push(el);
     }
     return out;
@@ -144,8 +146,15 @@
     return !!(el.matches && el.matches('a[class*="_logo"]'));
   }
 
+  // covered(), remembered until the list is next rebuilt.
+  var coveredMemo = new Map();
+  function isCovered(el){
+    if (!coveredMemo.has(el)) coveredMemo.set(el, covered(el));
+    return coveredMemo.get(el);
+  }
+
   function items(){
-    if (dirty || !cache) { cache = computeItems(); dirty = false; }
+    if (dirty || !cache) { cache = computeItems(); coveredMemo = new Map(); dirty = false; }
     return cache;
   }
 
@@ -186,12 +195,16 @@
   // Mutations entirely inside an ignored subtree (hidden live chat that the
   // SPA keeps rendering into) are skipped, or they'd dirty the cache every
   // few hundred ms forever and every keypress would pay a full rebuild.
+  // So are mutations inside the selected item: mde swaps a card's thumbnail
+  // when it takes focus, which made every key press rebuild the list.
   var IGNORE = __FTV_IGNORE_MUTATIONS__;
   new MutationObserver(function(records){
-    if (!IGNORE) { scheduleInvalidate(); return; }
     for (var i = 0; i < records.length; i++) {
       var t = records[i].target;
-      if (!(t.closest && t.closest(IGNORE))) { scheduleInvalidate(); return; }
+      if (cur && cur !== t && cur.contains(t)) continue;
+      if (IGNORE && t.closest && t.closest(IGNORE)) continue;
+      scheduleInvalidate();
+      return;
     }
   }).observe(document.body, { childList: true, subtree: true });
   // Capture phase on document, not a plain window listener: scroll events
@@ -1414,10 +1427,10 @@
   // on launch), else the first on-screen content item.
   function preferredStart(list){
     var rc = document.querySelector('#__ftv_recent_row a');
-    if (rc && list.indexOf(rc) >= 0) return rc;
+    if (rc && list.indexOf(rc) >= 0 && !isCovered(rc)) return rc;
     if (location.host.indexOf('fishtank') >= 0) {
       for (var i = 0; i < list.length; i++) {
-        if (list[i].tagName === 'BUTTON' && list[i].textContent.trim() === 'Episodes' && inViewport(list[i])) return list[i];
+        if (list[i].tagName === 'BUTTON' && list[i].textContent.trim() === 'Episodes' && inViewport(list[i]) && !isCovered(list[i])) return list[i];
       }
     }
     return null;
@@ -1437,7 +1450,7 @@
     if (pref) return pref;
     var firstVisible = null;
     for (var i = 0; i < list.length; i++) {
-      if (!inViewport(list[i])) continue;
+      if (!inViewport(list[i]) || isCovered(list[i])) continue;
       if (!firstVisible) firstVisible = list[i];
       if (!isChrome(list[i])) return list[i];
     }
@@ -1654,8 +1667,7 @@
 
   function nearest(list, dir){
     var c = centre(cur);
-    var best = null;
-    var bestScore = Infinity;
+    var scored = [];
 
     // Left/right inside a horizontally-scrolling carousel must stay locked
     // to that row -- it should only ever continue along the row or stop at
@@ -1689,9 +1701,14 @@
       // section's tabs went down into the nearby cards and that section's
       // far-right "View All" link could never be reached.
       if (!inBeam(el, dir)) score += 1e6;
-      if (score < bestScore) { bestScore = score; best = el; }
+      scored.push({ el: el, score: score });
     }
-    return best;
+    // Best first, skipping anything hidden under something else.
+    scored.sort(function(a, b){ return a.score - b.score; });
+    for (var j = 0; j < scored.length; j++) {
+      if (!isCovered(scored[j].el)) return scored[j].el;
+    }
+    return null;
   }
 
   function doNavigate(dir){
@@ -1703,7 +1720,7 @@
     // e.g. by the scroll fallback below -- it keeps navigating from where
     // it is, instead of jumping back up to the top-left item.
     if (cur && document.contains(cur) && list.indexOf(cur) < 0 && !dirty) { dirty = true; list = items(); }
-    if (!cur || !document.contains(cur) || list.indexOf(cur) < 0) { mark(pickDefault(list)); return; }
+    if (!cur || !document.contains(cur) || list.indexOf(cur) < 0 || isCovered(cur)) { mark(pickDefault(list)); return; }
 
     var best = nearest(list, dir);
 

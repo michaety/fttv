@@ -28,12 +28,18 @@ Unofficial. Not affiliated with, endorsed by, or supported by either site.
 - **Subtitles:** on MDE, from the Menu (☰) button.
 - **Autoplay:** the next episode starts when one finishes. Back cancels.
 - **Continue watching:** episodes you've started are in a row at the top of
-  MDE's homepage and Fishtank's Episodes page.
+  MDE's homepage and Fishtank's Episodes page. When you finish one, the next
+  episode appears there marked "Up next". This skips collections like
+  Stand-Up, Films and The Vault.
+- **Back goes where you came from:** Back from an episode returns to the show
+  or page you opened it from, with that episode highlighted.
 - **Tidier Fishtank episodes:** seasons run oldest to newest, and the BTS
   videos are together in the BTS tab.
 - **Pause Snack Continue by game:** MDE's PSC page has a row for each game
   (Oblivion, Resident Evil, Front Mission...), from episode 1, with watched
-  ones marked.
+  ones marked. Autoplay stays in the same game.
+- **Faster Fishtank thumbnails:** episode pictures appear about four times
+  faster on the Episodes page.
 - **Auto-updates:** the app offers new versions when it opens. On Fire TV's
   confirm screen, move right to **INSTALL** (it starts on Cancel).
 

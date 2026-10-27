@@ -109,6 +109,7 @@ class MainActivity : Activity() {
     private lateinit var progressBar: ProgressBar
     private lateinit var errorView: TextView
     private lateinit var homeUrl: String
+    private val thumbCache by lazy { ThumbCache(cacheDir) }
     private var lastHomeBackPress = 0L
 
     /** Set when the main-frame load failed and errorView is showing; Select
@@ -676,6 +677,7 @@ class MainActivity : Activity() {
                 if (url != null && BLOCKED_URL_SUBSTRINGS.any { url.contains(it, ignoreCase = true) }) {
                     return WebResourceResponse("text/plain", "utf-8", null)
                 }
+                request?.let { thumbCache.intercept(it) }?.let { return it }
                 return super.shouldInterceptRequest(view, request)
             }
 
@@ -1006,10 +1008,15 @@ class MainActivity : Activity() {
                 // pause via postMessage, not document.querySelectorAll.
                 js("window.__ftvPause && window.__ftvPause()")
                 if (!isHomePath(webView.url)) {
-                    // Always go to the actual homepage, never "back" through
-                    // WebView history: each video pushes a history entry, so
-                    // goBack() walked back through previously watched videos.
-                    goHome()
+                    // From an episode, to the page it was opened from (the
+                    // PSC page, a show, fishtank's Episodes page -- see
+                    // window.__ftvBack in dpad.js); from anywhere else, the
+                    // actual homepage. Never "back" through WebView history:
+                    // each video pushes a history entry, so goBack() walked
+                    // back through previously watched videos.
+                    webView.evaluateJavascript("window.__ftvBack ? window.__ftvBack() : false") { r ->
+                        if (r != "true") goHome()
+                    }
                 } else {
                     // Never goBack() from the homepage either: after watching
                     // anything, history is [home, video, home], so that went

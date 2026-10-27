@@ -21,6 +21,7 @@ app/src/main/java/com/fishtank/tv/
   MainActivity.kt   WebView shell, key handling, site CSS/cleanup
   FtvWebView.kt     WebView whose keyboard action key submits the field
   UpdateChecker.kt  self-update from GitHub releases
+  ThumbCache.kt     480px copies of fishtank's episode thumbnails
 app/src/main/assets/
   dpad.js           the injected D-pad script (cursor, scrubbing, player
                     control, Continue watching). An asset rather than a Kotlin
@@ -100,6 +101,12 @@ again.
   of the site's own rows and cards, so it matches each site's style. It's
   per-TV: neither site stores watch progress on the account (checked by
   logging playback traffic on both).
+- Up next in Continue watching: finishing an episode (last 30s, or `ended`)
+  adds the next one with `next: true`, drawn with an "UP NEXT" strip instead
+  of a progress bar. On mde the next episode comes from `GET /videos/next/<id>`
+  (or `pscNext` for PSC), only if it's in the same series, and never for the
+  series in `NO_NEXT_UP` (Stand-Up, FILMS, The Vault and other collections).
+  On fishtank it's the next episode in the row it was opened from.
 - On launch the cursor starts on the first Continue watching card, or on
   fishtank's Episodes button.
 - The screen is kept on only while `__ftvIsPlaying()` is true, polled every
@@ -111,17 +118,31 @@ again.
 BTS videos are hidden there and copied into the BTS tab, and the "Digest" tab
 is labelled "Season 4 Digest" (all in `siteCleanupJs`).
 
+**fishtank thumbnails.** Bunny serves every episode thumbnail at 1920x1080
+and ignores `?width`. Reading and decoding ~60 of them took ~1.3-2s each on the
+Firestick, even from cache. `ThumbCache.kt` intercepts `<id>/thumbnail.jpg`,
+shrinks it to 480px wide once (Bunny wants fishtank's Referer, so the page's
+request headers are passed along), and serves the small copy after that. Copies
+expire after a week. The Bunny player iframe's own requests aren't touched.
+
 **mde Pause Snack Continue page.** `renderPscRows` in `dpad.js` hides the
 series list and puts one row per game in its place, newest game first.
 - Data: `api.mde.tv/v1/series/pause-snack-continue/videos`. Pages start at 0,
   pageSize is capped at 200, and each video has a `watched` flag.
 - The game is the title before " - Ep. N", without "Scary Mondays:" or "PSC
   Wildcard Wednesday:". Anything else goes in a Specials row.
+- Up next stays within the game: the answer to the site's own
+  `GET /videos/next/<id>` request is swapped for the game's next episode
+  (XHR patch in `dpad.js`). After a game's last episode, mde's pick is used.
 - Rows are copies of the site's `_seriesVideoList` element and cards, because
   the card styles are scoped to that list. So skip our copies (inside
   `#__ftv_psc`) when looking for the site's list.
 
 **Back navigation.**
+- From an episode, BACK goes to the page it was opened from (a show, the PSC
+  page, fishtank's Episodes page), with the cursor on that episode
+  (`window.__ftvBack` in `dpad.js`). Only the last such page is kept, in
+  sessionStorage, and the homepage clears it. From anywhere else BACK goes home.
 - On mde, opening an episode is a full page load, so BACK does a plain
   `loadUrl(home)`. That was measured fastest: the home link waits on a server
   re-render, and the back/forward cache doesn't apply.

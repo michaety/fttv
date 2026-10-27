@@ -180,6 +180,7 @@
       pauseHomeVideos();
       try { renderRecent(); } catch (e) {}
       try { renderPscRows(); } catch (e) {}
+      restoreReturnFocus();
     }, 250);
   }
   // Mutations entirely inside an ignored subtree (hidden live chat that the
@@ -340,6 +341,7 @@
     try { title = localStorage.getItem('__ftv_title_' + id) || ''; } catch (e) {}
     recordRecent({ path: '/episodes/' + id, title: title || 'Episode',
                    thumb: 'https://' + bunnyHost() + '/' + id + '/thumbnail.jpg', t: t, dur: dur });
+    if (dur > 60 && t > dur - 30) queueFishtankNextUp();
   }
 
   // ---- Up next (fishtank) --------------------------------------------
@@ -368,10 +370,22 @@
     for (var i = 0; i < q.length - 1; i++) if (q[i].id === id) return q[i + 1];
     return null;
   }
+  // Continue watching's "Up next": the next episode in the same row.
+  // Once per episode (the page stays loaded between episodes here).
+  var nextUpFor = null;
+  function queueFishtankNextUp(){
+    var id = episodeId(), next = nextEpisode();
+    if (!next || nextUpFor === id) return;
+    nextUpFor = id;
+    try { localStorage.setItem('__ftv_title_' + next.id, cleanTitle(next.title)); } catch (e) {}
+    recordNextUp({ path: '/episodes/' + next.id, title: cleanTitle(next.title),
+                   thumb: 'https://' + bunnyHost() + '/' + next.id + '/thumbnail.jpg' });
+  }
   function onEpisodeEnded(){
     var id = episodeId();
     try { if (id) localStorage.removeItem('__ftv_pos_' + id); } catch (e) {}
     if (id) removeRecent('/episodes/' + id);
+    queueFishtankNextUp();
     var next = nextEpisode();
     if (!next || nextTimer) return;
     if (!nextOverlay) {
@@ -445,6 +459,43 @@
     return String(t || '').replace(/\s+/g, ' ').trim().replace(/\.(mp4|mov|mkv|webm)$/i, '');
   }
 
+  // Finishing an episode puts the next one at the front of the row, marked
+  // "Up next" instead of a progress bar; once it's started it's an ordinary
+  // part-watched entry. entry: { path, title, thumb, series } -- no times.
+  function recordNextUp(entry){
+    if (!entry || !entry.path) return;
+    var list = loadRecent().filter(function(x){ return x.path !== entry.path; });
+    entry.next = true;
+    entry.t = 0;
+    entry.ts = Date.now();
+    list.unshift(entry);
+    saveRecent(list);
+  }
+
+  // mde: the next episode of the same show, from the API the site's own
+  // up-next card uses (for PSC, the same game's -- see pscNext). Not for
+  // collections that aren't watched in order.
+  var NO_NEXT_UP = ['sst', 'films', 'sequence-master', 'vlt', 'bntm', 'mde', 'music', 'xp-sound',
+                    'tubi-poops', 'patina-research', 'worldcore', 'fleshsim'];
+  var nextUpQueued = false;
+  function queueMdeNextUp(){
+    var m = /^\/series\/([^/]+)\/([^/]+)/.exec(location.pathname);
+    if (nextUpQueued || !m || NO_NEXT_UP.indexOf(m[1]) >= 0) return;
+    nextUpQueued = true;
+    var api = 'https://api.mde.tv/v1/videos/';
+    var get = function(u){ return fetch(api + u, { credentials: 'include' }).then(function(r){ return r.json(); }); };
+    get(m[2]).then(function(j){
+      var id = j.video && j.video.id;
+      if (!id) return null;
+      if (m[1] === 'pause-snack-continue') return pscNext(id);
+      return get('next/' + id).then(function(n){ return n.video; });
+    }).then(function(v){
+      if (!v || v.series_tag !== m[1]) return;   // last episode of the show
+      recordNextUp({ path: '/series/' + v.series_tag + '/' + v.tag, title: cleanTitle(v.title),
+                     series: v.series_name || '', thumb: v.small_thumbnail || v.thumbnail || '' });
+    }).catch(function(){});
+  }
+
   // mde: its player is the page's own <video>; title and thumbnail come
   // from the page's og: tags (episode pages are full page loads).
   var lastRecentSave = 0;
@@ -460,9 +511,12 @@
                    title: cleanTitle((og('title') || document.title).replace(/\s*\|\s*MDE\.tv\s*$/i, '')),
                    thumb: og('image') || trackedVideo.poster || '',
                    t: trackedVideo.currentTime, dur: trackedVideo.duration });
+    if (trackedVideo.duration > 60 && trackedVideo.currentTime > trackedVideo.duration - 30) queueMdeNextUp();
   }, true);
   document.addEventListener('ended', function(e){
-    if (location.host.indexOf('mde.tv') >= 0 && e.target === trackedVideo) removeRecent(location.pathname);
+    if (location.host.indexOf('mde.tv') < 0 || e.target !== trackedVideo) return;
+    removeRecent(location.pathname);
+    queueMdeNextUp();
   }, true);
 
   // Where the row goes on the current page, or null.
@@ -492,6 +546,17 @@
       Math.max(2, Math.min(100, frac * 100)) + '%;';
     bar.appendChild(fill);
     return bar;
+  }
+
+  // Along the bottom of a card's thumbnail: how far in, or "Up next".
+  function cardStrip(x){
+    if (!x.next) return progressBar(x.t / x.dur);
+    var tag = document.createElement('div');
+    tag.textContent = 'UP NEXT';
+    tag.style.cssText = 'position:relative;z-index:2;height:22px;margin-top:-22px;width:100%;box-sizing:border-box;' +
+      'padding:0 8px;background:rgba(0,0,0,.75);color:__FTV_ACCENT_HEX__;font:700 13px/22px sans-serif;' +
+      'letter-spacing:1px;border-radius:0 0 6px 6px;';
+    return tag;
   }
 
   function buildMdeRow(slot, list){
@@ -528,7 +593,7 @@
       var title = c.querySelector('[class*="_title"]');
       if (title) title.textContent = x.title || 'Untitled';
       c.querySelectorAll('[class*="_watched"]').forEach(function(w){ w.remove(); });
-      if (img) img.insertAdjacentElement('afterend', progressBar(x.t / x.dur));
+      if (img) img.insertAdjacentElement('afterend', cardStrip(x));
       box.appendChild(c);
     });
     return row;
@@ -573,7 +638,7 @@
       var leaves = [].filter.call(a.querySelectorAll('div'), function(d){ return !d.children.length && d.textContent.trim(); });
       if (leaves.length) leaves[0].textContent = x.title || 'Episode';
       for (var k = 1; k < leaves.length; k++) leaves[k].remove();
-      if (img) img.insertAdjacentElement('afterend', progressBar(x.t / x.dur));
+      if (img) img.insertAdjacentElement('afterend', cardStrip(x));
       ul.appendChild(c);
     });
     return row;
@@ -598,7 +663,7 @@
       title.style.cssText = 'margin-top:6px;font-size:14px;';
       title.textContent = x.title || 'Untitled';
       a.appendChild(img);
-      a.appendChild(progressBar(x.t / x.dur));
+      a.appendChild(cardStrip(x));
       a.appendChild(title);
       track.appendChild(a);
     });
@@ -653,6 +718,79 @@
     return (h ? h + 'h ' : '') + m + 'm';
   }
 
+  function loadPsc(){
+    if (pscVideos || pscLoading) return;
+    // The API caps pageSize at 200 (pages count from 0).
+    pscLoading = true;
+    var got = [];
+    var page = function(p){
+      return fetch('https://api.mde.tv/v1/series/pause-snack-continue/videos?page=' + p + '&pageSize=200', { credentials: 'include' })
+        .then(function(r){ return r.json(); })
+        .then(function(j){
+          got = got.concat(j.videos || []);
+          if (j.videos && j.videos.length && got.length < j.total && p < 10) return page(p + 1);
+        });
+    };
+    page(0)
+      .then(function(){ pscVideos = got.filter(function(v){ return !v.hidden; }); scheduleInvalidate(); })
+      .catch(function(){})
+      .then(function(){ pscLoading = false; });
+  }
+
+  // Games newest first (Specials last), each with its episodes Ep. 1 on.
+  function pscGames(){
+    var games = {}, order = [];
+    pscVideos.forEach(function(v){
+      var g = pscGame(v.title);
+      if (!games[g.game]) { games[g.game] = { name: g.game, eps: [], latest: 0 }; order.push(games[g.game]); }
+      games[g.game].eps.push({ v: v, ep: g.ep });
+      games[g.game].latest = Math.max(games[g.game].latest, v.episode);
+    });
+    order.forEach(function(g){
+      g.eps.sort(function(a, b){ return (a.ep - b.ep) || (a.v.episode - b.v.episode); });
+    });
+    return order.sort(function(a, b){
+      if ((a.name === 'Specials') !== (b.name === 'Specials')) return a.name === 'Specials' ? 1 : -1;
+      return b.latest - a.latest;
+    });
+  }
+
+  // Up next stays in the same game. mde's site picks the next video by
+  // asking GET /videos/next/<id>, which goes by upload order, so an
+  // Oblivion episode could be followed by Outlast. The request still goes
+  // out, but for a PSC episode its answer is swapped for the next episode
+  // of the same game; mde's own countdown card then plays that. After a
+  // game's last episode, or before the list has loaded, mde's answer is
+  // left alone.
+  function pscNext(id){
+    if (!pscVideos) return null;
+    var games = pscGames();
+    for (var i = 0; i < games.length; i++) {
+      if (games[i].name === 'Specials') continue;
+      var eps = games[i].eps;
+      for (var j = 0; j < eps.length - 1; j++) if (eps[j].v.id === id) return eps[j + 1].v;
+    }
+    return null;
+  }
+  if (location.host.indexOf('mde.tv') >= 0) {
+    if (location.pathname.indexOf(PSC_PATH + '/') === 0) loadPsc();
+    var xhrOpen = XMLHttpRequest.prototype.open, xhrSend = XMLHttpRequest.prototype.send;
+    XMLHttpRequest.prototype.open = function(method, url){
+      var m = /\/videos\/next\/([0-9a-f-]{36})/.exec(String(url));
+      this.__ftvNextOf = m ? m[1] : null;
+      return xhrOpen.apply(this, arguments);
+    };
+    XMLHttpRequest.prototype.send = function(){
+      var xhr = this, next = xhr.__ftvNextOf && pscNext(xhr.__ftvNextOf);
+      if (next) {
+        var body = JSON.stringify({ video: next });
+        Object.defineProperty(xhr, 'responseText', { get: function(){ return body; } });
+        Object.defineProperty(xhr, 'response', { get: function(){ return xhr.responseType === 'json' ? JSON.parse(body) : body; } });
+      }
+      return xhrSend.apply(this, arguments);
+    };
+  }
+
   function renderPscRows(){
     var box = document.getElementById('__ftv_psc');
     var list = null;
@@ -663,41 +801,13 @@
     }
     if (!list) { if (box) box.remove(); pscSig = ''; return; }
     var wrapper = list.parentElement;
-    if (!pscVideos) {
-      if (pscLoading) return;
-      // The API caps pageSize at 200 (pages count from 0).
-      pscLoading = true;
-      var got = [];
-      var page = function(p){
-        return fetch('https://api.mde.tv/v1/series/pause-snack-continue/videos?page=' + p + '&pageSize=200', { credentials: 'include' })
-          .then(function(r){ return r.json(); })
-          .then(function(j){
-            got = got.concat(j.videos || []);
-            if (j.videos && j.videos.length && got.length < j.total && p < 10) return page(p + 1);
-          });
-      };
-      page(0)
-        .then(function(){ pscVideos = got.filter(function(v){ return !v.hidden; }); scheduleInvalidate(); })
-        .catch(function(){})
-        .then(function(){ pscLoading = false; });
-      return;
-    }
+    if (!pscVideos) { loadPsc(); return; }
     if (!pscVideos.length) return;
     if (box && box.nextElementSibling === wrapper && pscSig) { wrapper.style.display = 'none'; return; }
     var tpl = list.querySelector('a[class*="_video"]');
     if (!tpl) return;
 
-    var games = {}, order = [];
-    pscVideos.forEach(function(v){
-      var g = pscGame(v.title);
-      if (!games[g.game]) { games[g.game] = { name: g.game, eps: [], latest: 0 }; order.push(games[g.game]); }
-      games[g.game].eps.push({ v: v, ep: g.ep });
-      games[g.game].latest = Math.max(games[g.game].latest, v.episode);
-    });
-    order.sort(function(a, b){
-      if ((a.name === 'Specials') !== (b.name === 'Specials')) return a.name === 'Specials' ? 1 : -1;
-      return b.latest - a.latest;
-    });
+    var order = pscGames();
 
     // The card styles are scoped to the list, so each row is a copy of the
     // list element itself, turned into a single scrolling line.
@@ -709,7 +819,6 @@
     out.id = '__ftv_psc';
     out.style.cssText = 'display:flex;flex-direction:column;gap:22px;margin:8px 0 24px;';
     order.forEach(function(g){
-      g.eps.sort(function(a, b){ return (a.ep - b.ep) || (a.v.episode - b.v.episode); });
       var row = document.createElement('div');
       var label = document.createElement('div');
       label.textContent = g.name + '  ·  ' + g.eps.length + (g.eps.length === 1 ? ' episode' : ' episodes');
@@ -1616,10 +1725,67 @@
       var from = location.pathname;
       var r = push.apply(this, arguments);
       if (location.pathname !== from) prevPath = from;
+      noteBrowsePage();
       return r;
     };
-    window.addEventListener('popstate', function(){ prevPath = null; });
+    window.addEventListener('popstate', function(){ prevPath = null; noteBrowsePage(); });
   })();
+
+  // ---- BACK from an episode (both sites) -------------------------------
+  // goes to the page it was opened from -- the PSC page, a show, fishtank's
+  // Episodes page -- with the cursor back on that episode, and BACK again
+  // goes home. Only the last such page is kept (in sessionStorage, as mde
+  // episodes are full page loads), not the whole history, so a run of
+  // autoplayed episodes still goes straight back to where it started. The
+  // homepage clears it: from there BACK goes home as before.
+  var BROWSE_KEY = '__ftv_browse', RETURN_KEY = '__ftv_return';
+  function isEpisodePath(p){
+    return location.host.indexOf('mde.tv') >= 0 ? /^\/series\/[^/]+\/[^/]+/.test(p) : /^\/episodes\/[^/]+/.test(p);
+  }
+  function noteBrowsePage(){
+    var p = location.pathname;
+    try {
+      if (p === '/') sessionStorage.removeItem(BROWSE_KEY);
+      else if (!isEpisodePath(p)) sessionStorage.setItem(BROWSE_KEY, p + location.search);
+    } catch (e) {}
+  }
+  noteBrowsePage();
+  window.__ftvBack = function(){
+    if (!isEpisodePath(location.pathname)) return false;
+    var to = null;
+    try { to = sessionStorage.getItem(BROWSE_KEY); sessionStorage.setItem(RETURN_KEY, location.pathname); } catch (e) {}
+    if (!to) return false;
+    undoFullscreen();
+    if (cur) { zoomOff(cur); cur = null; }
+    hideVeil();
+    // Opened by a client-side route from that page (fishtank): going back
+    // reuses the page from Next.js's cache, scroll position and all, and
+    // this script keeps running, so it picks up the cursor itself.
+    if (prevPath && prevPath === to.split('?')[0]) {
+      prevPath = null;
+      returnTo = location.pathname;
+      returnUntil = Date.now() + 10000;
+      try { sessionStorage.removeItem(RETURN_KEY); } catch (e) {}
+      history.back();
+    }
+    else location.assign(to);
+    return true;
+  };
+  // On the page BACK returned to, the episode just left gets the cursor
+  // once its card exists (PSC's rows, say, are built a moment after load).
+  var returnTo = null, returnUntil = 0;
+  try { returnTo = sessionStorage.getItem(RETURN_KEY); sessionStorage.removeItem(RETURN_KEY); } catch (e) {}
+  if (returnTo) returnUntil = Date.now() + 10000;
+  function restoreReturnFocus(){
+    if (!returnTo) return;
+    if (Date.now() > returnUntil) { returnTo = null; return; }
+    // Rendered, though not necessarily on screen yet: mark() scrolls to it.
+    var a = document.querySelector('a[href="' + returnTo + '"]');
+    if (!a || a.getBoundingClientRect().width < 8) return;
+    returnTo = null;
+    dirty = true;
+    mark(a);
+  }
 
   window.__ftvGoHome = function(){
     // Came straight from the homepage: go back to it. Next.js restores a

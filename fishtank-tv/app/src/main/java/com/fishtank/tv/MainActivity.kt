@@ -32,10 +32,13 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
+import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.browser.customtabs.CustomTabsIntent
+import io.nayuki.qrcodegen.QrCode
 import org.json.JSONObject
 
 /**
@@ -110,6 +113,8 @@ class MainActivity : Activity() {
     private lateinit var errorView: TextView
     private lateinit var homeUrl: String
     private val thumbCache by lazy { ThumbCache(cacheDir) }
+    /** mde only: browse and control from a phone (see PhoneRemote). */
+    private var phoneRemote: PhoneRemote? = null
     private var lastHomeBackPress = 0L
 
     /** Set when the main-frame load failed and errorView is showing; Select
@@ -523,6 +528,13 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
 
         homeUrl = getString(R.string.home_url)
+        if (homeUrl.contains("mde.tv")) phoneRemote = PhoneRemote(this, object : PhoneRemote.Host {
+            override fun evalJs(code: String, result: (String?) -> Unit) = webView.evaluateJavascript(code) { result(it) }
+            override fun openPath(path: String) {
+                showError(false)
+                webView.loadUrl("https://www.mde.tv$path")
+            }
+        })
 
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
@@ -807,6 +819,7 @@ class MainActivity : Activity() {
         webView.evaluateJavascript("window.__ftvCaptions ? window.__ftvCaptions('state') : 'none'") { r ->
             val captions = r?.trim('"') ?: "none"
             val items = mutableListOf("Check for updates", "Reload page", "Reset cursor")
+            if (phoneRemote != null) items.add(0, "Use your phone as a remote")
             if (captions != "none") items.add(0, if (captions == "on") "Subtitles: turn off" else "Subtitles: turn on")
             AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
                 .setTitle("${getString(R.string.app_name)} ${BuildConfig.VERSION_NAME}")
@@ -815,11 +828,53 @@ class MainActivity : Activity() {
                         "Check for updates" -> updateChecker.checkNow()
                         "Reload page" -> webView.reload()
                         "Reset cursor" -> js("window.__ftvReset && window.__ftvReset()")
+                        "Use your phone as a remote" -> showPhoneRemote()
                         else -> js("window.__ftvCaptions && window.__ftvCaptions('toggle')")
                     }
                 }
                 .show()
         }
+    }
+
+    /** The QR code for the phone remote page, with its address underneath. */
+    private fun showPhoneRemote() {
+        val remote = phoneRemote ?: return
+        val url = remote.url()
+        if (url == null) {
+            Toast.makeText(this, "Not connected to Wi-Fi", Toast.LENGTH_LONG).show()
+            return
+        }
+        val qr = QrCode.encodeText(url, QrCode.Ecc.MEDIUM)
+        val scale = 10
+        val border = 2
+        val px = (qr.size + border * 2) * scale
+        val bmp = Bitmap.createBitmap(px, px, Bitmap.Config.RGB_565)
+        bmp.eraseColor(Color.WHITE)
+        for (y in 0 until qr.size) for (x in 0 until qr.size) {
+            if (!qr.getModule(x, y)) continue
+            for (dy in 0 until scale) for (dx in 0 until scale) {
+                bmp.setPixel((x + border) * scale + dx, (y + border) * scale + dy, Color.BLACK)
+            }
+        }
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(40, 30, 40, 10)
+            addView(ImageView(this@MainActivity).apply { setImageBitmap(bmp) },
+                LinearLayout.LayoutParams(px, px))
+            addView(TextView(this@MainActivity).apply {
+                text = "Scan with your phone's camera. Your phone must be on the same Wi-Fi as the TV.\n\n" +
+                    url.substringBefore("/?")
+                textSize = 16f
+                gravity = Gravity.CENTER
+                setPadding(0, 24, 0, 0)
+            })
+        }
+        AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
+            .setTitle("Use your phone as a remote")
+            .setView(box)
+            .setPositiveButton("Done", null)
+            .show()
     }
 
     private fun showError(show: Boolean) {
@@ -1045,6 +1100,7 @@ class MainActivity : Activity() {
         super.onStart()
         if (overlayHolder == null) createOverlayHolder()
         root.post(screenPoll)
+        phoneRemote?.start()
     }
 
     /**
@@ -1057,6 +1113,7 @@ class MainActivity : Activity() {
         super.onStop()
         destroyOverlayHolder()
         root.removeCallbacks(screenPoll)
+        phoneRemote?.stop()
     }
 
     override fun onResume() {

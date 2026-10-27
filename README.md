@@ -22,8 +22,8 @@ Unofficial. Not affiliated with, endorsed by, or supported by either site.
 
 - **TV layout:** clutter removed and easy navigation for your TV.
 - **Remote control:** browse the site with the arrows and Select.
-- **Remote control from your phone:** browse, search and play on the TV from
-  your phone. See [Phone remote](#phone-remote).
+- **Link your phone:** browse, search and play on the TV from your phone.
+  See [Link your phone](#link-your-phone).
 - **Search:** MDE's search box is in the header.
 - **63% less CPU:** compared with v1.0, measured on MDE's homepage.
 - **Subtitles:** on MDE, from the Menu (☰) button.
@@ -32,19 +32,14 @@ Unofficial. Not affiliated with, endorsed by, or supported by either site.
 - **Auto-updates:** the app offers new versions when it opens. On Fire TV's
   confirm screen, move right to **INSTALL** (it starts on Cancel).
 
-## Phone remote
+## Link your phone
 
-On the TV, press the Menu (☰) button and choose **Link your phone**, then scan
-the QR code with your phone's camera. Your phone needs to be on the same Wi-Fi
-as the TV.
+Press Menu (☰) on the TV, choose **Link your phone** and scan the QR code (same
+Wi-Fi as the TV). Pick something on your phone and it plays on the TV, with
+full controls and a queue. Add the page to your home screen to skip the QR
+code next time.
 
 <img src="assets/screenshots/link-phone-tv.jpg" alt="Link your phone screen on the TV" width="720">
-
-Your phone gets the app's rows and search: Continue watching, MDE's
-Spotlight, playlists and series, or Fishtank's seasons and live cameras. Tap
-something and it plays on the TV. Tap the bar at the bottom for the full
-player: pause, skip, scrub, subtitles, and Up next. Tap **+** on any episode
-to queue it.
 
 <table>
 <tr>
@@ -54,11 +49,6 @@ to queue it.
 <td><img src="assets/screenshots/phone-fishtank-upnext.jpg" alt="Up next on the phone remote" width="200"></td>
 </tr>
 </table>
-
-To skip the QR code next time, add the page to your home screen (Chrome:
-⋮ → Add to Home screen → Create shortcut; Safari: Share → Add to Home
-Screen). The link keeps working as long as the TV app is open and the TV
-keeps the same address on your network.
 
 ## Limitations
 

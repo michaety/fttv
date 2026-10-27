@@ -115,6 +115,8 @@ class MainActivity : Activity() {
     private val thumbCache by lazy { ThumbCache(cacheDir) }
     /** Browse and control from a phone (see PhoneRemote). */
     private var phoneRemote: PhoneRemote? = null
+    /** The QR code dialog while it's showing; closed once a phone connects. */
+    private var phoneRemoteDialog: AlertDialog? = null
     private var lastHomeBackPress = 0L
 
     /** Set when the main-frame load failed and errorView is showing; Select
@@ -534,6 +536,11 @@ class MainActivity : Activity() {
                 showError(false)
                 webView.loadUrl(homeUrl.trimEnd('/') + path)
             }
+            override fun leave() = leavePage()
+            override fun onPhoneConnected() {
+                phoneRemoteDialog?.dismiss()
+                phoneRemoteDialog = null
+            }
         })
 
 
@@ -819,7 +826,7 @@ class MainActivity : Activity() {
         webView.evaluateJavascript("window.__ftvCaptions ? window.__ftvCaptions('state') : 'none'") { r ->
             val captions = r?.trim('"') ?: "none"
             val items = mutableListOf("Check for updates", "Reload page", "Reset cursor")
-            if (phoneRemote != null) items.add(0, "Use your phone as a remote")
+            if (phoneRemote != null) items.add(0, "Link your phone")
             if (captions != "none") items.add(0, if (captions == "on") "Subtitles: turn off" else "Subtitles: turn on")
             AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
                 .setTitle("${getString(R.string.app_name)} ${BuildConfig.VERSION_NAME}")
@@ -828,7 +835,7 @@ class MainActivity : Activity() {
                         "Check for updates" -> updateChecker.checkNow()
                         "Reload page" -> webView.reload()
                         "Reset cursor" -> js("window.__ftvReset && window.__ftvReset()")
-                        "Use your phone as a remote" -> showPhoneRemote()
+                        "Link your phone" -> showPhoneRemote()
                         else -> js("window.__ftvCaptions && window.__ftvCaptions('toggle')")
                     }
                 }
@@ -836,7 +843,11 @@ class MainActivity : Activity() {
         }
     }
 
-    /** The QR code for the phone remote page, with its address underneath. */
+    /**
+     * The QR code for the phone remote page: a picture of the TV and the phone
+     * remote playing the same episode, so it's clear what it's for, then the
+     * code and the address.
+     */
     private fun showPhoneRemote() {
         val remote = phoneRemote ?: return
         val url = remote.url()
@@ -856,25 +867,54 @@ class MainActivity : Activity() {
                 bmp.setPixel((x + border) * scale + dx, (y + border) * scale + dy, Color.BLACK)
             }
         }
-        val box = LinearLayout(this).apply {
+        // Sizes in screen pixels, like the QR bitmap.
+        val picW = 480
+        val infoW = 340
+        val wrap = LinearLayout.LayoutParams.WRAP_CONTENT
+        val picture = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(40, 30, 40, 10)
-            addView(ImageView(this@MainActivity).apply { setImageBitmap(bmp) },
-                LinearLayout.LayoutParams(px, px))
+            addView(ImageView(this@MainActivity).apply {
+                setImageResource(R.drawable.link_phone)
+                adjustViewBounds = true
+            }, LinearLayout.LayoutParams(picW, wrap))
             addView(TextView(this@MainActivity).apply {
-                text = "Scan with your phone's camera. Your phone must be on the same Wi-Fi as the TV.\n\n" +
-                    url.substringBefore("/?")
-                textSize = 16f
+                text = "Control the TV from your phone"
+                textSize = 17f
+                setTextColor(Color.WHITE)
                 gravity = Gravity.CENTER
                 setPadding(0, 24, 0, 0)
             })
         }
-        AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
-            .setTitle("Use your phone as a remote")
+        val info = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            addView(ImageView(this@MainActivity).apply { setImageBitmap(bmp) },
+                LinearLayout.LayoutParams(px, px))
+            addView(TextView(this@MainActivity).apply {
+                text = "Scan with your phone's camera. It must be on the same Wi-Fi as the TV.\n\n" +
+                    url.substringBefore("/?")
+                textSize = 14f
+                gravity = Gravity.CENTER
+                setPadding(0, 20, 0, 0)
+            })
+        }
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(20, 10, 20, 0)
+            addView(picture, LinearLayout.LayoutParams(picW, wrap).apply { rightMargin = 40 })
+            addView(info, LinearLayout.LayoutParams(infoW, wrap))
+        }
+        phoneRemoteDialog = AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
+            .setTitle("Link your phone")
             .setView(box)
             .setPositiveButton("Done", null)
+            .setOnDismissListener { phoneRemoteDialog = null }
             .show()
+        // Wide enough for the picture beside the code (the alert keeps ~360px of
+        // the window for its own margins).
+        phoneRemoteDialog?.window?.setLayout(1280, ViewGroup.LayoutParams.WRAP_CONTENT)
     }
 
     private fun showError(show: Boolean) {

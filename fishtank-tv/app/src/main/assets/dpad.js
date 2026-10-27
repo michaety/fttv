@@ -378,6 +378,10 @@
     try { sessionStorage.setItem('__ftv_queue', JSON.stringify(items)); } catch (e) {}
   }
   function nextEpisode(){
+    // Something queued from the phone remote goes first.
+    var queued = loadPlayQueue()[0];
+    var qm = queued && /^\/episodes\/([0-9a-f-]{36})$/.exec(queued.path);
+    if (qm && queued.path !== location.pathname) return { id: qm[1], title: queued.title || 'Episode', row: queued.row };
     var id = episodeId(), q = [];
     try { q = JSON.parse(sessionStorage.getItem('__ftv_queue') || '[]'); } catch (e) {}
     for (var i = 0; i < q.length - 1; i++) if (q[i].id === id) return q[i + 1];
@@ -429,6 +433,10 @@
       if (n-- <= 0) {
         cancelNext();
         try { localStorage.setItem('__ftv_title_' + next.id, cleanTitle(next.title)); } catch (e) {}
+        // A queued episode brings its own season, for autoplay after it.
+        if (next.row && next.row.length > 1) {
+          try { sessionStorage.setItem('__ftv_queue', JSON.stringify(next.row)); } catch (e) {}
+        }
         location.assign('/episodes/' + next.id);
         return;
       }
@@ -442,6 +450,60 @@
     if (nextOverlay) { nextOverlay.remove(); nextOverlay = null; }
     return true;
   }
+
+  // ---- Queue (both sites, from the phone remote) -----------------------
+  // Episodes queued on the phone play next, ahead of autoplay's own pick:
+  // fishtank's countdown takes the first one (nextEpisode), and mde's site
+  // is handed it as the answer to its /videos/next request (below), so its
+  // own up-next card plays it. An entry comes off when its page loads,
+  // however it got there. entry: { path, title, series, thumb, dur, video? }
+  // (video: mde's API object for it, which its up-next card needs).
+  var PLAYQ_KEY = '__ftv_playqueue';
+  function loadPlayQueue(){
+    try { return JSON.parse(localStorage.getItem(PLAYQ_KEY) || '[]') || []; } catch (e) { return []; }
+  }
+  function savePlayQueue(q){
+    try { localStorage.setItem(PLAYQ_KEY, JSON.stringify(q.slice(0, 50))); } catch (e) {}
+  }
+  (function(){
+    var q = loadPlayQueue(), left = q.filter(function(x){ return x.path !== location.pathname; });
+    if (left.length !== q.length) savePlayQueue(left);
+  })();
+  // What fishtank will autoplay after this episode: the rest of the row it
+  // was opened from (see rememberQueue).
+  function fishtankAutoNext(){
+    var id = episodeId(), q = [], out = [];
+    if (!id) return out;
+    try { q = JSON.parse(sessionStorage.getItem('__ftv_queue') || '[]'); } catch (e) {}
+    for (var i = 0; i < q.length; i++) {
+      if (q[i].id !== id) continue;
+      for (var j = i + 1; j < q.length && out.length < 5; j++) {
+        out.push({ path: '/episodes/' + q[j].id, title: cleanTitle(q[j].title),
+                   thumb: 'https://' + bunnyHost() + '/' + q[j].id + '/thumbnail.jpg' });
+      }
+      break;
+    }
+    return out;
+  }
+  // op: 'list' | 'add' (to the end) | 'next' (to the front) | 'remove' | 'top'
+  window.__ftvQueue = function(op, arg){
+    var q = loadPlayQueue();
+    if (op === 'add' || op === 'next') {
+      if (!arg || !arg.path) return 'false';
+      q = q.filter(function(x){ return x.path !== arg.path; });
+      if (op === 'add') q.push(arg); else q.unshift(arg);
+      savePlayQueue(q);
+    } else if (op === 'remove') {
+      savePlayQueue(q.filter(function(x){ return x.path !== arg; }));
+    } else if (op === 'top') {
+      var hit = q.filter(function(x){ return x.path === arg; });
+      savePlayQueue(hit.concat(q.filter(function(x){ return x.path !== arg; })));
+    }
+    var list = loadPlayQueue().map(function(x){
+      return { path: x.path, title: x.title, series: x.series, thumb: x.thumb, dur: x.dur };
+    });
+    return JSON.stringify({ queue: list, auto: location.host.indexOf('mde.tv') >= 0 ? null : fishtankAutoNext() });
+  };
 
   // ---- Continue watching (both sites) ---------------------------------
   // Part-watched episodes, most recent first, as a row at the top of the
@@ -793,8 +855,14 @@
       this.__ftvNextOf = m ? m[1] : null;
       return xhrOpen.apply(this, arguments);
     };
+    // The site asks just before it shows its up-next card, so an episode
+    // queued from the phone mid-episode still makes it.
+    var queuedNext = function(){
+      var q = loadPlayQueue()[0];
+      return q && q.video && q.path !== location.pathname ? q.video : null;
+    };
     XMLHttpRequest.prototype.send = function(){
-      var xhr = this, next = xhr.__ftvNextOf && pscNext(xhr.__ftvNextOf);
+      var xhr = this, next = xhr.__ftvNextOf && (queuedNext() || pscNext(xhr.__ftvNextOf));
       if (next) {
         var body = JSON.stringify({ video: next });
         Object.defineProperty(xhr, 'responseText', { get: function(){ return body; } });
@@ -1288,7 +1356,8 @@
     var p = currentPlaybackInfo();
     var video = !!((trackedVideo && document.contains(trackedVideo)) || findPlayerFrame());
     var s = { path: location.pathname, video: video, title: '', series: '', thumb: '',
-              playing: window.__ftvIsPlaying(), t: p.time || 0, dur: p.duration || 0 };
+              playing: window.__ftvIsPlaying(), t: p.time || 0, dur: p.duration || 0,
+              captions: window.__ftvCaptions ? window.__ftvCaptions('state') : 'none' };
     if (video && location.host.indexOf('mde.tv') >= 0) {
       var og = function(k){ var m = document.querySelector('meta[property="og:' + k + '"]'); return m ? m.content : ''; };
       var crumb = document.querySelector('a[href="/series/' + location.pathname.split('/')[2] + '"]');
@@ -1306,9 +1375,14 @@
     window.__ftvSeek(t - (currentPlaybackInfo().time || 0));
   };
   // fishtank: open an episode from the phone, keeping its title for
-  // Continue watching (the episode page itself doesn't say).
-  window.__ftvRemoteEpisode = function(id, title){
-    try { localStorage.setItem('__ftv_title_' + id, cleanTitle(title)); } catch (e) {}
+  // Continue watching (the episode page itself doesn't say). row: the
+  // episodes of its season in order, [{id, title}], so autoplay carries on
+  // through the season the way it does when opened from the TV's row.
+  window.__ftvRemoteEpisode = function(id, title, row){
+    try {
+      localStorage.setItem('__ftv_title_' + id, cleanTitle(title));
+      if (row && row.length > 1) sessionStorage.setItem('__ftv_queue', JSON.stringify(row));
+    } catch (e) {}
     location.assign('/episodes/' + id);
   };
   // fishtank: switch to a live camera. Cameras are picked on the live page
@@ -1798,6 +1872,7 @@
       var r = push.apply(this, arguments);
       if (location.pathname !== from) prevPath = from;
       noteBrowsePage();
+      window.__ftvQueue('remove', location.pathname);   // a queued episode opened on the TV
       return r;
     };
     window.addEventListener('popstate', function(){ prevPath = null; noteBrowsePage(); });

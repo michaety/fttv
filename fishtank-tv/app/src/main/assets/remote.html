@@ -4,6 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>TV Remote</title>
+<link rel="manifest" href="/manifest.webmanifest?k=__FTV_KEY__">
+<link rel="icon" href="/icon.png">
+<link rel="apple-touch-icon" href="/icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Doto:wght@900&family=Share+Tech+Mono&family=Fredoka:wght@500;700&display=swap" rel="stylesheet">
 <style>
@@ -13,7 +19,7 @@
     --bg: #04080b; --panel: #12191f; --line: #1a272b; --field: #000;
     --accent: #25ff06; --on-accent: #000; --yellow: #fff105; --text: #fff; --dim: #8fa3ad;
     --font: 'Share Tech Mono', ui-monospace, monospace; --head: 'Doto', monospace;
-    --radius: 0; --head-size: 20px; --head-spacing: 3px;
+    --radius: 0; --head-size: 19px; --head-spacing: 1.5px;
   }
   [data-site="fishtank"] {
     --bg: #56749f; --panel: #e6e2cd; --line: #c9c3a6; --field: #fffdf2;
@@ -24,8 +30,10 @@
   * { box-sizing: border-box; }
   html, body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--font);
     -webkit-tap-highlight-color: transparent; }
-  body { padding: 0 0 calc(150px + env(safe-area-inset-bottom)); }
+  body { padding: 0 0 calc(100px + env(safe-area-inset-bottom)); }
+  body.sheet-open { overflow: hidden; }
   [data-site="fishtank"] body { color: #fff; }
+  button { cursor: pointer; }
   header { position: sticky; top: 0; z-index: 5; background: var(--bg); padding: 14px 16px 10px;
     border-bottom: 1px solid var(--line); }
   [data-site="fishtank"] header { border-bottom-color: rgba(0,0,0,.15); }
@@ -42,34 +50,50 @@
   form button { background: var(--accent); color: var(--on-accent); border: 2px solid var(--accent); font: inherit;
     font-size: 15px; letter-spacing: 1px; padding: 0 14px; border-radius: 0 var(--radius) var(--radius) 0; }
   [data-site="mde"] form button { background: var(--panel); color: var(--text); border-color: var(--line); }
+
   section { padding: 18px 0 4px; }
-  h2 { font-family: var(--head); font-size: var(--head-size); letter-spacing: var(--head-spacing); margin: 0 16px 10px; }
+  .head { display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; margin: 0 16px 10px; }
+  [data-site="fishtank"] .head { margin: 0 12px; }
+  h2 { font-family: var(--head); font-size: var(--head-size); letter-spacing: var(--head-spacing); margin: 0;
+    min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   [data-site="mde"] h2 { text-transform: uppercase; }
   [data-site="mde"] h2::before { content: '[ '; color: var(--accent); }
   [data-site="mde"] h2::after { content: ' ]'; color: var(--accent); }
-  [data-site="fishtank"] h2 { display: inline-block; background: var(--accent); color: #fff; padding: 4px 14px;
-    border-radius: 8px 8px 0 0; margin-bottom: 0; }
-  .row { display: flex; align-items: flex-start; gap: 12px; overflow-x: auto; padding: 0 16px 6px; scrollbar-width: none;
-    scroll-snap-type: x proximity; }
+  [data-site="fishtank"] h2 { background: var(--accent); color: #fff; padding: 4px 14px; border-radius: 8px 8px 0 0; }
+  .more { flex: none; background: none; border: 0; color: var(--accent); font: inherit; font-size: 14px;
+    letter-spacing: 1px; padding: 4px 0 4px 8px; }
+  [data-site="fishtank"] .more { color: #fff; padding-bottom: 6px; }
+
+  /* Rows scroll sideways; cards are narrow enough that two-and-a-bit show,
+     so a long season isn't a swipe per episode (All lists the lot). No
+     scroll snapping: it cut a fling short at the nearest card, which felt
+     like the row getting stuck. Only the Spotlight snaps, a slide at a time. */
+  .row { display: flex; align-items: flex-start; gap: 12px; overflow-x: auto; padding: 0 16px 6px;
+    scrollbar-width: none; overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; }
   .row::-webkit-scrollbar { display: none; }
   [data-site="fishtank"] .row, [data-site="fishtank"] .grid { background: var(--panel); margin: 0 12px; padding: 12px;
     border-radius: 0 var(--radius) var(--radius) var(--radius); }
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px 12px; padding: 0 16px; }
-  .card { flex: 0 0 62%; max-width: 260px; scroll-snap-align: start; background: none; border: 0; padding: 0;
-    color: inherit; text-align: left; font: inherit; cursor: pointer;
+  .card { flex: 0 0 44%; max-width: 220px; background: none; border: 0; padding: 0;
+    color: inherit; text-align: left; font: inherit;
     display: flex; flex-direction: column; justify-content: flex-start; }
+  .card.show { flex-basis: 34%; max-width: 170px; }
   [data-site="fishtank"] .card { color: var(--text); }
   .grid .card { max-width: none; }
-  .thumb { position: relative; aspect-ratio: 16 / 9; background: var(--field) center / cover no-repeat;
+  .thumb { position: relative; aspect-ratio: 16 / 9; background: var(--field);
     border: 2px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+  .show .thumb { aspect-ratio: 1; }
+  .thumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
   [data-site="mde"] .thumb { background-color: var(--panel); }
-  .card:active .thumb { border-color: var(--accent); }
+  .card:active .thumb, .li:active .thumb { border-color: var(--accent); }
   .bar { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: rgba(255,255,255,.3); }
   .bar i { display: block; height: 100%; background: var(--accent); }
   .tag { position: absolute; left: 0; right: 0; bottom: 0; padding: 2px 8px; background: rgba(0,0,0,.78);
     color: var(--accent); font-size: 12px; letter-spacing: 1px; }
   .seen { position: absolute; top: 6px; right: 6px; padding: 1px 6px; background: rgba(0,0,0,.8);
     color: var(--accent); font-size: 11px; border-radius: 4px; }
+  .dur { position: absolute; right: 5px; bottom: 7px; padding: 0 5px; background: rgba(0,0,0,.8); color: #fff;
+    font-size: 11px; border-radius: 3px; }
   .live { position: absolute; top: 6px; left: 6px; padding: 1px 7px; border-radius: 4px; font-size: 12px;
     background: #d6262b; color: #fff; }
   .live.off { background: rgba(0,0,0,.7); color: #ccc; }
@@ -78,29 +102,177 @@
   [data-site="mde"] .series { text-transform: uppercase; }
   [data-site="mde"] .series::before { content: '['; color: var(--yellow); }
   [data-site="mde"] .series::after { content: ']'; color: var(--yellow); }
-  .title { font-size: 15px; line-height: 1.25; margin-top: 2px; display: -webkit-box; -webkit-line-clamp: 2;
+  .title { font-size: 14px; line-height: 1.25; margin-top: 2px; display: -webkit-box; -webkit-line-clamp: 2;
     -webkit-box-orient: vertical; overflow: hidden; }
   .empty { color: var(--dim); margin: 0 16px; font-size: 14px; }
   [data-site="fishtank"] .empty { margin: 0; }
   #banner { display: none; margin: 12px 16px 0; padding: 10px 12px; border: 2px solid var(--yellow); color: var(--yellow);
     font-size: 14px; border-radius: var(--radius); }
-  /* Now playing */
-  #now { position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; background: var(--panel); color: var(--text);
-    border-top: 3px solid var(--accent); padding: 10px 14px calc(12px + env(safe-area-inset-bottom));
-    transform: translateY(110%); transition: transform .2s; }
+
+  /* Spotlight (mde): full-width slides that snap one at a time. */
+  .spot { display: flex; gap: 10px; overflow-x: auto; padding: 0 16px; scroll-snap-type: x mandatory;
+    scrollbar-width: none; overscroll-behavior-x: contain; }
+  .spot::-webkit-scrollbar { display: none; }
+  .slide { position: relative; flex: 0 0 100%; aspect-ratio: 16 / 9; scroll-snap-align: center; border: 2px solid var(--line);
+    padding: 0; background: var(--panel); overflow: hidden; color: #fff; text-align: left; font: inherit; }
+  .slide img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .slide .cap { position: absolute; left: 0; right: 0; bottom: 0; padding: 30px 12px 10px;
+    background: linear-gradient(transparent, rgba(0,0,0,.88)); }
+  .slide .cap .series { margin: 0; color: var(--yellow); }
+  .slide .cap .title { font-size: 18px; -webkit-line-clamp: 2; }
+  .dots { display: flex; justify-content: center; gap: 6px; margin-top: 10px; }
+  .dots i { width: 7px; height: 7px; background: var(--line); }
+  .dots i.on { background: var(--accent); }
+
+  /* "See all" and series episode lists: a full-screen vertical list. */
+  #sheet { position: fixed; inset: 0; z-index: 8; background: var(--bg); display: flex; flex-direction: column;
+    transform: translateX(100%); transition: transform .22s ease-out; visibility: hidden; }
+  #sheet.on { transform: none; visibility: visible; }
+  .sh-head { display: flex; align-items: center; gap: 8px; padding: calc(10px + env(safe-area-inset-top)) 8px 10px;
+    border-bottom: 1px solid var(--line); }
+  [data-site="fishtank"] .sh-head { border-bottom-color: rgba(0,0,0,.15); }
+  .sh-head h2 { flex: 1; }
+  [data-site="fishtank"] .sh-head h2 { background: none; color: #fff; padding: 0; }
+  .sh-head button { background: none; border: 0; color: var(--accent); font: inherit; font-size: 15px; padding: 8px 10px; }
+  [data-site="fishtank"] .sh-head button { color: #fff; }
+  #shBack { font-size: 26px !important; line-height: 1; }
+  .list { flex: 1; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
+    padding: 6px 0 calc(110px + env(safe-area-inset-bottom)); }
+  [data-site="fishtank"] .list { background: var(--panel); margin: 10px 12px 0; border-radius: var(--radius) var(--radius) 0 0; }
+  .li { display: flex; gap: 6px; align-items: center; padding: 8px 10px 8px 16px; }
+  [data-site="fishtank"] .li { color: var(--text); padding: 8px 6px 8px 12px; }
+  .li .go { display: flex; gap: 12px; align-items: center; flex: 1; min-width: 0; padding: 0; background: none; border: 0;
+    color: inherit; font: inherit; text-align: left; }
+  .li .thumb { flex: 0 0 136px; }
+  .li .meta { min-width: 0; flex: 1; }
+  .li .series { margin-top: 0; }
+  .li .title { font-size: 15px; }
+  .li.cur { background: rgba(255,255,255,.07); }
+  [data-site="fishtank"] .li.cur { background: rgba(0,0,0,.07); }
+  .li .label { display: inline-block; margin-top: 4px; font-size: 11px; letter-spacing: 1px; color: var(--accent); }
+  [data-site="fishtank"] .li .label { color: #c24f27; }
+  .act { flex: none; width: 40px; height: 40px; background: none; border: 2px solid var(--line); color: var(--accent);
+    font: inherit; font-size: 20px; line-height: 1; border-radius: var(--radius); padding: 0; }
+  [data-site="fishtank"] .act { color: #c24f27; border-color: var(--line); background: var(--field); border-radius: 50%; }
+  .act:active { border-color: var(--accent); }
+
+  .plist { margin-top: 2px; }
+  [data-site="fishtank"] .plist { background: var(--panel); margin: 0 12px; padding: 4px 0;
+    border-radius: 0 var(--radius) var(--radius) var(--radius); }
+  #results .empty { margin: 4px 16px 0; }
+  #toast { position: fixed; left: 50%; bottom: calc(100px + env(safe-area-inset-bottom)); z-index: 20; max-width: 86%;
+    transform: translate(-50%, 16px); opacity: 0; transition: opacity .18s, transform .18s; pointer-events: none;
+    background: var(--accent); color: var(--on-accent); padding: 9px 16px; font-size: 14px; border-radius: var(--radius); }
+  [data-site="fishtank"] #toast { border-radius: 20px; }
+  #toast.on { opacity: 1; transform: translate(-50%, 0); }
+  svg { display: block; fill: currentColor; }
+
+  /* The player: a dark full screen, like Plex's or YouTube's while casting,
+     with the site's colour only on the play button and progress. */
+  #player { --pbg: #0b0d10; --psheet: #171a1f; --pdim: rgba(255,255,255,.62);
+    position: fixed; inset: 0; z-index: 12; display: flex; flex-direction: column; overflow: hidden;
+    background: var(--pbg); color: #fff; font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    transform: translateY(100%); transition: transform .3s cubic-bezier(.2, .8, .2, 1); visibility: hidden; }
+  [data-site="fishtank"] #player { --pbg: #151c28; --psheet: #222d40; }
+  #player.on { transform: none; visibility: visible; }
+  #player.drag { transition: none; }
+  /* The artwork, blurred, behind everything. */
+  .pl-bg { position: absolute; inset: -40px; background: center / cover no-repeat; filter: blur(36px) saturate(1.2);
+    opacity: .38; transition: background-image .3s; }
+  .pl-main { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column;
+    padding: calc(6px + env(safe-area-inset-top)) 18px 0; }
+  .pl-top { display: grid; grid-template-columns: 44px 1fr 44px; align-items: center; gap: 4px; }
+  .pl-top button { width: 44px; height: 44px; padding: 0; background: none; border: 0; color: #fff;
+    display: flex; align-items: center; justify-content: center; }
+  .pl-top svg { width: 28px; height: 28px; }
+  .pl-head { min-width: 0; text-align: center; }
+  .pl-head b { display: block; font-size: 16px; font-weight: 600; line-height: 1.3;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pl-head span { display: block; margin-top: 2px; font-size: 13px; color: var(--pdim);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pl-art { flex: 1; min-height: 110px; display: flex; align-items: center; justify-content: center; padding: 14px 0 6px; }
+  .frame { position: relative; width: 100%; max-height: 100%; aspect-ratio: 16 / 9; overflow: hidden;
+    border-radius: 12px; background: #1d2026; box-shadow: 0 18px 48px rgba(0,0,0,.55); }
+  [data-site="mde"] .frame { border-radius: 3px; }
+  .frame img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .frame .spin { position: absolute; inset: 0; display: none; flex-direction: column; gap: 12px; align-items: center;
+    justify-content: center; background: rgba(0,0,0,.55); font-size: 14px; }
+  .frame.loading .spin { display: flex; }
+  .spin i { width: 34px; height: 34px; border-radius: 50%; border: 3px solid rgba(255,255,255,.25); border-top-color: #fff;
+    animation: spin .9s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .pl-device { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 8px 0 2px; font-size: 14px; }
+  .pl-device svg { width: 20px; height: 20px; color: var(--accent); }
+  .pl-seek { display: grid; grid-template-columns: 52px 1fr 52px; align-items: center; gap: 8px; margin-top: 14px;
+    font-size: 13px; color: var(--pdim); font-variant-numeric: tabular-nums; }
+  .pl-seek span:last-child { text-align: right; }
+  .pl-seek.drag #plT { color: var(--accent); font-weight: 600; }
+  input.scrub { -webkit-appearance: none; appearance: none; width: 100%; height: 28px; margin: 0; background: none; --p: 0%; }
+  input.scrub::-webkit-slider-runnable-track { height: 4px; border-radius: 2px;
+    background: linear-gradient(to right, var(--accent) var(--p), rgba(255,255,255,.22) var(--p)); }
+  input.scrub::-moz-range-track { height: 4px; border-radius: 2px; background: rgba(255,255,255,.22); }
+  input.scrub::-moz-range-progress { height: 4px; border-radius: 2px; background: var(--accent); }
+  input.scrub::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; margin-top: -6px; border: 0;
+    border-radius: 50%; background: var(--accent); }
+  input.scrub::-moz-range-thumb { width: 16px; height: 16px; border: 0; border-radius: 50%; background: var(--accent); }
+  .pl-ctrls { display: flex; align-items: center; justify-content: space-between; margin: 10px -4px 0; }
+  .pl-ctrls button, .pl-extra button { padding: 0; background: none; border: 0; color: #fff; border-radius: 50%;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; }
+  .pl-ctrls button { width: 56px; height: 56px; }
+  .pl-ctrls svg { width: 32px; height: 32px; }
+  .pl-ctrls button:active, .pl-extra button:active { background: rgba(255,255,255,.1); }
+  .pl-ctrls button:disabled { opacity: .3; }
+  .pl-ctrls .big { width: 78px; height: 78px; background: var(--accent) !important; color: var(--on-accent); }
+  .pl-ctrls .big svg { width: 40px; height: 40px; }
+  .pl-extra { display: flex; justify-content: center; gap: 26px; margin: 10px 0 14px; }
+  .pl-extra button { width: 64px; height: 56px; border-radius: 12px; gap: 3px; font: inherit; font-size: 11px; color: var(--pdim); }
+  .pl-extra svg { width: 24px; height: 24px; color: #fff; }
+  .pl-extra button.on svg { color: var(--accent); }
+  /* Up next / Episodes / About: a sheet that pulls up over the controls. */
+  .pl-sheet { position: relative; flex: none; display: flex; flex-direction: column;
+    height: calc(58px + env(safe-area-inset-bottom)); background: var(--psheet); border-radius: 16px 16px 0 0;
+    transition: height .3s cubic-bezier(.2, .8, .2, 1); }
+  #player.up .pl-sheet { height: 80%; }
+  .ps-grip { padding: 8px 0 2px; }
+  .ps-grip i { display: block; width: 36px; height: 4px; margin: 0 auto; border-radius: 2px; background: rgba(255,255,255,.3); }
+  .ps-tabs { display: flex; padding: 0 8px; border-bottom: 1px solid rgba(255,255,255,.08); }
+  .ps-tabs button { flex: 1; padding: 10px 0 12px; background: none; border: 0; border-bottom: 2px solid transparent;
+    color: var(--pdim); font: inherit; font-size: 13px; font-weight: 600; letter-spacing: .6px; text-transform: uppercase; }
+  #player.up .ps-tabs button.on { color: #fff; border-bottom-color: var(--accent); }
+  .ps-body { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 4px 0 calc(16px + env(safe-area-inset-bottom)); }
+  #player .li { color: #fff; padding: 8px 8px 8px 16px; }
+  #player .li .series { color: var(--pdim); }
+  #player .li .series::before, #player .li .series::after { content: none; }
+  #player .li .thumb { flex-basis: 128px; border: 0; border-radius: 6px; background-color: #23272e; }
+  #player .li.cur { background: rgba(255,255,255,.07); }
+  #player .li .label { color: var(--accent); font-weight: 600; }
+  #player .act { border: 0; border-radius: 50%; background: rgba(255,255,255,.08); color: #fff; }
+  #player .empty { margin: 14px 16px; color: var(--pdim); }
+  .ps-about { padding: 14px 18px; font-size: 14px; line-height: 1.55; color: rgba(255,255,255,.85); white-space: pre-line; }
+  .ps-about b { display: block; margin-bottom: 6px; font-size: 17px; color: #fff; }
+
+  /* The mini player along the bottom, like YouTube's while casting. */
+  #now { position: fixed; left: 8px; right: 8px; bottom: calc(8px + env(safe-area-inset-bottom)); z-index: 10;
+    overflow: hidden; background: #171a1f; color: #fff; border-radius: 12px; box-shadow: 0 8px 28px rgba(0,0,0,.5);
+    font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    transform: translateY(160%); transition: transform .25s; }
+  [data-site="fishtank"] #now { background: #222d40; }
+  [data-site="mde"] #now { border-radius: 3px; border: 1px solid var(--line); }
   #now.on { transform: none; }
-  .np { display: flex; gap: 10px; align-items: center; }
-  .np .thumb { flex: 0 0 96px; border-width: 1px; }
-  .np .meta { min-width: 0; }
-  .np .title { -webkit-line-clamp: 1; }
-  .np .series { margin-top: 0; }
-  .seek { display: flex; align-items: center; gap: 8px; margin: 10px 0 6px; font-size: 12px; color: var(--dim); }
-  .seek input { flex: 1; accent-color: var(--accent); }
-  .ctrls { display: flex; justify-content: space-between; gap: 8px; }
-  .ctrls button { flex: 1; background: var(--field); color: var(--text); border: 2px solid var(--line); font: inherit;
-    font-size: 16px; padding: 10px 0; border-radius: var(--radius); }
-  .ctrls button:active { border-color: var(--accent); color: var(--accent); }
-  .ctrls .play { flex: 1.4; background: var(--accent); color: var(--on-accent); border-color: var(--accent); font-weight: bold; }
+  .np-prog { height: 3px; background: rgba(255,255,255,.14); }
+  .np-prog i { display: block; width: 0; height: 100%; background: var(--accent); }
+  .np { display: flex; align-items: center; gap: 12px; padding: 8px 4px 8px 8px; cursor: pointer; }
+  .np .art { position: relative; flex: 0 0 76px; aspect-ratio: 16 / 9; overflow: hidden; border-radius: 6px; background: #23272e; }
+  .np .art img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .np .meta { flex: 1; min-width: 0; }
+  .np b { display: block; font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .np span { display: flex; align-items: center; gap: 5px; margin-top: 2px; font-size: 12px; color: rgba(255,255,255,.62);
+    white-space: nowrap; overflow: hidden; }
+  .np span svg { flex: none; width: 15px; height: 15px; color: var(--accent); }
+  .np span em { font-style: normal; overflow: hidden; text-overflow: ellipsis; }
+  .np button { flex: none; width: 48px; height: 48px; padding: 0; background: none; border: 0; color: #fff;
+    display: flex; align-items: center; justify-content: center; }
+  .np button svg { width: 30px; height: 30px; }
 </style>
 </head>
 <body>
@@ -113,23 +285,70 @@
 </header>
 <div id="banner"></div>
 <main id="main">
-  <section id="results" hidden><h2>Results</h2><div class="grid"></div></section>
-  <section id="cameras" hidden><h2>Live</h2><div class="row"></div></section>
-  <section id="recent" hidden><h2>Continue watching</h2><div class="row"></div></section>
+  <section id="results" hidden><div class="head"><h2>Results</h2></div><div class="plist"></div></section>
+  <section id="cameras" hidden><div class="head"><h2>Live</h2></div><div class="row"></div></section>
+  <div id="recent"></div>
+  <section id="spotlight" hidden><div class="head"><h2>Spotlight</h2></div><div class="spot"></div><div class="dots"></div></section>
   <div id="sections"><p class="empty" style="margin-top:18px">Loading…</p></div>
+  <div id="shows"></div>
 </main>
-<div id="now">
-  <div class="np">
-    <div class="thumb" id="npThumb"></div>
-    <div class="meta"><div class="series" id="npSeries"></div><div class="title" id="npTitle"></div></div>
+<div id="sheet">
+  <div class="sh-head">
+    <button id="shBack" aria-label="Back">‹</button>
+    <h2 id="shTitle"></h2>
+    <button id="shSort"></button>
   </div>
-  <div class="seek"><span id="npT">0:00</span><input type="range" id="npBar" min="0" max="100" step="1" value="0"><span id="npDur">0:00</span></div>
-  <div class="ctrls">
-    <button data-seek="-30">−30</button>
-    <button data-seek="-10">−10</button>
-    <button class="play" id="npPlay">❚❚</button>
-    <button data-seek="10">+10</button>
-    <button data-seek="30">+30</button>
+  <div class="list" id="shList"></div>
+</div>
+<div id="player">
+  <div class="pl-bg" id="plBg"></div>
+  <div class="pl-main" id="plMain">
+    <div class="pl-top">
+      <button id="plClose" aria-label="Close" data-icon="down"></button>
+      <div class="pl-head"><b id="plTitle"></b><span id="plSub"></span></div>
+      <button id="plSeries" aria-label="All episodes" data-icon="list"></button>
+    </div>
+    <div class="pl-art"><div class="frame" id="plArt"><div class="spin"><i></i><span>Starting on the TV…</span></div></div></div>
+    <div class="pl-device"><i data-icon="cast"></i><span id="plDevice">Playing on your TV</span></div>
+    <div class="pl-seek" id="plSeek">
+      <span id="plT">0:00</span>
+      <input type="range" class="scrub" id="plBar" min="0" max="100" step="1" value="0" aria-label="Position">
+      <span id="plDur">0:00</span>
+    </div>
+    <div class="pl-ctrls">
+      <button id="plPrev" aria-label="Previous episode" data-icon="prev"></button>
+      <button data-seek="-10" aria-label="Back 10 seconds" data-icon="back10"></button>
+      <button class="big" id="plPlay" aria-label="Play or pause" data-icon="pause"></button>
+      <button data-seek="30" aria-label="Forward 30 seconds" data-icon="fwd30"></button>
+      <button id="plNext" aria-label="Next episode" data-icon="next"></button>
+    </div>
+    <div class="pl-extra">
+      <button id="plCaptions" hidden><i data-icon="cc"></i>Subtitles</button>
+      <button id="plRestart"><i data-icon="restart"></i>Restart</button>
+      <button id="plStop"><i data-icon="stop"></i>Stop</button>
+    </div>
+  </div>
+  <div class="pl-sheet" id="plSheet">
+    <div class="ps-grip" id="plGrip"><i></i></div>
+    <div class="ps-tabs">
+      <button data-tab="next" class="on">Up next</button>
+      <button data-tab="more">Episodes</button>
+      <button data-tab="about">About</button>
+    </div>
+    <div class="ps-body" id="plBody">
+      <div data-pane="next" id="plQueue"></div>
+      <div data-pane="more" id="plMore" hidden></div>
+      <div data-pane="about" id="plAbout" hidden></div>
+    </div>
+  </div>
+</div>
+<div id="toast"></div>
+<div id="now">
+  <div class="np-prog"><i id="npProg"></i></div>
+  <div class="np" id="npOpen">
+    <div class="art" id="npThumb"></div>
+    <div class="meta"><b id="npTitle"></b><span><i data-icon="cast"></i><em id="npDevice">Playing on your TV</em></span></div>
+    <button id="npPlay" aria-label="Play or pause" data-icon="pause"></button>
   </div>
 </div>
 <script>
@@ -140,7 +359,8 @@
   var $ = function(s){ return document.querySelector(s); };
   document.title = (fishtank ? 'Fishtank' : 'MDE') + ' TV Remote';
   $('#brand').textContent = fishtank ? 'fishtank' : 'MDE';
-  document.head.insertAdjacentHTML('beforeend', '<meta name="theme-color" content="' + (fishtank ? '#56749f' : '#04080b') + '">');
+  document.head.insertAdjacentHTML('beforeend', '<meta name="theme-color" content="' + (fishtank ? '#56749f' : '#04080b') + '">' +
+    '<meta name="apple-mobile-web-app-title" content="' + (fishtank ? 'Fishtank TV' : 'MDE TV') + '">');
 
   function api(path, params){
     var u = new URLSearchParams(params || {}); u.set('k', key);
@@ -161,11 +381,21 @@
     if (text) e.textContent = text;
     return e;
   }
-  function bg(e, url){ if (url) e.style.backgroundImage = 'url("' + url.replace(/"/g, '%22') + '")'; }
+  // Lazy <img>s rather than background images: a fishtank season or a long
+  // mde series is a lot of thumbnails, and only the ones scrolled to load.
+  function img(box, url, eager){
+    if (!url) return;
+    var i = el('img');
+    i.alt = '';
+    i.decoding = 'async';
+    if (!eager) i.loading = 'lazy';
+    i.src = url;
+    box.insertBefore(i, box.firstChild);
+  }
 
-  function card(v){
-    var b = el('button', 'card'), t = el('div', 'thumb');
-    bg(t, v.thumb);
+  function thumb(v){
+    var t = el('div', 'thumb');
+    img(t, v.thumb);
     if (v.next) t.appendChild(el('div', 'tag', 'UP NEXT'));
     else if (v.progress > 0) {
       var bar = el('div', 'bar'), fill = el('i');
@@ -173,31 +403,163 @@
       bar.appendChild(fill); t.appendChild(bar);
     }
     if (v.watched) t.appendChild(el('div', 'seen', '✓ WATCHED'));
-    b.appendChild(t);
-    if (v.series) b.appendChild(el('div', 'series', v.series));
+    return t;
+  }
+  function card(v, rowTitle){
+    var b = el('button', 'card');
+    b.appendChild(thumb(v));
+    if (v.series && v.series !== rowTitle) b.appendChild(el('div', 'series', v.series));
     b.appendChild(el('div', 'title', v.title || ''));
     b.onclick = function(){ play(v); };
     return b;
   }
+  // One line of a list: thumbnail beside the title, then its buttons.
+  // o: { label: small caption, cur: the episode on the TV, actions: [[text, fn]] }
+  // (by default, + to add it to the queue).
+  function line(v, listTitle, o){
+    o = o || {};
+    var row = el('div', 'li' + (o.cur ? ' cur' : '')), b = el('button', 'go'), t = thumb(v), m = el('div', 'meta');
+    if (v.dur && !v.progress && !v.next) t.appendChild(el('div', 'dur', fmt(v.dur)));
+    b.appendChild(t);
+    // A series' own list doesn't need its name on every line.
+    if (v.series && v.series !== listTitle) m.appendChild(el('div', 'series', v.series));
+    m.appendChild(el('div', 'title', v.title || ''));
+    if (o.label) m.appendChild(el('div', 'label', o.label));
+    b.appendChild(m);
+    b.onclick = function(){ if (!o.cur) play(v); };
+    row.appendChild(b);
+    (o.actions || (o.cur ? [] : [['+', function(){ enqueue(v); }]])).forEach(function(a){
+      var x = el('button', 'act', a[0]);
+      x.setAttribute('aria-label', a[2] || (a[0] === '+' ? 'Add to queue' : a[0]));
+      x.onclick = a[1];
+      row.appendChild(x);
+    });
+    return row;
+  }
+
+  var toastTimer = null;
+  function toast(text){
+    var t = $('#toast');
+    t.textContent = text;
+    t.classList.add('on');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function(){ t.classList.remove('on'); }, 1800);
+  }
   function cameraCard(c){
     var b = el('button', 'card cam'), t = el('div', 'thumb', c.thumb ? '' : c.name);
-    bg(t, c.thumb);
+    img(t, c.thumb, true);
     t.appendChild(el('div', 'live' + (c.online ? '' : ' off'), c.online ? '● LIVE' : 'Offline'));
     b.appendChild(t);
     b.appendChild(el('div', 'title', c.name));
     b.onclick = function(){ camera(c); };
     return b;
   }
-  function fill(sec, list, make, emptyText){
-    var box = sec.querySelector('.row, .grid');
+  function showCard(s){
+    var b = el('button', 'card show'), t = el('div', 'thumb');
+    img(t, s.thumb);
+    b.appendChild(t);
+    b.appendChild(el('div', 'title', s.title));
+    if (s.episodes) b.appendChild(el('div', 'series', s.episodes + (s.episodes === 1 ? ' episode' : ' episodes')));
+    b.onclick = function(){ openSheet(s.title, api('/api/series', { tag: s.tag }).then(function(d){ return d.items; })); };
+    return b;
+  }
+  function fill(sec, list, make, emptyText, title){
+    var box = sec.querySelector('.row, .grid, .plist');
     box.innerHTML = '';
-    (list || []).forEach(function(v){ box.appendChild(make(v)); });
+    (list || []).forEach(function(v){ box.appendChild(make(v, title)); });
     if (!list || !list.length) {
       if (!emptyText) { sec.hidden = true; return; }
       box.appendChild(el('p', 'empty', emptyText));
     }
     sec.hidden = false;
   }
+  // A titled row, with "See all" when there's more than a screen of it.
+  function rowSection(title, list, make, emptyText, seeAll){
+    var sec = el('section'), head = el('div', 'head');
+    head.appendChild(el('h2', '', title));
+    if (seeAll && list && list.length > 3) {
+      var more = el('button', 'more', 'All ›');
+      more.onclick = function(){ openSheet(title, Promise.resolve(list)); };
+      head.appendChild(more);
+    }
+    sec.appendChild(head);
+    sec.appendChild(el('div', 'row'));
+    fill(sec, list, make, emptyText, title);
+    return sec;
+  }
+  function replace(box, sec){ box.innerHTML = ''; if (sec && !sec.hidden) box.appendChild(sec); }
+
+  // ---- Spotlight ----
+  var spotTimer = null;
+  function spotlight(list){
+    var sec = $('#spotlight'), track = sec.querySelector('.spot'), dots = sec.querySelector('.dots');
+    clearInterval(spotTimer);
+    track.innerHTML = ''; dots.innerHTML = '';
+    if (!list || !list.length) { sec.hidden = true; return; }
+    list.forEach(function(v, i){
+      var s = el('button', 'slide'), cap = el('div', 'cap');
+      img(s, v.thumb, i === 0);
+      if (v.series) cap.appendChild(el('div', 'series', v.series));
+      cap.appendChild(el('div', 'title', v.title || ''));
+      s.appendChild(cap);
+      s.onclick = function(){ play(v); };
+      track.appendChild(s);
+      dots.appendChild(el('i'));
+    });
+    sec.hidden = false;
+    var at = function(){ return Math.round(track.scrollLeft / Math.max(1, track.clientWidth)); };
+    var mark = function(){ var n = at(); [].forEach.call(dots.children, function(d, i){ d.classList.toggle('on', i === n); }); };
+    track.onscroll = mark;
+    mark();
+    // Turns over like the site's, until the phone user swipes it themselves.
+    var go = function(){
+      if (document.hidden || $('#sheet').classList.contains('on')) return;
+      var n = (at() + 1) % list.length;
+      track.scrollTo({ left: n * (track.clientWidth + 10), behavior: 'smooth' });
+    };
+    spotTimer = setInterval(go, 6000);
+    track.addEventListener('touchstart', function(){ clearInterval(spotTimer); }, { passive: true, once: true });
+  }
+
+  // ---- Full-screen list ----
+  var sheetItems = [], reversed = false, sheetOpen = false, sheetOverPlayer = false;
+  function renderSheet(){
+    var box = $('#shList');
+    box.innerHTML = '';
+    var list = reversed ? sheetItems.slice().reverse() : sheetItems;
+    var title = $('#shTitle').textContent;
+    list.forEach(function(v){ box.appendChild(line(v, title)); });
+    if (!list.length) box.appendChild(el('p', 'empty', 'Nothing here right now.'));
+    $('#shSort').textContent = sheetItems.length > 1 ? '⇅ Reverse' : '';
+  }
+  function openSheet(title, items){
+    $('#shTitle').textContent = title;
+    sheetItems = []; reversed = false;
+    $('#shList').innerHTML = '<p class="empty" style="margin-top:14px">Loading…</p>';
+    $('#shSort').textContent = '';
+    // Opened from the player page ("All episodes"), it goes over it.
+    if (!sheetOpen) sheetOverPlayer = playerOpen;
+    $('#sheet').style.zIndex = sheetOverPlayer ? 14 : '';
+    $('#sheet').classList.add('on');
+    document.body.classList.add('sheet-open');
+    if (!sheetOpen) { history.pushState({ sheet: 1 }, ''); sheetOpen = true; }
+    $('#shList').scrollTop = 0;
+    items.then(function(list){ sheetItems = list || []; renderSheet(); }).catch(function(e){ closeSheet(); offline(e); });
+  }
+  function closeSheet(){
+    sheetOpen = false;
+    sheetOverPlayer = false;
+    $('#sheet').classList.remove('on');
+    if (!playerOpen) document.body.classList.remove('sheet-open');
+  }
+  // The phone's own back gesture/button closes the player page, then the list.
+  // Whichever was opened last is on top.
+  window.addEventListener('popstate', function(){
+    if (sheetOpen && (!playerOpen || sheetOverPlayer)) closeSheet();
+    else if (playerOpen) closePlayer();
+  });
+  $('#shBack').onclick = function(){ if (sheetOpen) history.back(); };
+  $('#shSort').onclick = function(){ reversed = !reversed; renderSheet(); $('#shList').scrollTop = 0; };
 
   function load(){
     api('/api/home').then(function(d){
@@ -206,17 +568,14 @@
         var anyOnline = (d.cameras || []).some(function(c){ return c.online; });
         fill($('#cameras'), anyOnline ? d.cameras : [], cameraCard, 'No cameras are live right now.');
       }
-      fill($('#recent'), d.recent, card);
+      replace($('#recent'), rowSection('Continue watching', d.recent, card, null, true));
+      if (!fishtank) spotlight(d.spotlight);
       var box = $('#sections');
       box.innerHTML = '';
       (d.sections || []).forEach(function(s){
-        var sec = el('section'), h = el('h2', '', s.title);
-        sec.appendChild(h);
-        if (fishtank) sec.appendChild(document.createElement('br'));
-        sec.appendChild(el('div', 'row'));
-        fill(sec, s.items, card, 'Nothing here right now.');
-        box.appendChild(sec);
+        box.appendChild(rowSection(s.title, s.items, card, 'Nothing here right now.', true));
       });
+      replace($('#shows'), d.series && d.series.length ? rowSection('Series', d.series, showCard) : null);
     }).catch(offline);
   }
   function offline(e){
@@ -232,54 +591,328 @@
     var sec = $('#results');
     if (!q) { sec.hidden = true; return; }
     sec.hidden = false;
-    sec.querySelector('.grid').innerHTML = '<p class="empty">Searching…</p>';
+    sec.querySelector('.plist').innerHTML = '<p class="empty">Searching…</p>';
     api('/api/search', { q: q }).then(function(d){
-      fill(sec, d.results, card, 'No results for “' + q + '”.');
+      fill(sec, d.results, function(v){ return line(v); }, 'No results for “' + q + '”.');
       window.scrollTo(0, 0);
     }).catch(offline);
   };
 
+  // ---- Icons ----
+  var REPLAY = 'M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z';
+  var ICONS = {
+    down: '<path d="M7.4 8.6 12 13.2l4.6-4.6L18 10l-6 6-6-6z"/>',
+    list: '<path d="M3 6h14v2H3zm0 5h14v2H3zm0 5h9v2H3zm12 0v-5l6 3.5z"/>',
+    cast: '<path d="M21 3H3c-1.1 0-2 .9-2 2v3h2V5h18v14h-7v2h7c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zM1 18v3h3c0-1.66-1.34-3-3-3zm0-4v2c2.76 0 5 2.24 5 5h2c0-3.87-3.13-7-7-7zm0-4v2c4.97 0 9 4.03 9 9h2c0-6.08-4.93-11-11-11z"/>',
+    play: '<path d="M8 5v14l11-7z"/>',
+    pause: '<path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>',
+    prev: '<path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/>',
+    next: '<path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/>',
+    back10: '<path d="' + REPLAY + '"/><text x="12" y="16.3" font-size="6.6" font-weight="700" text-anchor="middle" font-family="system-ui,sans-serif">10</text>',
+    fwd30: '<path transform="matrix(-1 0 0 1 24 0)" d="' + REPLAY + '"/><text x="12" y="16.3" font-size="6.6" font-weight="700" text-anchor="middle" font-family="system-ui,sans-serif">30</text>',
+    restart: '<path d="' + REPLAY + '"/>',
+    stop: '<path d="M6 6h12v12H6z"/>',
+    cc: '<path d="M19 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zm-8 7H9.5v-.5h-2v3h2V13H11v1a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v1zm7 0h-1.5v-.5h-2v3h2V13H18v1a1 1 0 0 1-1 1h-3a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v1z"/>'
+  };
+  function icon(e, name){ e.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true">' + ICONS[name] + '</svg>'; }
+  document.querySelectorAll('[data-icon]').forEach(function(e){ icon(e, e.dataset.icon); });
+
   function play(v){
-    showNow({ video: true, title: v.title, series: v.series, thumb: v.thumb, playing: true, t: 0, dur: v.dur || 0 });
-    api('/api/play', { path: v.path, title: v.title || '' }).then(function(){ setTimeout(poll, 3000); }).catch(offline);
+    pending = { path: v.path, at: Date.now() };
+    showNow({ video: true, path: v.path, title: v.title, series: v.series, thumb: v.thumb, playing: true, t: 0, dur: v.dur || 0,
+              device: now && now.device });
+    api('/api/play', { path: v.path, title: v.title || '' }).then(function(){ setTimeout(poll, 2500); }).catch(offline);
   }
   function camera(c){
     api('/api/camera', { name: c.name }).then(function(){ setTimeout(poll, 3000); }).catch(offline);
   }
 
   // ---- Now playing ----
-  var dragging = false, pollTimer = null;
+  // now: the TV's last status; nowAt: when it came. Between polls the time
+  // runs on here, so the bar moves smoothly the way a casting app's does,
+  // and buttons change it straight away rather than waiting for the TV.
+  var dragging = false, pollTimer = null, npThumb = null, now = null, nowAt = 0, holdUntil = 0;
+  var pending = null;   // { path, at }: asked the TV to play this, not on yet
+  function nowT(){
+    if (!now) return 0;
+    var t = (now.t || 0) + (now.playing ? (Date.now() - nowAt) / 1000 : 0);
+    return now.dur ? Math.min(t, now.dur) : t;
+  }
   function showNow(s){
+    now = s;
+    nowAt = Date.now();
     $('#now').classList.add('on');
     $('#npTitle').textContent = s.title || 'Playing on the TV';
-    $('#npSeries').textContent = s.series || '';
-    $('#npSeries').style.display = s.series ? '' : 'none';
-    $('#npThumb').style.backgroundImage = '';
-    bg($('#npThumb'), s.thumb);
-    $('#npPlay').textContent = s.playing ? '❚❚' : '▶';
-    if (!dragging) {
-      $('#npBar').max = Math.max(1, Math.floor(s.dur || 0));
-      $('#npBar').value = Math.floor(s.t || 0);
-      $('#npT').textContent = fmt(s.t);
+    var device = 'Playing on ' + (s.device || 'your TV');
+    $('#npDevice').textContent = pending ? 'Starting on ' + (s.device || 'your TV') + '…' : device;
+    $('#plDevice').textContent = device;
+    if (s.thumb !== npThumb) {
+      npThumb = s.thumb;
+      $('#npThumb').innerHTML = '';
+      img($('#npThumb'), s.thumb, true);
     }
-    $('#npDur').textContent = fmt(s.dur);
+    renderPlayState();
+    tick();
+    if (playerOpen) updatePlayer(s);
   }
+  function renderPlayState(){
+    var p = now && now.playing ? 'pause' : 'play';
+    icon($('#npPlay'), p);
+    icon($('#plPlay'), p);
+  }
+  function tick(){
+    if (!now) return;
+    var t = nowT(), dur = now.dur || 0, pct = dur ? Math.min(100, t / dur * 100) : 0;
+    $('#npProg').style.width = pct + '%';
+    $('#plDur').textContent = fmt(dur);
+    if (dragging) return;
+    var bar = $('#plBar');
+    bar.max = Math.max(1, Math.floor(dur));
+    bar.value = Math.floor(t);
+    bar.style.setProperty('--p', pct + '%');
+    $('#plT').textContent = fmt(t);
+  }
+  setInterval(function(){ if (now && now.playing && !document.hidden) tick(); }, 500);
+
+  // The TV is briefly "not playing" while it loads the next episode, so the
+  // player only closes once that has lasted a while.
+  var idlePolls = 0;
   function poll(){
     clearTimeout(pollTimer);
     if (document.hidden) return;
     api('/api/status').then(function(s){
       banner('');
-      if (s.video) showNow(s); else $('#now').classList.remove('on');
+      if (pending && (s.path === pending.path || Date.now() - pending.at > 20000)) pending = null;
+      if (s.video) {
+        idlePolls = 0;
+        // Just pressed something: keep what the press showed until the TV catches up.
+        if (Date.now() < holdUntil && now) { s.playing = now.playing; s.t = nowT(); }
+        if (pending && now) return;   // still the old episode on the TV
+        showNow(s);
+        return;
+      }
+      if (pending) return;
+      $('#now').classList.remove('on');
+      now = null;
+      if (playerOpen && ++idlePolls > 5) history.back();
     }).catch(offline).then(function(){ pollTimer = setTimeout(poll, 1500); });
   }
   function cmd(c, v){
-    return api('/api/cmd', v === undefined ? { c: c } : { c: c, v: v }).then(function(){ setTimeout(poll, 400); }).catch(offline);
+    holdUntil = Date.now() + 1500;
+    return api('/api/cmd', v === undefined ? { c: c } : { c: c, v: v }).then(function(){ setTimeout(poll, 700); }).catch(offline);
   }
-  $('#npPlay').onclick = function(){ cmd('toggle'); };
-  document.querySelectorAll('[data-seek]').forEach(function(b){ b.onclick = function(){ cmd('seek', b.dataset.seek); }; });
-  var bar = $('#npBar');
-  bar.oninput = function(){ dragging = true; $('#npT').textContent = fmt(bar.value); };
-  bar.onchange = function(){ dragging = false; cmd('seekto', bar.value); };
+  // Pressed: show the result now, then tell the TV.
+  function toggle(){
+    if (now) { now.t = nowT(); nowAt = Date.now(); now.playing = !now.playing; renderPlayState(); tick(); }
+    cmd('toggle');
+  }
+  function seekBy(d){
+    if (now) { now.t = Math.max(0, nowT() + d); nowAt = Date.now(); tick(); }
+    cmd('seek', d);
+  }
+  function seekTo(t){
+    if (now) { now.t = t; nowAt = Date.now(); tick(); }
+    cmd(t === 0 ? 'restart' : 'seekto', t === 0 ? undefined : t);
+  }
+  $('#npPlay').onclick = function(e){ e.stopPropagation(); toggle(); };
+  $('#plPlay').onclick = toggle;
+  document.querySelectorAll('[data-seek]').forEach(function(b){ b.onclick = function(){ seekBy(+b.dataset.seek); }; });
+  // Dragging the bar shows where it'll land; letting go jumps there.
+  var bar = $('#plBar');
+  bar.oninput = function(){
+    dragging = true;
+    $('#plSeek').classList.add('drag');
+    $('#plT').textContent = fmt(bar.value);
+    bar.style.setProperty('--p', (bar.value / Math.max(1, bar.max) * 100) + '%');
+  };
+  bar.onchange = function(){
+    dragging = false;
+    $('#plSeek').classList.remove('drag');
+    seekTo(+bar.value);
+  };
+
+  // ---- Player ----
+  // Opened from the mini player: the episode big, with the controls, and a
+  // sheet underneath for what's up next, the rest of the series, and the
+  // episode's description.
+  var playerOpen = false, plPath = null, plEp = null, plQueue = { queue: [], auto: [] }, queueTimer = null;
+  $('#npOpen').onclick = function(){ if (now) openPlayer(); };
+  function openPlayer(){
+    playerOpen = true;
+    setSheet(null);
+    $('#player').classList.add('on');
+    document.body.classList.add('sheet-open');
+    history.pushState({ player: 1 }, '');
+    plPath = null;
+    updatePlayer(now);
+  }
+  function closePlayer(){
+    playerOpen = false;
+    clearTimeout(queueTimer);
+    var p = $('#player');
+    p.classList.remove('on', 'drag');
+    p.style.transform = '';
+    if (!sheetOpen) document.body.classList.remove('sheet-open');
+  }
+  $('#plClose').onclick = function(){ if (playerOpen) history.back(); };
+
+  // Swipe down on the top half to close, as in a casting app.
+  (function(){
+    var main = $('#plMain'), p = $('#player'), y0 = null, dy = 0;
+    main.addEventListener('touchstart', function(e){
+      if (e.target.closest('input, .pl-ctrls, .pl-extra')) return;
+      y0 = e.touches[0].clientY; dy = 0;
+    }, { passive: true });
+    main.addEventListener('touchmove', function(e){
+      if (y0 === null) return;
+      dy = Math.max(0, e.touches[0].clientY - y0);
+      if (dy > 6) { p.classList.add('drag'); p.style.transform = 'translateY(' + dy + 'px)'; }
+    }, { passive: true });
+    main.addEventListener('touchend', function(){
+      if (y0 === null) return;
+      y0 = null;
+      p.classList.remove('drag');
+      p.style.transform = '';
+      if (dy > 110 && playerOpen) history.back();
+    });
+  })();
+
+  // The sheet: tap a tab to pull it up there, tap it (or the grip) again to drop it.
+  var sheetTab = null;
+  function setSheet(tab){
+    sheetTab = tab;
+    $('#player').classList.toggle('up', !!tab);
+    document.querySelectorAll('.ps-tabs button').forEach(function(b){ b.classList.toggle('on', b.dataset.tab === (tab || 'next')); });
+    document.querySelectorAll('[data-pane]').forEach(function(d){ d.hidden = d.dataset.pane !== (tab || 'next'); });
+    if (tab) $('#plBody').scrollTop = 0;
+  }
+  document.querySelectorAll('.ps-tabs button').forEach(function(b){
+    b.onclick = function(){ setSheet(sheetTab === b.dataset.tab ? null : b.dataset.tab); };
+  });
+  $('#plGrip').onclick = function(){ setSheet(sheetTab ? null : 'next'); };
+
+  function updatePlayer(s){
+    if (!s) return;
+    // The episode's own details (once loaded) name things better than the TV page.
+    var ep = plEp && s.path === plPath ? plEp : null;
+    $('#plTitle').textContent = (ep && ep.title) || s.title || 'Playing on the TV';
+    var sub = [(ep && ep.series) || s.series, s.dur ? fmt(s.dur) : ''].filter(Boolean).join(' · ');
+    $('#plSub').textContent = sub;
+    $('#plArt').classList.toggle('loading', !!pending);
+    var cc = $('#plCaptions');
+    cc.hidden = !s.captions || s.captions === 'none';
+    cc.classList.toggle('on', s.captions === 'on');
+    if (s.path === plPath) return;
+    // A different episode: start again from its details.
+    plPath = s.path;
+    plEp = null;
+    setArt(s.thumb);
+    $('#plSeries').style.visibility = 'hidden';
+    renderMore();
+    renderAbout();
+    renderNav();
+    loadQueue();
+    if (!s.path || s.path === '/') return;
+    api('/api/episode', { path: s.path }).then(function(ep){
+      if (plPath !== s.path) return;
+      plEp = ep;
+      if (ep.thumb) setArt(ep.thumb);
+      $('#plSeries').style.visibility = ep.seriesTag ? '' : 'hidden';
+      updatePlayer(now || s);
+      renderMore();
+      renderAbout();
+      renderNav();
+    }).catch(function(){ renderNav(); });
+  }
+  function setArt(url){
+    var f = $('#plArt');
+    [].slice.call(f.querySelectorAll('img')).forEach(function(i){ i.remove(); });
+    img(f, url, true);
+    $('#plBg').style.backgroundImage = url ? 'url("' + url.replace(/"/g, '%22') + '")' : '';
+  }
+  $('#plSeries').onclick = function(){
+    if (plEp && plEp.seriesTag) openSheet(plEp.series, api('/api/series', { tag: plEp.seriesTag }).then(function(d){ return d.items; }));
+  };
+
+  function listIndex(){
+    if (!plEp || !plEp.list) return -1;
+    for (var i = 0; i < plEp.list.length; i++) if (plEp.list[i].path === plPath) return i;
+    return -1;
+  }
+  // Next: what's queued, else what autoplay would play, else the next in
+  // the series. Previous: the one before in the series.
+  function nextUp(){
+    var i = listIndex();
+    return plQueue.queue[0] || plQueue.auto[0] || (i >= 0 && plEp.list[i + 1]) || null;
+  }
+  function prevUp(){ var i = listIndex(); return i > 0 ? plEp.list[i - 1] : null; }
+  function renderNav(){
+    $('#plNext').disabled = !nextUp();
+    $('#plPrev').disabled = !prevUp();
+  }
+  $('#plNext').onclick = function(){ var v = nextUp(); if (v) play(v); };
+  $('#plPrev').onclick = function(){ var v = prevUp(); if (v) play(v); };
+  $('#plRestart').onclick = function(){ seekTo(0); };
+  $('#plCaptions').onclick = function(){
+    if (now) { now.captions = now.captions === 'on' ? 'off' : 'on'; this.classList.toggle('on', now.captions === 'on'); }
+    cmd('captions');
+  };
+  $('#plStop').onclick = function(){ cmd('stop'); if (playerOpen) history.back(); };
+
+  function renderMore(){
+    var box = $('#plMore'), list = plEp && plEp.list || [];
+    box.innerHTML = '';
+    if (!list.length) { box.appendChild(el('p', 'empty', plEp ? 'Nothing else in this series.' : 'Loading…')); return; }
+    list.forEach(function(v){
+      var isCur = v.path === plPath;
+      box.appendChild(line(v, plEp.listTitle, isCur ? { cur: true, label: 'NOW PLAYING' } : null));
+    });
+  }
+  function renderAbout(){
+    var box = $('#plAbout');
+    box.innerHTML = '';
+    var d = el('div', 'ps-about');
+    d.appendChild(el('b', '', (plEp && plEp.title) || (now && now.title) || ''));
+    d.appendChild(document.createTextNode((plEp && plEp.description) || (plEp ? 'No description for this one.' : 'Loading…')));
+    box.appendChild(d);
+  }
+
+  // ---- Queue ----
+  function loadQueue(){
+    clearTimeout(queueTimer);
+    api('/api/queue').then(renderQueue).catch(function(){})
+      .then(function(){ if (playerOpen) queueTimer = setTimeout(loadQueue, 10000); });
+  }
+  function renderQueue(d){
+    plQueue = { queue: d.queue || [], auto: d.auto || [] };
+    var box = $('#plQueue');
+    box.innerHTML = '';
+    plQueue.queue.forEach(function(v, i){
+      var acts = [['×', function(){ queueOp('remove', v); }, 'Remove from queue']];
+      if (i > 0) acts.unshift(['↑', function(){ queueOp('top', v); }, 'Play this next']);
+      box.appendChild(line(v, null, { label: i === 0 ? 'QUEUED · PLAYS NEXT' : 'QUEUED', actions: acts }));
+    });
+    plQueue.auto.forEach(function(v){
+      box.appendChild(line(v, null, { label: 'AUTOPLAY' }));
+    });
+    if (!plQueue.queue.length && !plQueue.auto.length) {
+      box.appendChild(el('p', 'empty', 'Nothing queued. Tap + on any episode to play it next.'));
+    }
+    // The tab says what's next even while the sheet is down.
+    var first = plQueue.queue[0] || plQueue.auto[0];
+    $('.ps-tabs [data-tab="next"]').textContent = 'Up next' + (plQueue.queue.length ? ' · ' + plQueue.queue.length : '');
+    $('.ps-tabs [data-tab="next"]').title = first ? first.title : '';
+    renderNav();
+  }
+  function queueOp(op, v){
+    api('/api/queue/' + op, { path: v.path }).then(renderQueue).catch(offline);
+  }
+  function enqueue(v){
+    api('/api/queue/add', { path: v.path }).then(function(d){
+      toast('Added to queue: ' + (v.title || 'episode'));
+      if (playerOpen) renderQueue(d);
+    }).catch(function(e){ toast(String(e && e.message) === '404' ? 'Couldn’t find that episode' : 'Couldn’t add it'); });
+  }
 
   document.addEventListener('visibilitychange', function(){ if (!document.hidden) { load(); poll(); } });
   load();

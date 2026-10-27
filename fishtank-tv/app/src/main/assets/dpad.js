@@ -1269,6 +1269,28 @@
     return !!(findPlayerFrame() && playerState.playing);
   };
 
+  // For the phone remote (PhoneRemote.kt): what's on the TV, as JSON, and
+  // an absolute seek for its progress bar.
+  window.__ftvRemoteStatus = function(){
+    var p = currentPlaybackInfo();
+    var og = function(k){ var m = document.querySelector('meta[property="og:' + k + '"]'); return m ? m.content : ''; };
+    var crumb = document.querySelector('a[href="/series/' + location.pathname.split('/')[2] + '"]');
+    var video = !!((trackedVideo && document.contains(trackedVideo)) || findPlayerFrame());
+    return JSON.stringify({
+      path: location.pathname,
+      video: video,
+      title: video ? cleanTitle((og('title') || document.title).replace(/\s*\|\s*MDE\.tv\s*$/i, '')) : '',
+      series: video && crumb ? cleanTitle(crumb.textContent) : '',
+      thumb: video ? og('image') : '',
+      playing: window.__ftvIsPlaying(),
+      t: p.time || 0,
+      dur: p.duration || 0
+    });
+  };
+  window.__ftvRemoteSeekTo = function(t){
+    window.__ftvSeek(t - (currentPlaybackInfo().time || 0));
+  };
+
   // Subtitles on the page's own <video> (mde): 'state' -> "on" | "off" |
   // "none"; 'toggle' flips them. fishtank's cross-origin player exposes no
   // caption control, so it reports "none".

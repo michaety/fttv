@@ -25,13 +25,10 @@ Unofficial. Not affiliated with, endorsed by, or supported by either site.
 - **Remote control from your phone:** browse, search and play on the TV from
   your phone. See [Phone remote](#phone-remote).
 - **Search:** MDE's search box is in the header.
-- **Scrubbing:** left and right show a preview of where you'll jump to.
 - **63% less CPU:** compared with v1.0, measured on MDE's homepage.
 - **Subtitles:** on MDE, from the Menu (☰) button.
 - **Autoplay:** the next episode starts when one finishes. Back cancels.
 - **Continue watching:** pick up where you left off, or start the next episode.
-- **Tidier Fishtank episodes:** seasons run oldest to newest, and the BTS
-  videos are together in the BTS tab.
 - **Auto-updates:** the app offers new versions when it opens. On Fire TV's
   confirm screen, move right to **INSTALL** (it starts on Cancel).
 

@@ -22,7 +22,9 @@ app/src/main/java/com/fishtank/tv/
   FtvWebView.kt     WebView whose keyboard action key submits the field
   UpdateChecker.kt  self-update from GitHub releases
   ThumbCache.kt     480px copies of fishtank's episode thumbnails
+  PhoneRemote.kt    mde: web server for the phone remote page
 app/src/main/assets/
+  remote.html       mde: the phone remote page (served by PhoneRemote)
   dpad.js           the injected D-pad script (cursor, scrubbing, player
                     control, Continue watching). An asset rather than a Kotlin
                     string: JVM string constants max out at 64KB.
@@ -124,6 +126,29 @@ Firestick, even from cache. `ThumbCache.kt` intercepts `<id>/thumbnail.jpg`,
 shrinks it to 480px wide once (Bunny wants fishtank's Referer, so the page's
 request headers are passed along), and serves the small copy after that. Copies
 expire after a week. The Bunny player iframe's own requests aren't touched.
+
+**mde phone remote.** Menu -> "Use your phone as a remote" shows a QR code
+for `http://<tv-ip>:8765/?k=<key>`. `PhoneRemote.kt` serves `remote.html` and a
+small JSON API while the app is in the foreground (started in `onStart`,
+stopped in `onStop`).
+- `/api/home`: Continue watching (`__ftv_recent`, read from the WebView) and
+  the New and Popular playlists from `/v1/site/landing`. Unlike
+  `/v1/playlists/<id>`, that endpoint has `watched` flags.
+- `/api/search?q=`: `/v1/search?query=`. Results carry a series id, not a
+  tag, so `/v1/series` maps it to `/series/<tag>/<video>`.
+- `/api/play?path=`: opens the episode in the WebView, signed in, so progress
+  and achievements count. Only `/series/<tag>/<tag>` paths are accepted.
+- `/api/status` and `/api/cmd?c=toggle|seek|seekto`: via
+  `__ftvRemoteStatus`, `__ftvTogglePlay`, `__ftvSeek` and `__ftvRemoteSeekTo`
+  in `dpad.js`.
+- The server calls mde's API itself, because the phone page would be
+  blocked by CORS. It sends the WebView's cookies (`CookieManager`).
+- Every request needs the key from the QR code (403 otherwise). The key is
+  random, kept in SharedPreferences, and stays the same, so a bookmark keeps
+  working while the TV's IP doesn't change.
+- Why not the site's Cast button: it only casts to Google-certified Cast
+  devices (Default Media Receiver `CC1AD845` plus device authentication), so
+  a sideloaded Fire TV app can't appear there. See CHROMECAST_HANDOFF.md.
 
 **mde Pause Snack Continue page.** `renderPscRows` in `dpad.js` hides the
 series list and puts one row per game in its place, newest game first.

@@ -300,8 +300,8 @@
     // anything sent before that (which is when the iframe element first
     // appears in the DOM) is silently dropped, so subscribe again here.
     if (data.event === 'ready') { playerSubscribed = false; subscribePlayerEvents(); }
-    else if (data.event === 'play') { playerState.playing = true; }
-    else if (data.event === 'pause') { playerState.playing = false; }
+    else if (data.event === 'play') { playerState.playing = true; playbackStarted(); osdPlayStateChanged(); }
+    else if (data.event === 'pause') { playerState.playing = false; osdPlayStateChanged(); }
     else if (data.event === 'getPaused') { playerState.playing = !data.value; }
     else if (data.event === 'getCurrentTime') {
       playerState.time = data.value || 0;
@@ -315,6 +315,7 @@
       playerState.timeKnown = true;
       if (seekOverlayVisible) { renderSeekOverlay(); }
       rememberPosition(playerState.time, playerState.duration);
+      if (playerState.time > 0) playbackStarted();
     }
     else if (data.event === 'ended') { onEpisodeEnded(); }
   });
@@ -437,7 +438,7 @@
         if (next.row && next.row.length > 1) {
           try { sessionStorage.setItem('__ftv_queue', JSON.stringify(next.row)); } catch (e) {}
         }
-        location.assign('/episodes/' + next.id);
+        window.__ftvGo('/episodes/' + next.id, { title: cleanTitle(next.title), thumb: ftThumb(next.id) });
         return;
       }
       nextTimer = setTimeout(tick, 1000);
@@ -520,6 +521,18 @@
   function removeRecent(path){
     saveRecent(loadRecent().filter(function(x){ return x.path !== path; }));
   }
+  // Removing an entry by hand: from the TV's Menu (the card the cursor is
+  // on, see __ftvFocusedRecent) or from the phone remote.
+  window.__ftvRecentRemove = function(path){
+    removeRecent(path);
+    recentSig = '';
+    try { renderRecent(); } catch (e) {}
+    return 'ok';
+  };
+  window.__ftvFocusedRecent = function(){
+    var a = cur && cur.closest && cur.closest('#__ftv_recent_row a[href]');
+    return a ? a.getAttribute('href') : '';
+  };
   // entry: { path, title, thumb, t, dur } (seconds)
   function recordRecent(entry){
     if (!entry || !entry.path || !(entry.dur > 60)) return;
@@ -1091,6 +1104,14 @@
     }
     trackedVideo = v;
     maybeAutoFullscreen(v);
+    osdPlayStateChanged();
+  }, true);
+  document.addEventListener('pause', function(e){
+    if (e.target === trackedVideo) osdPlayStateChanged();
+  }, true);
+  // Actually showing frames (not just asked to play): the loading screen can go.
+  document.addEventListener('playing', function(e){
+    if (e.target === trackedVideo) playbackStarted();
   }, true);
 
   // Bunny's iframe doesn't fire a same-origin 'play' event we can catch, so
@@ -1146,50 +1167,160 @@
     return Math.floor(t / 60) + ':' + ss;
   }
 
+  // ---- TV player controls ---------------------------------------------
+  // While something plays, any key brings up a full-screen layer like a TV
+  // app's: the title along the top; a full-width scrub bar with the time
+  // either side and the seek preview riding above the scrub point; and a
+  // row of buttons (Restart, -10, play/pause, +30, Next, Subtitles).
+  // Left/right scrub; Down moves to the buttons and Up back to the bar;
+  // Select presses; Back hides it (see __ftvScrubCancel). It hides after a
+  // few seconds while playing, and stays up over a dimmed picture while
+  // paused. (Named "seek overlay" from before it grew; the timeupdate and
+  // key handlers call it by those names.)
+  var osdSeriesEl = null, osdTitleEl = null, osdNoteEl = null, osdRightEl = null, osdKnobEl = null,
+      osdFlashEl = null, osdScrubEl = null, osdStimeEl = null, osdBtnEls = [], osdFocus = -1, osdNoteTimer = null,
+      osdFlashTimer = null;   // osdFocus: -1 is the bar, else a button index
+  var OSD_REPLAY = 'M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z';
+  var OSD_NUM = '<text x="12" y="16.3" font-size="6.6" font-weight="700" text-anchor="middle" font-family="sans-serif">';
+  var OSD_ICONS = {
+    play: '<path d="M8 5v14l11-7z"/>',
+    pause: '<path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>',
+    restart: '<path d="' + OSD_REPLAY + '"/>',
+    back10: '<path d="' + OSD_REPLAY + '"/>' + OSD_NUM + '10</text>',
+    fwd30: '<path transform="matrix(-1 0 0 1 24 0)" d="' + OSD_REPLAY + '"/>' + OSD_NUM + '30</text>',
+    next: '<path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/>',
+    cc: '<path d="M19 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zm-8 7H9.5v-.5h-2v3h2V13H11v1a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v1zm7 0h-1.5v-.5h-2v3h2V13H18v1a1 1 0 0 1-1 1h-3a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v1z"/>'
+  };
+  var OSD_BUTTONS = [['restart', 'Restart'], ['back10', 'Back 10s'], ['play', 'Pause'],
+                     ['fwd30', 'Forward 30s'], ['next', 'Next episode'], ['cc', 'Subtitles']];
+  var OSD_PLAY = 2;
+  function osdIcon(name){ return '<svg viewBox="0 0 24 24" aria-hidden="true">' + OSD_ICONS[name] + '</svg>'; }
+
   function ensureSeekOverlay(){
     if (seekOverlayEl) return;
+    var A = '__FTV_ACCENT_HEX__';
     var style = document.createElement('style');
     style.textContent =
-      '#__ftv_seek{position:fixed;left:50%;bottom:8%;transform:translateX(-50%);' +
-        'min-width:260px;padding:12px 22px;border-radius:10px;background:rgba(0,0,0,.72);' +
-        'z-index:2147483647;opacity:0;transition:opacity 150ms ease-out;pointer-events:none;}' +
+      '#__ftv_seek{position:fixed;inset:0;z-index:2147483646;pointer-events:none;opacity:0;' +
+        'transition:opacity 200ms ease-out,background-color 200ms;color:#fff;font-family:Roboto,"Amazon Ember",sans-serif;}' +
       '#__ftv_seek.__ftv_show{opacity:1;}' +
-      '#__ftv_seek_time{color:#fff;font:600 18px/1.2 sans-serif;text-align:center;margin-bottom:6px;' +
-        'text-shadow:0 1px 3px rgba(0,0,0,.8);}' +
-      '#__ftv_seek_bar{width:100%;height:5px;border-radius:3px;background:rgba(255,255,255,.3);overflow:hidden;}' +
-      '#__ftv_seek_fill{height:100%;width:0%;background:__FTV_ACCENT_HEX__;}' +
-      '#__ftv_seek.__ftv_scrub{min-width:520px;}' +
-      '#__ftv_seek_thumb{display:none;margin:0 auto 8px;border-radius:6px;background-color:#000;' +
-        'background-repeat:no-repeat;box-shadow:0 2px 10px rgba(0,0,0,.6);}' +
-      '#__ftv_seek.__ftv_scrub #__ftv_seek_thumb.__ftv_has{display:block;}';
+      '#__ftv_seek.__ftv_paused{background-color:rgba(0,0,0,.35);}' +
+      '#__ftv_seek .__ftv_top{position:absolute;left:0;right:0;top:0;padding:2.6vw 4vw 7vw;' +
+        'background:linear-gradient(rgba(0,0,0,.8),transparent);will-change:transform;}' +
+      '#__ftv_seek .__ftv_series{font-size:1.2vw;letter-spacing:.12vw;text-transform:uppercase;opacity:.75;}' +
+      '#__ftv_seek .__ftv_title{font-size:2.3vw;font-weight:600;margin-top:.3vw;text-shadow:0 .1vw .4vw rgba(0,0,0,.6);}' +
+      '#__ftv_seek .__ftv_note{font-size:1.3vw;margin-top:.6vw;color:' + A + ';min-height:1.6vw;}' +
+      '#__ftv_seek .__ftv_bottom{position:absolute;left:0;right:0;bottom:0;padding:9vw 4vw 2.6vw;' +
+        'background:linear-gradient(transparent,rgba(0,0,0,.88));will-change:transform;}' +
+      '#__ftv_seek .__ftv_scrub{position:relative;height:2vw;display:flex;align-items:center;}' +
+      '#__ftv_seek_bar{position:relative;width:100%;height:.35vw;border-radius:.2vw;background:rgba(255,255,255,.3);' +
+        'transition:height 150ms;}' +
+      '#__ftv_seek.__ftv_barfocus #__ftv_seek_bar{height:.6vw;}' +
+      '#__ftv_seek_fill{height:100%;width:100%;border-radius:inherit;background:' + A + ';' +
+        'transform-origin:0 50%;transform:scaleX(0);will-change:transform;}' +
+      '#__ftv_seek .__ftv_knob{position:absolute;top:50%;left:0;width:1.4vw;height:1.4vw;margin:-.7vw 0 0 -.7vw;' +
+        'border-radius:50%;background:#fff;box-shadow:0 0 0 .22vw ' + A + ';opacity:0;transition:opacity 150ms;will-change:transform;}' +
+      '#__ftv_seek.__ftv_barfocus .__ftv_knob{opacity:1;}' +
+      '#__ftv_seek_thumb{position:absolute;bottom:2.4vw;left:0;display:none;border-radius:.45vw;background-color:#000;will-change:transform;' +
+        'background-repeat:no-repeat;border:.18vw solid #fff;box-shadow:0 .4vw 1.6vw rgba(0,0,0,.7);}' +
+      '#__ftv_seek.__ftv_scrubbing #__ftv_seek_thumb.__ftv_has{display:block;}' +
+      '#__ftv_seek .__ftv_stime{position:absolute;left:0;right:0;bottom:-2.3vw;text-align:center;font-size:1.25vw;' +
+        'font-weight:600;text-shadow:0 .1vw .4vw #000;}' +
+      '#__ftv_seek .__ftv_times{display:flex;justify-content:space-between;margin-top:.7vw;font-size:1.3vw;' +
+        'font-variant-numeric:tabular-nums;opacity:.9;}' +
+      '#__ftv_seek .__ftv_btns{display:flex;justify-content:center;gap:1.6vw;margin-top:1.3vw;}' +
+      '#__ftv_seek .__ftv_btn{display:flex;flex-direction:column;align-items:center;gap:.45vw;min-width:6.4vw;' +
+        'padding:.8vw 1.1vw .7vw;border-radius:.9vw;font-size:1vw;opacity:.8;transition:background 120ms,opacity 120ms;}' +
+      '#__ftv_seek .__ftv_btn svg{width:2.5vw;height:2.5vw;fill:currentColor;}' +
+      '#__ftv_seek .__ftv_btn.__ftv_on{background:#fff;color:#000;opacity:1;}' +
+      '#__ftv_seek .__ftv_btn.__ftv_cc_on svg{fill:' + A + ';}' +
+      '#__ftv_seek .__ftv_btn[hidden]{display:none;}' +
+      '#__ftv_seek .__ftv_flash{position:absolute;left:50%;top:50%;width:8vw;height:8vw;margin:-4vw 0 0 -4vw;' +
+        'border-radius:50%;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;' +
+        'opacity:0;transform:scale(.85);transition:opacity 220ms,transform 220ms;}' +
+      '#__ftv_seek .__ftv_flash.__ftv_go{opacity:1;transform:scale(1);}' +
+      '#__ftv_seek .__ftv_flash svg{width:4vw;height:4vw;fill:#fff;}';
     (document.head || document.documentElement).appendChild(style);
 
-    seekOverlayEl = document.createElement('div');
+    var div = function(cls){ var d = document.createElement('div'); if (cls) d.className = cls; return d; };
+    seekOverlayEl = div();
     seekOverlayEl.id = '__ftv_seek';
-    seekThumbEl = document.createElement('div');
-    seekThumbEl.id = '__ftv_seek_thumb';
-    seekOverlayEl.appendChild(seekThumbEl);
-    seekOverlayTimeEl = document.createElement('div');
-    seekOverlayTimeEl.id = '__ftv_seek_time';
-    var bar = document.createElement('div');
-    bar.id = '__ftv_seek_bar';
-    seekOverlayFillEl = document.createElement('div');
-    seekOverlayFillEl.id = '__ftv_seek_fill';
-    bar.appendChild(seekOverlayFillEl);
-    seekOverlayEl.appendChild(seekOverlayTimeEl);
-    seekOverlayEl.appendChild(bar);
+    var top = div('__ftv_top');
+    osdSeriesEl = div('__ftv_series'); osdTitleEl = div('__ftv_title'); osdNoteEl = div('__ftv_note');
+    top.appendChild(osdSeriesEl); top.appendChild(osdTitleEl); top.appendChild(osdNoteEl);
+    osdFlashEl = div('__ftv_flash');
+    var bottom = div('__ftv_bottom');
+    osdScrubEl = div('__ftv_scrub');
+    seekThumbEl = div(); seekThumbEl.id = '__ftv_seek_thumb';
+    osdStimeEl = div('__ftv_stime'); seekThumbEl.appendChild(osdStimeEl);
+    var bar = div(); bar.id = '__ftv_seek_bar';
+    seekOverlayFillEl = div(); seekOverlayFillEl.id = '__ftv_seek_fill';
+    osdKnobEl = div('__ftv_knob');
+    bar.appendChild(seekOverlayFillEl); bar.appendChild(osdKnobEl);
+    osdScrubEl.appendChild(seekThumbEl); osdScrubEl.appendChild(bar);
+    var times = div('__ftv_times');
+    seekOverlayTimeEl = document.createElement('span'); osdRightEl = document.createElement('span');
+    times.appendChild(seekOverlayTimeEl); times.appendChild(osdRightEl);
+    var btns = div('__ftv_btns');
+    osdBtnEls = OSD_BUTTONS.map(function(b){
+      var e = div('__ftv_btn');
+      e.innerHTML = osdIcon(b[0]) + '<span></span>';
+      e.lastChild.textContent = b[1];
+      btns.appendChild(e);
+      return e;
+    });
+    bottom.appendChild(osdScrubEl); bottom.appendChild(times); bottom.appendChild(btns);
+    seekOverlayEl.appendChild(top); seekOverlayEl.appendChild(osdFlashEl); seekOverlayEl.appendChild(bottom);
     (document.body || document.documentElement).appendChild(seekOverlayEl);
   }
 
+  // Title and show of what's playing, as the phone remote shows them.
+  function playbackMeta(){
+    var m = { title: '', series: '', thumb: '' };
+    if (location.host.indexOf('mde.tv') >= 0) {
+      var og = function(k){ var e = document.querySelector('meta[property="og:' + k + '"]'); return e ? e.content : ''; };
+      var crumb = document.querySelector('a[href="/series/' + location.pathname.split('/')[2] + '"]');
+      m.title = cleanTitle((og('title') || document.title).replace(/\s*\|\s*MDE\.tv\s*$/i, ''));
+      m.series = crumb ? cleanTitle(crumb.textContent) : '';
+      m.thumb = og('image');
+    } else {
+      var id = episodeId() || (/\/episodes\/([0-9a-f-]{36})/.exec(location.pathname) || [])[1];
+      try { m.title = (id && localStorage.getItem('__ftv_title_' + id)) || ''; } catch (e) {}
+      m.thumb = id ? ftThumb(id) : '';
+    }
+    return m;
+  }
+
+  function osdButtonVisible(i){ return !osdBtnEls[i].hidden; }
   function renderSeekOverlay(){
     ensureSeekOverlay();
     var info = currentPlaybackInfo();
     var t = scrubTime !== null ? scrubTime : info.time;
-    var hours = isFinite(info.duration) && info.duration >= 3600;
-    seekOverlayTimeEl.textContent = fmtSeekTime(t, hours) + ' / ' + fmtSeekTime(info.duration, hours);
-    seekOverlayFillEl.style.width = (info.duration ? (t / info.duration * 100) : 0) + '%';
-    seekOverlayEl.classList.toggle('__ftv_scrub', scrubTime !== null);
-    if (scrubTime !== null) renderThumb(scrubTime);
+    var d = info.duration || 0;
+    var hours = isFinite(d) && d >= 3600;
+    seekOverlayTimeEl.textContent = fmtSeekTime(t, hours);
+    osdRightEl.textContent = d ? '-' + fmtSeekTime(Math.max(0, d - t), hours) : '';
+    var pct = d ? Math.max(0, Math.min(100, t / d * 100)) : 0;
+    // Transforms, not width/left: moving them then repaints nothing.
+    seekOverlayFillEl.style.transform = 'scaleX(' + (pct / 100) + ')';
+    osdKnobEl.style.transform = 'translateX(' + Math.round(osdScrubEl.clientWidth * pct / 100) + 'px)';
+    var playing = window.__ftvIsPlaying();
+    var playBtn = osdBtnEls[OSD_PLAY];
+    var want = playing ? 'pause' : 'play';
+    if (playBtn.__icon !== want) {
+      playBtn.__icon = want;
+      playBtn.innerHTML = osdIcon(want) + '<span></span>';
+      playBtn.lastChild.textContent = playing ? 'Pause' : 'Play';
+    }
+    var cc = window.__ftvCaptions ? window.__ftvCaptions('state') : 'none';
+    osdBtnEls[5].hidden = cc === 'none';
+    osdBtnEls[5].classList.toggle('__ftv_cc_on', cc === 'on');
+    if (osdFocus >= 0 && !osdButtonVisible(osdFocus)) osdFocus = OSD_PLAY;
+    seekOverlayEl.classList.toggle('__ftv_scrubbing', scrubTime !== null);
+    seekOverlayEl.classList.toggle('__ftv_barfocus', osdFocus < 0);
+    seekOverlayEl.classList.toggle('__ftv_paused', !playing && scrubTime === null);
+    for (var i = 0; i < osdBtnEls.length; i++) osdBtnEls[i].classList.toggle('__ftv_on', i === osdFocus);
+    if (scrubTime !== null) renderThumb(scrubTime, pct);
   }
 
   // Preview thumbnail for time t. Both sites' players are Bunny Stream,
@@ -1199,7 +1330,6 @@
   //  - fishtank's player is a cross-origin iframe, but its sprites are
   //    public at <cdn>/<video id>/seek/_N.jpg (1800x1008, tiles 300x168).
   // No preview (just the bar) if neither is available.
-  var THUMB_W = 240;
   function thumbAt(t){
     var v = trackedVideo && document.contains(trackedVideo) ? trackedVideo : null;
     if (v) {
@@ -1253,11 +1383,20 @@
   // a new sheet keeps the last good tile instead of flashing black; the
   // following sheet is preloaded so moving forward rarely waits at all.
   var sprites = {};
+  // `then` runs only when a sheet that wasn't loaded yet finishes loading.
+  // (Calling it for one already loaded made the caller redraw, which
+  // called this again, forever: the scrub froze the page.)
+  // Loaded sheets are kept as their (decoded) Image, to draw tiles from.
   function loadSprite(url, then){
-    if (sprites[url] === true) { if (then) then(); return true; }
+    if (sprites[url] && sprites[url].__ready) return true;
     if (!sprites[url]) {
       var im = new Image();
-      im.onload = function(){ sprites[url] = true; if (im.__then) im.__then(); };
+      im.decoding = 'async';
+      var done = function(){ im.__ready = true; if (im.__then) im.__then(); };
+      im.onload = function(){
+        // Decoded off the main thread where the WebView can, before it's drawn.
+        if (im.decode) im.decode().then(done, done); else done();
+      };
       im.src = url;
       sprites[url] = im;
     }
@@ -1265,34 +1404,122 @@
     return false;
   }
 
-  function renderThumb(t){
+  // The preview sits above the bar at the scrub point (kept on screen at
+  // the ends), with the time it would jump to under it.
+  var lastThumbT = 0;
+  function renderThumb(t, pct){
+    osdStimeEl.textContent = fmtSeekTime(t, currentPlaybackInfo().duration >= 3600);
     var th = null;
     try { th = thumbAt(t); } catch (e) {}
+    var w = Math.round(window.innerWidth * 0.16);
+    var place = function(h){
+      var barW = osdScrubEl.clientWidth;
+      var x = Math.max(0, Math.min(barW - w, barW * (pct || 0) / 100 - w / 2));
+      seekThumbEl.style.transform = 'translateX(' + Math.round(x) + 'px)';
+      seekThumbEl.style.width = w + 'px';
+      if (h) seekThumbEl.style.height = h + 'px';
+    };
     if (!th) { seekThumbEl.classList.remove('__ftv_has'); return; }
-    try { var ahead = thumbAt(t + 72); if (ahead) loadSprite(ahead.url); } catch (e) {}
-    if (!loadSprite(th.url, function(){ if (scrubTime !== null) renderThumb(scrubTime); })) {
-      if (seekThumbEl.style.backgroundImage) seekThumbEl.classList.add('__ftv_has');
+    // Each sheet covers 72s: load the next one the way the scrub is heading.
+    // (Only one: decoding several 1800x1008 sheets at once stalled the TV.)
+    var dir = t >= lastThumbT ? 1 : -1;
+    lastThumbT = t;
+    try { var ahead = thumbAt(t + dir * 72); if (ahead) loadSprite(ahead.url); } catch (e) {}
+    if (!loadSprite(th.url, function(){ if (scrubTime !== null) renderSeekOverlay(); })) {
+      if (thumbDrawn) { place(); seekThumbEl.classList.add('__ftv_has'); }   // keep the last tile
       return;
     }
-    var k = THUMB_W / th.w;
-    seekThumbEl.style.width = THUMB_W + 'px';
-    seekThumbEl.style.height = Math.round(th.h * k) + 'px';
-    seekThumbEl.style.backgroundImage = 'url("' + th.url + '")';
-    seekThumbEl.style.backgroundSize = (th.w * 6 * k) + 'px ' + (th.h * 6 * k) + 'px';
-    seekThumbEl.style.backgroundPosition = (-th.x * k) + 'px ' + (-th.y * k) + 'px';
+    // Just the one tile, drawn into a small canvas: scaling the whole
+    // 1800x1008 sheet with CSS on every step was what made scrubbing lag.
+    var h = Math.round(th.h * w / th.w), d = window.devicePixelRatio || 1;
+    if (!thumbCanvas) {
+      thumbCanvas = document.createElement('canvas');
+      thumbCanvas.style.cssText = 'display:block;width:100%;height:100%;border-radius:inherit;';
+      seekThumbEl.insertBefore(thumbCanvas, seekThumbEl.firstChild);
+    }
+    if (thumbCanvas.width !== Math.round(w * d)) { thumbCanvas.width = Math.round(w * d); thumbCanvas.height = Math.round(h * d); }
+    var key = th.url + '#' + th.x + ',' + th.y;
+    if (key !== thumbDrawn) {
+      thumbCanvas.getContext('2d').drawImage(sprites[th.url], th.x, th.y, th.w, th.h, 0, 0, thumbCanvas.width, thumbCanvas.height);
+      thumbDrawn = key;
+    }
+    place(h);
     seekThumbEl.classList.add('__ftv_has');
   }
+  var thumbCanvas = null, thumbDrawn = '';
 
+  // Shows the controls, or keeps them up: they hide a few seconds after the
+  // last key while playing, and stay while paused or scrubbing. Drawn at most
+  // once a frame: a held remote button repeats faster than the TV can draw.
+  var osdRaf = 0;
   function showSeekOverlay(){
-    renderSeekOverlay();
+    ensureSeekOverlay();
+    if (!seekOverlayVisible) {
+      var m = playbackMeta();
+      osdTitleEl.textContent = m.title || 'Now playing';
+      osdSeriesEl.textContent = m.series;
+    }
+    if (!osdRaf) osdRaf = requestAnimationFrame(function(){ osdRaf = 0; renderSeekOverlay(); });
     seekOverlayEl.classList.add('__ftv_show');
     seekOverlayVisible = true;
+    armSeekOverlayHide();
+  }
+  function armSeekOverlayHide(){
     if (seekOverlayHideTimer) clearTimeout(seekOverlayHideTimer);
-    if (scrubTime !== null) return;   // stays up until the scrub ends
-    seekOverlayHideTimer = setTimeout(function(){
-      seekOverlayEl.classList.remove('__ftv_show');
-      seekOverlayVisible = false;
-    }, 2000);
+    seekOverlayHideTimer = null;
+    if (scrubTime !== null || !window.__ftvIsPlaying()) return;
+    seekOverlayHideTimer = setTimeout(hideSeekOverlay, 4000);
+  }
+  function hideSeekOverlay(){
+    if (!seekOverlayEl) return;
+    seekOverlayEl.classList.remove('__ftv_show');
+    seekOverlayVisible = false;
+    osdFocus = -1;
+  }
+  // Play state changed (any source, the phone remote included): keep the
+  // controls up while paused, and let them time out again once playing.
+  function osdPlayStateChanged(){
+    if (!playingVideo()) return;
+    // Finished: leave the screen to the up-next card.
+    if (trackedVideo && document.contains(trackedVideo) && trackedVideo.ended) { hideSeekOverlay(); return; }
+    if (!window.__ftvIsPlaying()) showSeekOverlay();
+    else if (seekOverlayVisible) { renderSeekOverlay(); armSeekOverlayHide(); }
+  }
+  // The big play/pause icon in the middle, briefly.
+  function osdFlash(name){
+    ensureSeekOverlay();
+    osdFlashEl.innerHTML = osdIcon(name);
+    osdFlashEl.classList.add('__ftv_go');
+    if (osdFlashTimer) clearTimeout(osdFlashTimer);
+    osdFlashTimer = setTimeout(function(){ osdFlashEl.classList.remove('__ftv_go'); }, 650);
+  }
+  function osdNote(text){
+    ensureSeekOverlay();
+    osdNoteEl.textContent = text;
+    if (osdNoteTimer) clearTimeout(osdNoteTimer);
+    osdNoteTimer = setTimeout(function(){ osdNoteEl.textContent = ''; }, 2500);
+    showSeekOverlay();
+  }
+  // Arrow keys while the controls are up (see __ftvNavigate).
+  function osdMove(dir){
+    if (dir === 'down') { if (osdFocus < 0 && scrubTime === null) osdFocus = OSD_PLAY; }
+    else if (dir === 'up') osdFocus = -1;
+    else if (osdFocus >= 0) {
+      var i = osdFocus, d = dir === 'left' ? -1 : 1;
+      do { i += d; } while (i >= 0 && i < osdBtnEls.length && !osdButtonVisible(i));
+      if (i >= 0 && i < osdBtnEls.length) osdFocus = i;
+    }
+    showSeekOverlay();
+  }
+  function osdPress(){
+    var what = OSD_BUTTONS[osdFocus] && OSD_BUTTONS[osdFocus][0];
+    if (what === 'play') { window.__ftvTogglePlay(); return; }
+    if (what === 'restart') window.__ftvRemoteSeekTo(0);
+    else if (what === 'back10') window.__ftvSeek(-10);
+    else if (what === 'fwd30') window.__ftvSeek(30);
+    else if (what === 'cc') window.__ftvCaptions('toggle');
+    else if (what === 'next') { window.__ftvPlayNext(); return; }
+    showSeekOverlay();
   }
 
   // MainActivity's play/pause/seek key handlers go through these instead of
@@ -1302,12 +1529,13 @@
   // postMessage.
   window.__ftvTogglePlay = function(){
     if (trackedVideo && document.contains(trackedVideo)) {
-      if (trackedVideo.paused) { trackedVideo.play(); } else { trackedVideo.pause(); }
+      if (trackedVideo.paused) { trackedVideo.play(); osdFlash('play'); } else { trackedVideo.pause(); osdFlash('pause'); }
       showSeekOverlay();
       return;
     }
     sendPlayerCommand(playerState.playing ? 'pause' : 'play');
     playerState.playing = !playerState.playing; // optimistic; corrected by the real play/pause event if wrong
+    osdFlash(playerState.playing ? 'play' : 'pause');
     showSeekOverlay();
   };
 
@@ -1399,12 +1627,12 @@
   // Continue watching (the episode page itself doesn't say). row: the
   // episodes of its season in order, [{id, title}], so autoplay carries on
   // through the season the way it does when opened from the TV's row.
-  window.__ftvRemoteEpisode = function(id, title, row){
+  window.__ftvRemoteEpisode = function(id, title, row, thumb){
     try {
       localStorage.setItem('__ftv_title_' + id, cleanTitle(title));
       if (row && row.length > 1) sessionStorage.setItem('__ftv_queue', JSON.stringify(row));
     } catch (e) {}
-    location.assign('/episodes/' + id);
+    window.__ftvGo('/episodes/' + id, { title: cleanTitle(title), thumb: thumb || ftThumb(id) });
   };
   // fishtank: switch to a live camera. Cameras are picked on the live page
   // (/) by its "Watch <name>" tile buttons; there's no URL for one. If
@@ -1473,11 +1701,15 @@
     // mde's own up-next card: press its close button.
     var close = document.querySelector('[class*="_nextVideo"] [class*="_close"]');
     if (close) { close.click(); return true; }
-    if (scrubTime === null) return false;
-    scrubTime = null;
-    if (scrubTimer) { clearTimeout(scrubTimer); scrubTimer = null; }
-    showSeekOverlay();
-    return true;
+    if (scrubTime !== null) {
+      scrubTime = null;
+      if (scrubTimer) { clearTimeout(scrubTimer); scrubTimer = null; }
+      showSeekOverlay();
+      return true;
+    }
+    // The player controls: BACK hides them first, and leaves only after.
+    if (seekOverlayVisible && playingVideo()) { hideSeekOverlay(); return true; }
+    return false;
   };
 
   // True on any dedicated watch page (never the homepage -- see the
@@ -1861,9 +2093,12 @@
   // just bring up the position overlay.
   window.__ftvNavigate = function(dir, step){
     if (playingVideo()) {
-      if (dir === 'left') window.__ftvScrub(-(step || 10));
-      else if (dir === 'right') window.__ftvScrub(step || 10);
-      else showSeekOverlay();
+      // Left/right scrub, unless the buttons have the focus; up/down move
+      // between the bar and the buttons (the first press just shows them).
+      var buttons = seekOverlayVisible && osdFocus >= 0;
+      if ((dir === 'left' || dir === 'right') && !buttons) window.__ftvScrub(dir === 'left' ? -(step || 10) : (step || 10));
+      else if (!seekOverlayVisible) showSeekOverlay();
+      else osdMove(dir);
       return;
     }
     if (silentCur) { revealStart(); return; }    // first press just reveals it
@@ -1894,9 +2129,10 @@
       if (location.pathname !== from) prevPath = from;
       noteBrowsePage();
       window.__ftvQueue('remove', location.pathname);   // a queued episode opened on the TV
+      if (!isEpisodePath(location.pathname)) hideLoader();
       return r;
     };
-    window.addEventListener('popstate', function(){ prevPath = null; noteBrowsePage(); });
+    window.addEventListener('popstate', function(){ prevPath = null; noteBrowsePage(); if (!isEpisodePath(location.pathname)) hideLoader(); });
   })();
 
   // ---- BACK from an episode (both sites) -------------------------------
@@ -1918,6 +2154,129 @@
     } catch (e) {}
   }
   noteBrowsePage();
+
+  // ---- Loading screen (both sites) -------------------------------------
+  // Opening an episode shows a dark screen with its picture and title until
+  // it's actually playing, rather than the page drawing and the player
+  // popping up over it. Put up before navigating when we start the episode
+  // (a card on the TV, the phone remote, Next, fishtank's countdown), and
+  // carried over a full page load in sessionStorage.
+  var LOADING_KEY = '__ftv_loading';
+  var loaderEl = null, loaderTimer = null;
+  function showLoader(meta){
+    meta = meta || {};
+    if (!loaderEl) {
+      var st = document.createElement('style');
+      st.textContent =
+        '#__ftv_loader{position:fixed;inset:0;z-index:2147483647;background:#000;display:flex;flex-direction:column;' +
+          'align-items:center;justify-content:center;color:#fff;font-family:Roboto,"Amazon Ember",sans-serif;' +
+          'opacity:1;transition:opacity 400ms ease-out;}' +
+        '#__ftv_loader.__ftv_out{opacity:0;}' +
+        '#__ftv_loader .__ftv_bg{position:absolute;inset:-6%;background:center/cover no-repeat;' +
+          'filter:blur(2.4vw) brightness(.4);}' +
+        '#__ftv_loader .__ftv_card{position:relative;width:34vw;aspect-ratio:16/9;border-radius:.8vw;' +
+          'background:#111 center/cover no-repeat;box-shadow:0 1.2vw 3.6vw rgba(0,0,0,.7);}' +
+        '#__ftv_loader .__ftv_s{position:relative;margin-top:2vw;font-size:1.2vw;letter-spacing:.12vw;' +
+          'text-transform:uppercase;opacity:.75;}' +
+        '#__ftv_loader .__ftv_t{position:relative;margin-top:.4vw;max-width:70vw;font-size:2.3vw;font-weight:600;' +
+          'text-align:center;}' +
+        '#__ftv_loader .__ftv_spin{position:relative;margin-top:1.8vw;width:2.6vw;height:2.6vw;border-radius:50%;' +
+          'border:.28vw solid rgba(255,255,255,.25);border-top-color:__FTV_ACCENT_HEX__;animation:__ftv_spin .9s linear infinite;}' +
+        '@keyframes __ftv_spin{to{transform:rotate(360deg);}}';
+      (document.head || document.documentElement).appendChild(st);
+      loaderEl = document.createElement('div');
+      loaderEl.id = '__ftv_loader';
+      loaderEl.innerHTML = '<div class="__ftv_bg"></div><div class="__ftv_card"></div>' +
+        '<div class="__ftv_s"></div><div class="__ftv_t"></div><div class="__ftv_spin"></div>';
+    }
+    var url = meta.thumb ? 'url("' + String(meta.thumb).replace(/"/g, '%22') + '")' : '';
+    loaderEl.children[0].style.backgroundImage = url;
+    loaderEl.children[1].style.backgroundImage = url;
+    loaderEl.children[1].style.display = url ? '' : 'none';
+    loaderEl.children[2].textContent = meta.series || '';
+    loaderEl.children[3].textContent = meta.title || '';
+    loaderEl.classList.remove('__ftv_out');
+    (document.body || document.documentElement).appendChild(loaderEl);
+    if (loaderTimer) clearTimeout(loaderTimer);
+    loaderTimer = setTimeout(hideLoader, 15000);   // never stuck up there
+  }
+  function hideLoader(){
+    try { sessionStorage.removeItem(LOADING_KEY); } catch (e) {}
+    if (loaderTimer) { clearTimeout(loaderTimer); loaderTimer = null; }
+    if (!loaderEl || !loaderEl.parentNode || loaderEl.classList.contains('__ftv_out')) return;
+    var el = loaderEl;
+    el.classList.add('__ftv_out');
+    setTimeout(function(){ if (el.classList.contains('__ftv_out') && el.parentNode) el.parentNode.removeChild(el); }, 450);
+  }
+  function playbackStarted(){ hideLoader(); }
+  function rememberLoading(path, meta){
+    try { sessionStorage.setItem(LOADING_KEY, JSON.stringify({ path: path, meta: meta || {}, at: Date.now() })); } catch (e) {}
+  }
+  // Start an episode: the loading screen first, then go. meta: { title, series, thumb }
+  window.__ftvGo = function(path, meta){
+    showLoader(meta);
+    rememberLoading(path, meta);
+    location.assign(path);
+  };
+  // What a card on the page says about its episode, for the loading screen.
+  function cardMeta(a){
+    var q = function(sel){ var e = a.querySelector(sel); return e ? cleanTitle(e.textContent) : ''; };
+    var im = a.querySelector('img');
+    return { thumb: im ? (im.currentSrc || im.src) : '',
+             title: q('[class*="_title"]') || cleanTitle(a.textContent),
+             series: q('[class*="_seriesName"]') };
+  }
+  // A frame actually on screen (the player may have started before this
+  // script was injected, so its play events were missed).
+  document.addEventListener('timeupdate', function(e){
+    var v = e.target;
+    if (v && v.tagName === 'VIDEO' && v.currentTime > 0 && isEpisodePath(location.pathname) &&
+        v.getBoundingClientRect().width >= window.innerWidth * 0.5) playbackStarted();
+  }, true);
+  // An episode page: the screen from the page that started it, or a new one.
+  (function(){
+    if (!isEpisodePath(location.pathname)) return;
+    var saved = null;
+    try { saved = JSON.parse(sessionStorage.getItem(LOADING_KEY) || 'null'); } catch (e) {}
+    if (saved && (saved.path !== location.pathname || Date.now() - saved.at > 30000)) saved = null;
+    var v = document.querySelector('video');
+    if (v && !v.paused && v.currentTime > 0) return;   // already playing
+    var m = playbackMeta();
+    if (saved && saved.meta) { m.title = m.title || saved.meta.title; m.thumb = m.thumb || saved.meta.thumb; m.series = m.series || saved.meta.series; }
+    showLoader(m);
+  })();
+
+  // Next episode now (the player's Next button): what's queued, else what
+  // autoplay would play.
+  window.__ftvPlayNext = function(){
+    if (location.host.indexOf('mde.tv') < 0) {
+      var n = nextEpisode();
+      if (!n) { osdNote('No next episode in this row'); return; }
+      try {
+        localStorage.setItem('__ftv_title_' + n.id, cleanTitle(n.title));
+        if (n.row && n.row.length > 1) sessionStorage.setItem('__ftv_queue', JSON.stringify(n.row));
+      } catch (e) {}
+      window.__ftvGo('/episodes/' + n.id, { title: cleanTitle(n.title), thumb: ftThumb(n.id) });
+      return;
+    }
+    var queued = loadPlayQueue().filter(function(x){ return x.path !== location.pathname; })[0];
+    if (queued) { window.__ftvGo(queued.path, { title: queued.title, series: queued.series, thumb: queued.thumb }); return; }
+    var m = /^\/series\/([^/]+)\/([^/]+)/.exec(location.pathname);
+    if (!m) return;
+    osdNote('Finding the next episode…');
+    var api = 'https://api.mde.tv/v1/videos/';
+    var get = function(u){ return fetch(api + u, { credentials: 'include' }).then(function(r){ return r.json(); }); };
+    get(m[2]).then(function(j){
+      var id = j.video && j.video.id;
+      if (!id) return null;
+      if (m[1] === 'pause-snack-continue' && pscNext(id)) return pscNext(id);
+      return get('next/' + id).then(function(n){ return n.video; });
+    }).then(function(v){
+      if (!v) { osdNote('No next episode'); return; }
+      window.__ftvGo('/series/' + v.series_tag + '/' + v.tag,
+        { title: cleanTitle(v.title), series: v.series_name || '', thumb: v.medium_thumbnail || v.thumbnail || '' });
+    }).catch(function(){ osdNote('Couldn’t find the next episode'); });
+  };
   window.__ftvBack = function(){
     if (!isEpisodePath(location.pathname)) return false;
     var to = null;
@@ -1980,7 +2339,11 @@
   };
 
   window.__ftvActivate = function(){
-    if (playingVideo()) { if (!window.__ftvScrubCommit()) window.__ftvTogglePlay(); return; }
+    if (playingVideo()) {
+      if (seekOverlayVisible && osdFocus >= 0) { osdPress(); return; }
+      if (!window.__ftvScrubCommit()) window.__ftvTogglePlay();
+      return;
+    }
     if (silentCur) { revealStart(); return; }    // first press just reveals it
     if (!cur) { window.__ftvReset(); return; }
     var tag = cur.tagName.toLowerCase();
@@ -1994,6 +2357,12 @@
       cur.focus();
       var r = cur.getBoundingClientRect(), d = window.devicePixelRatio || 1;
       return 'tap:' + Math.round((r.left + r.width / 2) * d) + ',' + Math.round((r.top + r.height / 2) * d);
+    }
+    var card = cur.closest && cur.closest('a[href]');
+    if (card && isEpisodePath(card.getAttribute('href') || '')) {
+      var cm = cardMeta(card);
+      showLoader(cm);
+      rememberLoading(card.getAttribute('href'), cm);
     }
     var ep = cur.closest && cur.closest('a[href^="/episodes/"]');
     if (ep) {

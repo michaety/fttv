@@ -192,6 +192,24 @@ page.
   devices (Default Media Receiver `CC1AD845` plus device authentication), so
   a sideloaded Fire TV app can't appear there.
 
+**TV player controls.** On a watch page, any key brings up a full-screen
+layer (`#__ftv_seek`, still named after the old seek overlay): title on top,
+a full-width scrub bar, and Restart / -10 / play-pause / +30 / Next /
+Subtitles. Left/right scrub (step from `seekStep` in MainActivity, ramping
+up while held), Down/Up move between the bar and the buttons, Select
+presses, BACK hides it before leaving (`__ftvScrubCancel`). It stays up
+while paused. Keep it cheap: the bar, knob and preview move with transforms,
+it redraws once per frame, and the preview tile is drawn into a small canvas
+from the decoded 1800x1008 seek sprite (scaling the whole sheet with CSS
+lagged badly). `loadSprite` must not call its callback for an already-loaded
+sheet: the redraw loop that made froze the page.
+
+**Loading screen.** Opening an episode shows `#__ftv_loader` (blurred
+artwork, title, spinner) until the video actually plays, then fades. It goes
+up before navigating when we start the episode (`__ftvGo`: TV cards, phone
+remote, Next, fishtank's countdown) and carries over a full page load via
+sessionStorage `__ftv_loading`; it gives up after 15s.
+
 **mde Pause Snack Continue page.** `renderPscRows` in `dpad.js` hides the
 series list and puts one row per game in its place, newest game first.
 - Data: `api.mde.tv/v1/series/pause-snack-continue/videos`. Pages start at 0,

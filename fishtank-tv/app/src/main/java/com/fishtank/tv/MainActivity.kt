@@ -822,12 +822,17 @@ class MainActivity : Activity() {
 
     /** The remote's Menu (☰) button: app-level actions. */
     private fun showAppMenu() {
-        // Subtitles entry only when the playing video has a subtitle track.
-        webView.evaluateJavascript("window.__ftvCaptions ? window.__ftvCaptions('state') : 'none'") { r ->
-            val captions = r?.trim('"') ?: "none"
+        // Subtitles entry only when the playing video has a subtitle track;
+        // "Remove from Continue watching" only with the cursor on one of its cards.
+        webView.evaluateJavascript("JSON.stringify([window.__ftvCaptions ? window.__ftvCaptions('state') : 'none'," +
+            " window.__ftvFocusedRecent ? window.__ftvFocusedRecent() : ''])") { r ->
+            val state = try { org.json.JSONArray(org.json.JSONArray("[$r]").getString(0)) } catch (e: Exception) { org.json.JSONArray() }
+            val captions = state.optString(0, "none")
+            val recentPath = state.optString(1, "")
             val items = mutableListOf("Check for updates", "Reload page", "Reset cursor")
             if (phoneRemote != null) items.add(0, "Link your phone")
             if (captions != "none") items.add(0, if (captions == "on") "Subtitles: turn off" else "Subtitles: turn on")
+            if (recentPath.isNotEmpty()) items.add(0, "Remove from Continue watching")
             AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
                 .setTitle("${getString(R.string.app_name)} ${BuildConfig.VERSION_NAME}")
                 .setItems(items.toTypedArray()) { _, which ->
@@ -836,6 +841,8 @@ class MainActivity : Activity() {
                         "Reload page" -> webView.reload()
                         "Reset cursor" -> js("window.__ftvReset && window.__ftvReset()")
                         "Link your phone" -> showPhoneRemote()
+                        "Remove from Continue watching" ->
+                            js("window.__ftvRecentRemove && window.__ftvRecentRemove(" + org.json.JSONObject.quote(recentPath) + ")")
                         else -> js("window.__ftvCaptions && window.__ftvCaptions('toggle')")
                     }
                 }
@@ -1026,9 +1033,11 @@ class MainActivity : Activity() {
      *  held, so skipping through an hour-long episode isn't 360 presses. */
     private fun seekStep(event: KeyEvent?): Int {
         val repeat = event?.repeatCount ?: 0
+        // Gentle: a couple of seconds held before it speeds up much.
         return when {
-            repeat < 6 -> 10
-            repeat < 20 -> 30
+            repeat < 10 -> 10
+            repeat < 25 -> 20
+            repeat < 45 -> 40
             else -> 60
         }
     }

@@ -176,6 +176,12 @@ class PhoneRemote(private val context: Context, private val host: Host) {
                 episode(p)?.let { json(it) } ?: Triple("400 Bad Request", "text/plain", "bad path")
             }
             "/api/queue" -> json(queue())
+            "/api/recent/remove" -> {
+                val p = q["path"].orEmpty()
+                if (!validPath(p)) return Triple("400 Bad Request", "text/plain", "bad path")
+                evalOnMain("window.__ftvRecentRemove && window.__ftvRecentRemove(" + JSONObject.quote(p) + ")")
+                json(JSONObject().put("recent", recent()))
+            }
             "/api/queue/add", "/api/queue/remove", "/api/queue/top" -> {
                 val p = q["path"].orEmpty()
                 if (!validPath(p)) return Triple("400 Bad Request", "text/plain", "bad path")
@@ -200,10 +206,19 @@ class PhoneRemote(private val context: Context, private val host: Host) {
                             row.put(JSONObject().put("id", it.optString("id")).put("title", it.optString("title")))
                         }
                         evalOnMain("window.__ftvRemoteEpisode && window.__ftvRemoteEpisode(" +
-                            JSONObject.quote(p.substringAfterLast('/')) + "," + JSONObject.quote(q["title"].orEmpty()) + "," + row + ")")
+                            JSONObject.quote(p.substringAfterLast('/')) + "," + JSONObject.quote(q["title"].orEmpty()) + "," + row +
+                            "," + JSONObject.quote(thumbParam(q)) + ")")
                         json(JSONObject().put("ok", true))
                     }
-                    !fishtank && EPISODE_PATH.matches(p) -> { main.post { host.openPath(p) }; json(JSONObject().put("ok", true)) }
+                    !fishtank && EPISODE_PATH.matches(p) -> {
+                        // Through the page, so its loading screen goes up first;
+                        // straight to the URL if the page isn't ours to script.
+                        val meta = JSONObject().put("title", q["title"].orEmpty()).put("series", q["series"].orEmpty())
+                            .put("thumb", thumbParam(q))
+                        val went = evalOnMain("window.__ftvGo ? (window.__ftvGo(" + JSONObject.quote(p) + "," + meta + "), 1) : 0")
+                        if (went != "1") main.post { host.openPath(p) }
+                        json(JSONObject().put("ok", true))
+                    }
                     else -> Triple("400 Bad Request", "text/plain", "bad path")
                 }
             }
@@ -234,11 +249,24 @@ class PhoneRemote(private val context: Context, private val host: Host) {
 
     private fun json(o: JSONObject) = Triple("200 OK", "application/json; charset=utf-8", o.toString())
 
+    /** The episode picture the phone sent for the TV's loading screen: an https URL or nothing. */
+    private fun thumbParam(q: Map<String, String>) = q["thumb"].orEmpty().takeIf { it.startsWith("https://") }.orEmpty()
+
     // ---- Data -------------------------------------------------------------
 
     private fun home(): JSONObject {
         val out = if (fishtank) fishtankHome() else mdeHome()
-        return out.put("recent", recent())
+        val recent = recent()
+        // mde's Continue watching saves the show as the TV page's breadcrumb
+        // ("HW", "KSTV"); the series list has its proper name.
+        out.optJSONArray("series")?.let { all ->
+            val names = (0 until all.length()).mapNotNull { all.optJSONObject(it) }.associate { it.optString("tag") to it.optString("title") }
+            for (i in 0 until recent.length()) {
+                val r = recent.optJSONObject(i) ?: continue
+                names[r.optString("path").split('/').getOrNull(2)]?.takeIf { it.isNotEmpty() }?.let { r.put("series", it) }
+            }
+        }
+        return out.put("recent", recent)
     }
 
     /** Continue watching, from the app's own list in the WebView's localStorage. */
@@ -292,7 +320,9 @@ class PhoneRemote(private val context: Context, private val host: Host) {
                     .put("tag", s.optString("tag"))
                     .put("title", s.optString("name"))
                     .put("thumb", s.optString("medium_thumbnail").ifEmpty { s.optString("thumbnail") })
-                    .put("episodes", s.optInt("episodes")))
+                    .put("episodes", s.optInt("episodes"))
+                    // How many you've finished (signed in), for the site's progress bar.
+                    .put("watched", s.optInt("watched")))
             }
         return JSONObject().put("sections", sections).put("spotlight", spotlight).put("series", series)
     }

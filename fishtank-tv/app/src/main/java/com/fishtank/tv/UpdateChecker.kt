@@ -52,6 +52,9 @@ class UpdateChecker(private val activity: Activity) {
         private const val RELEASES_URL = "https://api.github.com/repos/michaety/fttv/releases?per_page=30"
         private const val PREFS_NAME = "fishtank_tv_prefs"
         private const val PREF_SKIPPED_VERSION = "update_skipped_version"
+        /** "Later" (or Back) holds off the launch prompt for a day. */
+        private const val PREF_SNOOZED_UNTIL = "update_snoozed_until"
+        private const val SNOOZE_MS = 24 * 60 * 60 * 1000L
 
         /** True if dotted version [a] (e.g. "1.2.0") is newer than [b]. */
         fun isNewer(a: String, b: String): Boolean {
@@ -106,6 +109,7 @@ class UpdateChecker(private val activity: Activity) {
                     !isNewer(release.version, installed) ->
                         if (manual) ui { toast("You're up to date ($installed).") }
                     !manual && prefs.getString(PREF_SKIPPED_VERSION, null) == release.version -> Unit
+                    !manual && System.currentTimeMillis() < prefs.getLong(PREF_SNOOZED_UNTIL, 0) -> Unit
                     else -> {
                         if (manual) ui { toast("Downloading ${release.version}…") }
                         download(release)
@@ -275,12 +279,12 @@ class UpdateChecker(private val activity: Activity) {
             .setTitle("Update ready")
             .setView(scroll)
             .setPositiveButton("Install") { _, _ -> install(release) }
-            .setNegativeButton("Later") { _, _ -> discard() }
+            .setNegativeButton("Later") { _, _ -> snooze() }
             .setNeutralButton("Skip this version") { _, _ ->
                 prefs.edit().putString(PREF_SKIPPED_VERSION, release.version).apply()
                 discard()
             }
-            .setOnCancelListener { discard() }
+            .setOnCancelListener { snooze() }
             .create().apply {
                 // Start on Install, as before the notes (they'd take focus
                 // first). Once shown, or the dialog's own first focus wins.
@@ -327,6 +331,13 @@ class UpdateChecker(private val activity: Activity) {
 
     private fun discard() {
         apkFile.delete()
+    }
+
+    /** Not now: no launch prompt for a day, however many releases come out
+     *  meanwhile. The menu's "Check for updates" still offers it. */
+    private fun snooze() {
+        prefs.edit().putLong(PREF_SNOOZED_UNTIL, System.currentTimeMillis() + SNOOZE_MS).apply()
+        discard()
     }
 
     private fun ui(block: () -> Unit) = activity.runOnUiThread { if (!activity.isFinishing) block() }

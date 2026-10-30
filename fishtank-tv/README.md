@@ -264,6 +264,12 @@ need API 31). It always jumps straight to the latest release, never one version 
   `/releases`). Bold and "- " lists are turned into simple HTML, and the
   "Install:" download line is dropped, so write release notes for the TV too.
   The notes scroll with Up/Down; the dialog still starts on INSTALL.
+- LATER (or Back) snoozes the launch prompt for 24 hours, so back-to-back
+  releases bother people at most once a day. The menu's manual check ignores
+  the snooze, like it ignores "Skip this version".
+- Release policy: batch changes and publish every few days to a week, or same
+  day only for a bug people are actually hitting. Every release costs users
+  four presses (prompt, INSTALL, Fire OS's confirmation, OPEN).
 
 **Renderer crashes.** On a ~2GB Firestick the low-memory killer sometimes
 takes out the WebView's renderer, most often when mde's up-next card switches

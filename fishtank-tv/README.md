@@ -271,6 +271,21 @@ need API 31). It always jumps straight to the latest release, never one version 
   day only for a bug people are actually hitting. Every release costs users
   four presses (prompt, INSTALL, Fire OS's confirmation, OPEN).
 
+**Other devices (mde, `syncAccount` in dpad.js).** Positions aren't on the
+account (each browser keeps its own), but two things are: a `watched` flag per
+episode (`GET /series/<show>/videos`, set near the end) and the History list
+(`GET /playlists/history-<user id>`, user id from `GET /auth`: every episode
+page opened anywhere, newest first, no times). On the homepage, at most once a
+minute:
+- A Continue watching entry is dropped if it's been finished elsewhere since
+  the TV saved it. `wasWatched` is its flag when the TV first saved it, so
+  rewatching an episode finished long ago doesn't vanish.
+- If the newest History entry is unfinished, isn't on the TV, wasn't the last
+  episode this TV opened (`__ftv_last_opened`) and wasn't removed by hand
+  (`__ftv_dismissed`), it goes first with an "On another device" tag instead
+  of a progress bar. It goes away as soon as anything newer is opened
+  anywhere, so there's only ever one. It starts from the beginning.
+
 **Renderer crashes.** On a ~2GB Firestick the low-memory killer sometimes
 takes out the WebView's renderer, most often when mde's up-next card switches
 episodes. `onRenderProcessGone` rebuilds the WebView and reloads where it was.

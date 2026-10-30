@@ -288,6 +288,7 @@ class PhoneRemote(private val context: Context, private val host: Host) {
                     .put("series", x.optString("series"))
                     .put("thumb", ftThumbs[path.substringAfterLast('/')]?.takeIf { it.isNotEmpty() } ?: x.optString("thumb"))
                     .put("next", x.optBoolean("next"))
+                    .put("elsewhere", x.optBoolean("elsewhere"))
                     .put("progress", if (dur > 0) x.optDouble("t", 0.0) / dur else 0.0))
             }
         }

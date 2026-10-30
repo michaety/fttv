@@ -418,6 +418,7 @@
     var t = el('div', 'thumb');
     img(t, v.thumb);
     if (v.next) t.appendChild(el('div', 'tag', 'UP NEXT'));
+    else if (v.elsewhere) t.appendChild(el('div', 'tag', 'ON ANOTHER DEVICE'));
     else if (v.progress > 0) {
       var bar = el('div', 'bar'), fill = el('i');
       fill.style.width = Math.min(100, Math.max(2, v.progress * 100)) + '%';

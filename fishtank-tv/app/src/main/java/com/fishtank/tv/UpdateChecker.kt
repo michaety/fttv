@@ -7,9 +7,15 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import android.text.Html
 import android.util.Log
+import android.util.TypedValue
+import android.widget.LinearLayout
+import android.widget.ScrollView
+import android.widget.TextView
 import android.widget.Toast
 import androidx.core.content.FileProvider
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.IOException
@@ -43,6 +49,7 @@ class UpdateChecker(private val activity: Activity) {
     companion object {
         private const val TAG = "FishtankTV"
         private const val LATEST_URL = "https://api.github.com/repos/michaety/fttv/releases/latest"
+        private const val RELEASES_URL = "https://api.github.com/repos/michaety/fttv/releases?per_page=30"
         private const val PREFS_NAME = "fishtank_tv_prefs"
         private const val PREF_SKIPPED_VERSION = "update_skipped_version"
 
@@ -59,7 +66,8 @@ class UpdateChecker(private val activity: Activity) {
         }
     }
 
-    private data class Release(val version: String, val apkUrl: String)
+    /** [notes]: what's new since the installed version, as HTML (see [fetchNotes]). */
+    private data class Release(val version: String, val apkUrl: String, val notes: String = "")
 
     private val prefs = activity.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     /** Where the APK waits between download and install (res/xml/update_paths.xml). */
@@ -101,7 +109,8 @@ class UpdateChecker(private val activity: Activity) {
                     else -> {
                         if (manual) ui { toast("Downloading ${release.version}…") }
                         download(release)
-                        ui { offer(release) }
+                        val withNotes = release.copy(notes = fetchNotes(installed, release.version))
+                        ui { offer(withNotes) }
                     }
                 }
             } catch (e: Exception) {
@@ -166,6 +175,52 @@ class UpdateChecker(private val activity: Activity) {
         }
     }
 
+    /**
+     * The release notes of every version after [installed] up to [latest],
+     * newest first, so skipping a few versions still shows everything that
+     * changed. The notes are the GitHub release text (bold headlines, "- "
+     * lists), turned into simple HTML. Empty if GitHub can't be reached.
+     */
+    private fun fetchNotes(installed: String, latest: String): String = try {
+        val conn = URL(RELEASES_URL).openConnection() as HttpURLConnection
+        conn.connectTimeout = 10_000
+        conn.readTimeout = 10_000
+        conn.setRequestProperty("Accept", "application/vnd.github+json")
+        try {
+            if (conn.responseCode != 200) "" else {
+                val list = JSONArray(conn.inputStream.bufferedReader().use { it.readText() })
+                val notes = (0 until list.length()).map { list.getJSONObject(it) }
+                    .filter { !it.optBoolean("draft") && !it.optBoolean("prerelease") }
+                    .map { it.getString("tag_name").removePrefix("v") to it.optString("body") }
+                    .filter { (v, _) -> isNewer(v, installed) && !isNewer(v, latest) }
+                    .sortedWith { a, b -> if (isNewer(a.first, b.first)) -1 else if (isNewer(b.first, a.first)) 1 else 0 }
+                notes.joinToString("") { (v, body) ->
+                    (if (notes.size > 1) "<big><b>$v</b></big><br>" else "") + notesHtml(body)
+                }
+            }
+        } finally {
+            conn.disconnect()
+        }
+    } catch (e: Exception) {
+        Log.w(TAG, "Couldn't fetch release notes", e)
+        ""
+    }
+
+    /** GitHub's markdown, as far as the release notes use it, to HTML. */
+    private fun notesHtml(body: String): String {
+        val lines = body.replace("\r", "").split("\n").map { it.trim() }
+            // The download line is for the GitHub page, not the TV.
+            .filter { it.isNotEmpty() && !it.startsWith("Install:") }
+        val bullet = { i: Int -> lines.getOrNull(i)?.startsWith("- ") == true }
+        return lines.indices.joinToString("") { i ->
+            val t = Html.escapeHtml(if (bullet(i)) lines[i].substring(2) else lines[i])
+                .replace(Regex("""\*\*(.+?)\*\*"""), "<b>$1</b>").replace("`", "")
+            // A blank line between paragraphs, but a list sits right under
+            // its heading and its items under each other.
+            (if (bullet(i)) "&#8226; $t" else t) + if (bullet(i + 1)) "<br>" else "<br><br>"
+        }
+    }
+
     /** Downloads the APK to [apkFile]. Off the UI thread. */
     private fun download(release: Release) {
         val tmp = File(apkFile.parentFile, "update.apk.part")
@@ -187,13 +242,38 @@ class UpdateChecker(private val activity: Activity) {
 
     private fun offer(release: Release) {
         if (activity.isFinishing) { discard(); return }
-        AlertDialog.Builder(activity, android.R.style.Theme_Material_Dialog_Alert)
-            .setTitle("Update ready")
-            .setMessage("Version ${release.version} is downloaded (you have ${BuildConfig.VERSION_NAME}).\n\n" +
+        val dp = { n: Int -> (n * activity.resources.displayMetrics.density).toInt() }
+        val text = { sp: Float, s: CharSequence -> TextView(activity).apply {
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, sp)
+            setLineSpacing(0f, 1.15f)
+            setText(s)
+        } }
+        val body = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(24), dp(8), dp(24), dp(8))
+            addView(text(15f, "Version ${release.version} is downloaded (you have ${BuildConfig.VERSION_NAME}). " +
                 "Install it now? You'll stay signed in.\n\n" +
                 // Fire OS's confirmation opens with CANCEL focused, so a
                 // reflexive Select throws the update away.
-                "When Fire TV asks, move right to INSTALL, then choose OPEN.")
+                "When Fire TV asks, move right to INSTALL, then choose OPEN."))
+            if (release.notes.isNotEmpty()) {
+                addView(text(17f, "What's new").apply {
+                    setTypeface(typeface, android.graphics.Typeface.BOLD)
+                    setPadding(0, dp(18), 0, dp(6))
+                })
+                @Suppress("DEPRECATION")
+                addView(text(14f, Html.fromHtml(release.notes).trimEnd()))
+            }
+        }
+        // Focusable, so Up from the buttons reaches it and Up/Down scroll
+        // long notes (Down at the bottom goes back to the buttons).
+        val scroll = ScrollView(activity).apply {
+            isFocusable = true
+            addView(body)
+        }
+        AlertDialog.Builder(activity, android.R.style.Theme_Material_Dialog_Alert)
+            .setTitle("Update ready")
+            .setView(scroll)
             .setPositiveButton("Install") { _, _ -> install(release) }
             .setNegativeButton("Later") { _, _ -> discard() }
             .setNeutralButton("Skip this version") { _, _ ->
@@ -201,7 +281,12 @@ class UpdateChecker(private val activity: Activity) {
                 discard()
             }
             .setOnCancelListener { discard() }
-            .show()
+            .create().apply {
+                // Start on Install, as before the notes (they'd take focus
+                // first). Once shown, or the dialog's own first focus wins.
+                setOnShowListener { scroll.post { getButton(AlertDialog.BUTTON_POSITIVE)?.requestFocus() } }
+                show()
+            }
     }
 
     private fun canInstall(): Boolean =

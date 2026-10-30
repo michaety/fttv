@@ -143,7 +143,8 @@
   // Elements that match SEL but should never be reachable by the D-pad at
   // all, not just skipped as a default landing spot.
   function isExcluded(el){
-    return !!(el.matches && el.matches('a[class*="_logo"]'));
+    // (mde's Spotlight 1-7 buttons: LEFT/RIGHT on the slide work them instead, see stepSpotlight)
+    return !!(el.matches && el.matches('a[class*="_logo"], [class*="_spotlight"] [class*="_selector"] button'));
   }
 
   // covered(), remembered until the list is next rebuilt.
@@ -885,6 +886,17 @@
         var body = JSON.stringify({ video: next });
         Object.defineProperty(xhr, 'responseText', { get: function(){ return body; } });
         Object.defineProperty(xhr, 'response', { get: function(){ return xhr.responseType === 'json' ? JSON.parse(body) : body; } });
+      }
+      // Tell the app what the card will play, for if the page crashes
+      // while switching to it (see onRenderProcessGone).
+      if (xhr.__ftvNextOf && window.FtvApp) {
+        var from = location.pathname;
+        xhr.addEventListener('load', function(){
+          try {
+            var v = (xhr.responseType === 'json' ? xhr.response : JSON.parse(xhr.responseText)).video;
+            if (v && v.series_tag && v.tag) window.FtvApp.upNext(from, '/series/' + v.series_tag + '/' + v.tag);
+          } catch (e) {}
+        });
       }
       return xhrSend.apply(this, arguments);
     };
@@ -2005,6 +2017,7 @@
     // grid went from 2 columns to 4 -- more rows means more diagonal
     // neighbours close enough to out-score a genuinely-empty "next" slot).
     var track = (dir === 'left' || dir === 'right') ? scrollableAncestor(cur, 'x') : null;
+    var a = cur.getBoundingClientRect(), wideW = window.innerWidth * 0.6;
 
     for (var i = 0; i < list.length; i++) {
       var el = list[i];
@@ -2021,6 +2034,15 @@
       else                      { along =  dy; across = Math.abs(dx); }
 
       if (along <= 4) continue;              // wrong side of the cursor
+      // A full-width item (mde's Spotlight) measured centre to centre is
+      // "far" from everything beside its middle, so DOWN from Continue
+      // watching skipped it for a card further down, and UP from it went
+      // to the search box. Measure edge to edge when either side is that wide.
+      var b = el.getBoundingClientRect();
+      if (dir !== 'left' && dir !== 'right' && (a.width > wideW || b.width > wideW)) {
+        along = Math.max(5, dir === 'up' ? a.top - b.bottom : b.top - a.bottom);
+        across = Math.max(0, b.left - a.right, a.left - b.right);
+      }
       var score = along + across * 2.5;      // prefer straight ahead over diagonal
       // Anything in line with the cursor (overlapping it across the
       // direction of travel) beats everything that isn't, however close --
@@ -2038,9 +2060,41 @@
     return null;
   }
 
+  // ---- mde's Spotlight carousel ----------------------------------------
+  // One slide link at a time, switched by the 1-7 buttons above it, and it
+  // rotates on its own. The cursor follows the slide that's showing (or a
+  // rotation would leave it on a hidden link, and Select would open that),
+  // and LEFT/RIGHT on it press the previous/next button.
+  function spotlightOf(el){
+    var car = el && el.closest && el.closest('[class*="_spotlight"] [class*="_carousel"]');
+    return car && el.closest('[class*="_slide"]') ? car : null;
+  }
+  function syncSpotlight(){
+    var car = spotlightOf(cur);
+    if (!car || cur.closest('[class*="_current"]')) return;
+    var a = car.querySelector('[class*="_current"] a[href]');
+    if (a) { dirty = true; mark(a); }
+  }
+  // Follow the carousel's own rotation too, so the ring never sits on a
+  // hidden slide.
+  setInterval(function(){ if (cur && !silentCur) syncSpotlight(); }, 500);
+  function stepSpotlight(dir){
+    var car = spotlightOf(cur);
+    if (!car) return false;
+    var btns = car.querySelectorAll('[class*="_selector"] button');
+    if (btns.length < 2) return false;
+    var i = 0;
+    for (var j = 0; j < btns.length; j++) if (/_selected/.test(btns[j].className)) i = j;
+    btns[(i + (dir === 'right' ? 1 : btns.length - 1)) % btns.length].click();
+    setTimeout(syncSpotlight, 60);
+    return true;
+  }
+
   function doNavigate(dir){
     var list = items();
     if (!list.length) return;
+    syncSpotlight();
+    if ((dir === 'left' || dir === 'right') && stepSpotlight(dir)) return;
 
     // Only reset to the default when the cursor is really lost (removed,
     // hidden, or more than a screen away). Merely scrolled off the edge --
@@ -2346,6 +2400,7 @@
     }
     if (silentCur) { revealStart(); return; }    // first press just reveals it
     if (!cur) { window.__ftvReset(); return; }
+    syncSpotlight();
     var tag = cur.tagName.toLowerCase();
     if (tag === 'input' || tag === 'textarea') {
       // focus() alone never brings up the Fire TV keyboard: a field

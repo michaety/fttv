@@ -55,7 +55,13 @@ and again on `onPageFinished`. Both are idempotent. It adds:
   rules out modals' backgrounds and clipped panes.
 - Movement: nearest in the pressed direction. Items in line with the cursor
   win ("beam" rule, as Android does), and left/right stays inside a scrolling
-  row.
+  row. Up/down to or from a very wide item (over 60% of the screen, like
+  mde's Spotlight) is measured edge to edge, not centre to centre, or a
+  narrow card off to the side would beat it.
+- mde's Spotlight: left/right on the slide press the carousel's next/previous
+  button (`stepSpotlight`), so its 1-7 buttons are never focused. The cursor
+  is moved to the visible slide's link whenever the carousel turns, by itself
+  too (`syncSpotlight`, every 500ms), so Select opens what's on screen.
 - Selection style: the item zooms (up to 10%, fitted so it stays on screen and
   inside clipping ancestors), and a separate fixed "lift" element draws the
   shadow and light edge.
@@ -253,6 +259,20 @@ need API 31). It always jumps straight to the latest release, never one version 
   there. Both a `MY_PACKAGE_REPLACED` receiver and an activity `PendingIntent`
   as the session's status receiver were tried; Android 11 aborts both as
   background activity starts.
+- The prompt shows "What's new": the GitHub release text of every version
+  between the installed one and the latest, newest first (`fetchNotes`, from
+  `/releases`). Bold and "- " lists are turned into simple HTML, and the
+  "Install:" download line is dropped, so write release notes for the TV too.
+  The notes scroll with Up/Down; the dialog still starts on INSTALL.
+
+**Renderer crashes.** On a ~2GB Firestick the low-memory killer sometimes
+takes out the WebView's renderer, most often when mde's up-next card switches
+episodes. `onRenderProcessGone` rebuilds the WebView and reloads where it was.
+For that switch, dpad.js tells the app (`FtvApp.upNext`) which episode the
+card will play as soon as mde asks `/videos/next`. If the renderer dies within
+a minute while still on the finished episode, the app loads the next one
+instead. Reloading the finished one made mde start it over, which looked like
+autoplay replaying the same episode.
 
 **Keyboard.** Select on a text field focuses it and sends a real touch to
 raise the Fire TV keyboard (a script focus alone won't). The tap waits for

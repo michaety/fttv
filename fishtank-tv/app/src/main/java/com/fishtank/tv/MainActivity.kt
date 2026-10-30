@@ -118,6 +118,10 @@ class MainActivity : Activity() {
     /** The QR code dialog while it's showing; closed once a phone connects. */
     private var phoneRemoteDialog: AlertDialog? = null
     private var lastHomeBackPress = 0L
+    /** mde's up-next card: the episode it was shown on, what it plays next,
+     *  and when. A renderer crash during the switch reloads the next one
+     *  instead of the finished one (which mde would start over). */
+    private var upNext: Triple<String, String, Long>? = null
 
     /** Set when the main-frame load failed and errorView is showing; Select
      *  then retries instead of being forwarded to the (error) page. */
@@ -614,6 +618,13 @@ class MainActivity : Activity() {
             }
         }
 
+        webView.addJavascriptInterface(object {
+            @JavascriptInterface
+            fun upNext(from: String, next: String) = runOnUiThread {
+                upNext = Triple(from, next, SystemClock.elapsedRealtime())
+            }
+        }, "FtvApp")
+
         // Keep the login across restarts.
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
@@ -670,7 +681,16 @@ class MainActivity : Activity() {
              */
             override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
                 Log.w(TAG, "Renderer gone (crashed=${detail?.didCrash()}), rebuilding WebView")
-                val lastUrl = webView.url ?: homeUrl
+                var lastUrl = webView.url ?: homeUrl
+                // Died while the up-next card was moving on (switching
+                // episodes is when memory peaks): go on to the next episode.
+                val next = upNext
+                upNext = null
+                if (next != null && SystemClock.elapsedRealtime() - next.third < 60_000 &&
+                    Uri.parse(lastUrl).path == next.first) {
+                    Log.w(TAG, "Renderer died during up next, loading ${next.second}")
+                    lastUrl = homeUrl.trimEnd('/') + next.second
+                }
                 if (customView != null) exitCustomView()
                 root.removeView(webView)
                 webView.destroy()

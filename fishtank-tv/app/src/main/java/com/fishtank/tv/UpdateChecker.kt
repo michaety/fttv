@@ -2,19 +2,17 @@ package com.fishtank.tv
 
 import android.app.Activity
 import android.app.AlertDialog
-import android.app.PendingIntent
-import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
-import android.content.pm.PackageInstaller
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import android.util.Log
 import android.widget.Toast
-import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import org.json.JSONObject
+import java.io.File
+import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -22,10 +20,15 @@ import java.net.URL
  * Sideloaded apps never hear about new versions, so this asks GitHub for the
  * latest release and, if it's newer than the running build, downloads the
  * flavor's APK (fishtank-tv.apk / mde-tv.apk -- the asset names the
- * README's download links rely on too) straight into a PackageInstaller
- * session *before* asking, so "Install" goes straight to Fire OS's own
- * confirmation with no wait. Releases are signed with the same key, so it
- * installs over the top and the login survives.
+ * README's download links rely on too) *before* asking, so "Install" goes
+ * straight to Fire OS's own confirmation with no wait. Releases are signed
+ * with the same key, so it installs over the top and the login survives.
+ *
+ * It hands the APK to Fire OS's installer screen rather than committing a
+ * PackageInstaller session, because that screen ends with "Open". The update
+ * kills the app, and nothing else can bring it back: Android 10+ blocks a
+ * freshly started process from opening itself (tried MY_PACKAGE_REPLACED and
+ * a session status PendingIntent -- both "Abort background activity start").
  *
  * Fully silent updates aren't possible here: Android only allows them from
  * 12 (API 31), and Fire OS 8 is Android 11 -- one INSTALL press is the
@@ -42,7 +45,6 @@ class UpdateChecker(private val activity: Activity) {
         private const val LATEST_URL = "https://api.github.com/repos/michaety/fttv/releases/latest"
         private const val PREFS_NAME = "fishtank_tv_prefs"
         private const val PREF_SKIPPED_VERSION = "update_skipped_version"
-        private const val ACTION_INSTALL_STATUS = "com.fishtank.tv.UPDATE_INSTALL_STATUS"
 
         /** True if dotted version [a] (e.g. "1.2.0") is newer than [b]. */
         fun isNewer(a: String, b: String): Boolean {
@@ -60,30 +62,12 @@ class UpdateChecker(private val activity: Activity) {
     private data class Release(val version: String, val apkUrl: String)
 
     private val prefs = activity.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-    private val installer get() = activity.packageManager.packageInstaller
+    /** Where the APK waits between download and install (res/xml/update_paths.xml). */
+    private val apkFile get() = File(File(activity.cacheDir, "update"), "update.apk")
 
     @Volatile private var busy = false
-    /** Downloaded, not yet committed; waiting on the install permission. */
-    private var awaitingPermission: Pair<Release, Int>? = null
-    private var receiverRegistered = false
-
-    private val statusReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context, intent: Intent) {
-            when (intent.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE)) {
-                PackageInstaller.STATUS_PENDING_USER_ACTION -> {
-                    @Suppress("DEPRECATION")
-                    val confirm = intent.getParcelableExtra<Intent>(Intent.EXTRA_INTENT)
-                    if (confirm != null) activity.startActivity(confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                }
-                PackageInstaller.STATUS_SUCCESS -> Unit // the app is replaced and restarted
-                else -> {
-                    val msg = intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE)
-                    Log.w(TAG, "Update install failed: $msg")
-                    toast("Update not installed" + (msg?.let { ": $it" } ?: ""))
-                }
-            }
-        }
-    }
+    /** Downloaded, waiting on the install permission. */
+    private var awaitingPermission: Release? = null
 
     /** On launch: quiet unless there's an update (and it isn't skipped). */
     fun checkInBackground() = check(manual = false)
@@ -97,16 +81,27 @@ class UpdateChecker(private val activity: Activity) {
         if (manual) toast("Checking for updates…")
         Thread {
             try {
+                // An update can land without this process being killed (seen on
+                // Fire OS 8), leaving the old code running with its old
+                // BuildConfig -- which would offer the same update again.
+                // Restart into the installed version instead.
+                if (installedVersionCode() > BuildConfig.VERSION_CODE) {
+                    ui { restart() }
+                    return@Thread
+                }
+                // Fire OS's installer doesn't tell us when it's done; by now it is.
+                if (awaitingPermission == null) discard()
+                val installed = installedVersionName()
                 val release = fetchLatest()
                 when {
                     release == null -> if (manual) ui { toast("Couldn't reach GitHub. Try again later.") }
-                    !isNewer(release.version, BuildConfig.VERSION_NAME) ->
-                        if (manual) ui { toast("You're up to date (${BuildConfig.VERSION_NAME}).") }
+                    !isNewer(release.version, installed) ->
+                        if (manual) ui { toast("You're up to date ($installed).") }
                     !manual && prefs.getString(PREF_SKIPPED_VERSION, null) == release.version -> Unit
                     else -> {
                         if (manual) ui { toast("Downloading ${release.version}…") }
-                        val session = download(release)
-                        ui { offer(release, session) }
+                        download(release)
+                        ui { offer(release) }
                     }
                 }
             } catch (e: Exception) {
@@ -120,22 +115,33 @@ class UpdateChecker(private val activity: Activity) {
 
     /** Call from Activity.onResume, to carry on after the permission screen. */
     fun onResume() {
-        val (release, session) = awaitingPermission ?: return
+        val release = awaitingPermission ?: return
+        awaitingPermission = null
         if (canInstall()) {
-            awaitingPermission = null
-            commit(session)
+            launchInstaller()
         } else {
-            awaitingPermission = null
-            abandon(session)
+            discard()
             toast("Update ${release.version} not installed: the install permission wasn't allowed.")
         }
     }
 
-    fun onDestroy() {
-        if (receiverRegistered) {
-            try { activity.unregisterReceiver(statusReceiver) } catch (e: IllegalArgumentException) {}
-            receiverRegistered = false
-        }
+    @Suppress("DEPRECATION")
+    private fun installedPackage() = activity.packageManager.getPackageInfo(activity.packageName, 0)
+
+    private fun installedVersionName(): String =
+        try { installedPackage().versionName } catch (e: Exception) { null } ?: BuildConfig.VERSION_NAME
+
+    @Suppress("DEPRECATION")
+    private fun installedVersionCode(): Int =
+        try { installedPackage().versionCode } catch (e: Exception) { BuildConfig.VERSION_CODE }
+
+    /** Relaunches into a fresh process, which loads the installed APK. */
+    private fun restart() {
+        activity.startActivity(
+            Intent(activity, MainActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+        )
+        android.os.Process.killProcess(android.os.Process.myPid())
     }
 
     private fun fetchLatest(): Release? {
@@ -160,62 +166,53 @@ class UpdateChecker(private val activity: Activity) {
         }
     }
 
-    /** Downloads the APK into a new, uncommitted install session. Off the UI thread. */
-    private fun download(release: Release): Int {
-        val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL)
-        params.setAppPackageName(activity.packageName)
-        val sessionId = installer.createSession(params)
+    /** Downloads the APK to [apkFile]. Off the UI thread. */
+    private fun download(release: Release) {
+        val tmp = File(apkFile.parentFile, "update.apk.part")
+        tmp.parentFile?.mkdirs()
+        val conn = URL(release.apkUrl).openConnection() as HttpURLConnection
+        conn.connectTimeout = 15_000
+        conn.readTimeout = 30_000
         try {
-            installer.openSession(sessionId).use { session ->
-                val conn = URL(release.apkUrl).openConnection() as HttpURLConnection
-                conn.connectTimeout = 15_000
-                conn.readTimeout = 30_000
-                try {
-                    conn.inputStream.use { input ->
-                        session.openWrite("update.apk", 0, conn.contentLengthLong).use { out ->
-                            input.copyTo(out, 64 * 1024)
-                            session.fsync(out)
-                        }
-                    }
-                } finally {
-                    conn.disconnect()
-                }
-            }
+            conn.inputStream.use { input -> tmp.outputStream().use { input.copyTo(it, 64 * 1024) } }
+            apkFile.delete()
+            if (!tmp.renameTo(apkFile)) throw IOException("Couldn't save the update")
         } catch (e: Exception) {
-            abandon(sessionId)
+            tmp.delete()
             throw e
+        } finally {
+            conn.disconnect()
         }
-        return sessionId
     }
 
-    private fun offer(release: Release, sessionId: Int) {
-        if (activity.isFinishing) { abandon(sessionId); return }
+    private fun offer(release: Release) {
+        if (activity.isFinishing) { discard(); return }
         AlertDialog.Builder(activity, android.R.style.Theme_Material_Dialog_Alert)
             .setTitle("Update ready")
             .setMessage("Version ${release.version} is downloaded (you have ${BuildConfig.VERSION_NAME}).\n\n" +
                 "Install it now? You'll stay signed in.\n\n" +
                 // Fire OS's confirmation opens with CANCEL focused, so a
                 // reflexive Select throws the update away.
-                "When Fire TV asks, move right to INSTALL.")
-            .setPositiveButton("Install") { _, _ -> install(release, sessionId) }
-            .setNegativeButton("Later") { _, _ -> abandon(sessionId) }
+                "When Fire TV asks, move right to INSTALL, then choose OPEN.")
+            .setPositiveButton("Install") { _, _ -> install(release) }
+            .setNegativeButton("Later") { _, _ -> discard() }
             .setNeutralButton("Skip this version") { _, _ ->
                 prefs.edit().putString(PREF_SKIPPED_VERSION, release.version).apply()
-                abandon(sessionId)
+                discard()
             }
-            .setOnCancelListener { abandon(sessionId) }
+            .setOnCancelListener { discard() }
             .show()
     }
 
     private fun canInstall(): Boolean =
         Build.VERSION.SDK_INT < Build.VERSION_CODES.O || activity.packageManager.canRequestPackageInstalls()
 
-    private fun install(release: Release, sessionId: Int) {
+    private fun install(release: Release) {
         if (canInstall()) {
-            commit(sessionId)
+            launchInstaller()
             return
         }
-        awaitingPermission = release to sessionId
+        awaitingPermission = release
         toast("Turn on \"Allow\" for ${activity.getString(R.string.app_name)}, then press BACK")
         try {
             activity.startActivity(
@@ -223,36 +220,28 @@ class UpdateChecker(private val activity: Activity) {
             )
         } catch (e: Exception) {
             awaitingPermission = null
-            abandon(sessionId)
+            discard()
             toast("Allow installs for this app under Settings > My Fire TV > Developer Options")
         }
     }
 
-    private fun commit(sessionId: Int) {
+    /** Fire OS's installer: confirm, install, then Done / Open. */
+    private fun launchInstaller() {
         try {
-            registerReceiver()
-            val flags = PendingIntent.FLAG_UPDATE_CURRENT or
-                (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PendingIntent.FLAG_MUTABLE else 0)
-            val statusIntent = Intent(ACTION_INSTALL_STATUS).setPackage(activity.packageName)
-            val pending = PendingIntent.getBroadcast(activity, sessionId, statusIntent, flags)
-            installer.openSession(sessionId).use { it.commit(pending.intentSender) }
+            val uri = FileProvider.getUriForFile(activity, "${activity.packageName}.update", apkFile)
+            @Suppress("DEPRECATION")
+            activity.startActivity(
+                Intent(Intent.ACTION_INSTALL_PACKAGE, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            )
         } catch (e: Exception) {
-            Log.w(TAG, "Update commit failed", e)
-            abandon(sessionId)
+            Log.w(TAG, "Update install failed", e)
+            discard()
             toast("Update failed. Try again from the Menu button.")
         }
     }
 
-    private fun abandon(sessionId: Int) {
-        try { installer.abandonSession(sessionId) } catch (e: Exception) {}
-    }
-
-    private fun registerReceiver() {
-        if (receiverRegistered) return
-        ContextCompat.registerReceiver(
-            activity, statusReceiver, IntentFilter(ACTION_INSTALL_STATUS), ContextCompat.RECEIVER_NOT_EXPORTED
-        )
-        receiverRegistered = true
+    private fun discard() {
+        apkFile.delete()
     }
 
     private fun ui(block: () -> Unit) = activity.runOnUiThread { if (!activity.isFinishing) block() }

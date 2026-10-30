@@ -236,11 +236,23 @@ series list and puts one row per game in its place, newest game first.
 
 **Self-update (`UpdateChecker`).** Ten seconds after launch, the app asks
 `api.github.com/repos/michaety/fttv/releases/latest` for the latest release.
-If it's newer than `BuildConfig.VERSION_NAME`, it downloads the flavor's asset
-into an uncommitted `PackageInstaller` session, then offers to install it. The
-Menu (☰) button runs a manual check. Fire OS 8 is Android 11, so one INSTALL
-press on the system confirmation is unavoidable (silent self-updates need
-API 31).
+If it's newer than the *installed* version, it downloads the flavor's asset
+to `cache/update/update.apk`, then offers to install it. Install hands the file
+(through a `FileProvider`) to Fire OS's installer screen. The user confirms,
+and the screen ends on "App installed" with OPEN focused, which reopens the
+app. The Menu (☰) button runs a manual check. Fire OS 8 is Android 11, so one
+INSTALL press on the system confirmation is unavoidable (silent self-updates
+need API 31). It always jumps straight to the latest release, never one version at a time.
+- Fire OS can replace the APK without killing a running process, which leaves
+  the old code (and the old `BuildConfig`) running, and that code used to offer
+  the same update again. The check compares against the installed package
+  instead, and restarts the app if the installed `versionCode` is newer than
+  the running one.
+- Why not a `PackageInstaller` session (used up to v1.9.0)? A session
+  install ends on the Fire TV home screen, and nothing can reopen the app from
+  there. Both a `MY_PACKAGE_REPLACED` receiver and an activity `PendingIntent`
+  as the session's status receiver were tried; Android 11 aborts both as
+  background activity starts.
 
 **Keyboard.** Select on a text field focuses it and sends a real touch to
 raise the Fire TV keyboard (a script focus alone won't). The tap waits for

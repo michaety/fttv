@@ -1191,7 +1191,6 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
-        updateChecker.onDestroy()
         destroyOverlayHolder()
         webView.destroy()
         super.onDestroy()

@@ -95,8 +95,16 @@ and again on `onPageFinished`. Both are idempotent. It adds:
 - Selection style: the item zooms (up to 10%, fitted so it stays on screen and
   inside clipping ancestors), and a separate fixed "lift" element draws the
   shadow and light edge.
+- The player controls are styled after each site (built in `ensureSeekOverlay`):
+  mde with its fonts, [SHOW] heading, outlined title, like/view/comment
+  counts and its watched-bar as the scrub bar; fishtank as a cream panel
+  with an orange tab (the collection), its framed orange buttons and round
+  orange Pause. Buttons in three groups: Like / Dislike (mde, as the TV's
+  account, `POST /videos/<id>/like|dislike`) left, playback centred with
+  Pause in the middle of the screen, Subtitles right.
 - Keys on a watch page:
-  - Select: play/pause, or commit a scrub
+  - Select: brings the controls up (on Pause) without pausing; then presses
+    the highlighted button. Commits a scrub first. Play/Pause still toggles.
   - Left/right, FF/RW: scrub (`__ftvScrub`). The target moves and the
     overlay shows a preview tile, but the player is only seeked once, on
     Select or 1.5s after the last press. Back cancels.

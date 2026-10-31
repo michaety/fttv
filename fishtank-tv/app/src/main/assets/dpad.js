@@ -1351,67 +1351,145 @@
     back10: '<path d="' + OSD_REPLAY + '"/>' + OSD_NUM + '10</text>',
     fwd30: '<path transform="matrix(-1 0 0 1 24 0)" d="' + OSD_REPLAY + '"/>' + OSD_NUM + '30</text>',
     next: '<path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/>',
-    cc: '<path d="M19 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zm-8 7H9.5v-.5h-2v3h2V13H11v1a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v1zm7 0h-1.5v-.5h-2v3h2V13H18v1a1 1 0 0 1-1 1h-3a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v1z"/>'
+    cc: '<path d="M19 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zm-8 7H9.5v-.5h-2v3h2V13H11v1a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v1zm7 0h-1.5v-.5h-2v3h2V13H18v1a1 1 0 0 1-1 1h-3a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v1z"/>',
+    like: '<path d="M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-2z"/>',
+    dislike: '<path d="M15 3H6c-.83 0-1.54.5-1.84 1.22l-3.02 7.05c-.09.23-.14.47-.14.73v2c0 1.1.9 2 2 2h6.31l-.95 4.57-.03.32c0 .41.17.79.44 1.06L9.83 23l6.59-6.59c.36-.36.58-.86.58-1.41V5c0-1.1-.9-2-2-2zm4 0v12h4V3h-4z"/>'
   };
-  var OSD_BUTTONS = [['restart', 'Restart'], ['back10', 'Back 10s'], ['play', 'Pause'],
-                     ['fwd30', 'Forward 30s'], ['next', 'Next episode'], ['cc', 'Subtitles']];
-  var OSD_PLAY = 2;
+  // Three groups, in each site's own style: likes on the left (mde only),
+  // playback in the middle with Pause in the centre of the screen,
+  // subtitles on the right (mde, when it has them).
+  var OSD_MDE = location.host.indexOf('mde.tv') >= 0;
+  var OSD_BUTTONS = [['like', 'Like', 'l'], ['dislike', 'Dislike', 'l'],
+                     ['restart', 'Restart', 'c'], ['back10', OSD_MDE ? 'Back 10' : 'Back 10s', 'c'], ['play', 'Pause', 'c'],
+                     ['fwd30', OSD_MDE ? 'Fwd 30' : 'Forward 30s', 'c'], ['next', OSD_MDE ? 'Next' : 'Next episode', 'c'],
+                     ['cc', 'Subtitles', 'r']];
+  var OSD_PLAY = 4, OSD_LIKE = 0, OSD_DISLIKE = 1, OSD_CC = 7;
   function osdIcon(name){ return '<svg viewBox="0 0 24 24" aria-hidden="true">' + OSD_ICONS[name] + '</svg>'; }
 
+  // The controls, styled after each site (see the mockups in README):
+  //  - mde: its look -- FFGothic lettering, [SHOW] in green brackets, the
+  //    title outlined like its Spotlight, the watched-bar as the scrub bar,
+  //    boxed buttons with hard shadows, a green Pause.
+  //  - fishtank: a cream panel docked at the bottom with an orange tab (the
+  //    collection), its framed orange buttons and round orange Pause (its
+  //    fish button), an orange bar.
+  // The structure is the same for both; CSS picks what each shows.
   function ensureSeekOverlay(){
     if (seekOverlayEl) return;
-    var A = '__FTV_ACCENT_HEX__';
-    var style = document.createElement('style');
-    style.textContent =
-      '#__ftv_seek{position:fixed;inset:0;z-index:2147483646;pointer-events:none;opacity:0;' +
-        'transition:opacity 200ms ease-out,background-color 200ms;color:#fff;font-family:Roboto,"Amazon Ember",sans-serif;}' +
+    var css = '#__ftv_seek{position:fixed;inset:0;z-index:2147483646;pointer-events:none;opacity:0;' +
+        'transition:opacity 200ms ease-out,background-color 200ms;color:#fff;}' +
       '#__ftv_seek.__ftv_show{opacity:1;}' +
       '#__ftv_seek.__ftv_paused{background-color:rgba(0,0,0,.35);}' +
-      '#__ftv_seek .__ftv_top{position:absolute;left:0;right:0;top:0;padding:2.6vw 4vw 7vw;' +
-        'background:linear-gradient(rgba(0,0,0,.8),transparent);will-change:transform;}' +
-      '#__ftv_seek .__ftv_series{font-size:1.2vw;letter-spacing:.12vw;text-transform:uppercase;opacity:.75;}' +
-      '#__ftv_seek .__ftv_title{font-size:2.3vw;font-weight:600;margin-top:.3vw;text-shadow:0 .1vw .4vw rgba(0,0,0,.6);}' +
-      '#__ftv_seek .__ftv_note{font-size:1.3vw;margin-top:.6vw;color:' + A + ';min-height:1.6vw;}' +
-      '#__ftv_seek .__ftv_bottom{position:absolute;left:0;right:0;bottom:0;padding:9vw 4vw 2.6vw;' +
-        'background:linear-gradient(transparent,rgba(0,0,0,.88));will-change:transform;}' +
-      '#__ftv_seek .__ftv_scrub{position:relative;height:2vw;display:flex;align-items:center;}' +
-      '#__ftv_seek_bar{position:relative;width:100%;height:.35vw;border-radius:.2vw;background:rgba(255,255,255,.3);' +
-        'transition:height 150ms;}' +
-      '#__ftv_seek.__ftv_barfocus #__ftv_seek_bar{height:.6vw;}' +
-      '#__ftv_seek_fill{height:100%;width:100%;border-radius:inherit;background:' + A + ';' +
-        'transform-origin:0 50%;transform:scaleX(0);will-change:transform;}' +
-      '#__ftv_seek .__ftv_knob{position:absolute;top:50%;left:0;width:1.4vw;height:1.4vw;margin:-.7vw 0 0 -.7vw;' +
-        'border-radius:50%;background:#fff;box-shadow:0 0 0 .22vw ' + A + ';opacity:0;transition:opacity 150ms;will-change:transform;}' +
+      '#__ftv_seek .__ftv_top{position:absolute;left:0;right:0;top:0;will-change:transform;}' +
+      '#__ftv_seek .__ftv_bottom{position:absolute;left:0;right:0;bottom:0;will-change:transform;}' +
+      '#__ftv_seek .__ftv_scrub{position:relative;height:22px;display:flex;align-items:center;}' +
+      '#__ftv_seek_bar{position:relative;width:100%;}' +
+      '#__ftv_seek_fill{position:absolute;left:0;top:0;bottom:0;width:100%;transform-origin:0 50%;transform:scaleX(0);will-change:transform;}' +
+      '#__ftv_seek .__ftv_knob{position:absolute;top:50%;left:0;opacity:0;transition:opacity 150ms;will-change:transform;}' +
       '#__ftv_seek.__ftv_barfocus .__ftv_knob{opacity:1;}' +
-      '#__ftv_seek_thumb{position:absolute;bottom:2.4vw;left:0;display:none;border-radius:.45vw;background-color:#000;will-change:transform;' +
-        'background-repeat:no-repeat;border:.18vw solid #fff;box-shadow:0 .4vw 1.6vw rgba(0,0,0,.7);}' +
+      '#__ftv_seek_thumb{position:absolute;bottom:26px;left:0;display:none;background-color:#000;will-change:transform;}' +
       '#__ftv_seek.__ftv_scrubbing #__ftv_seek_thumb.__ftv_has{display:block;}' +
-      '#__ftv_seek .__ftv_stime{position:absolute;left:0;right:0;bottom:-2.3vw;text-align:center;font-size:1.25vw;' +
-        'font-weight:600;text-shadow:0 .1vw .4vw #000;}' +
-      '#__ftv_seek .__ftv_times{display:flex;justify-content:space-between;margin-top:.7vw;font-size:1.3vw;' +
-        'font-variant-numeric:tabular-nums;opacity:.9;}' +
-      '#__ftv_seek .__ftv_btns{display:flex;justify-content:center;gap:1.6vw;margin-top:1.3vw;}' +
-      '#__ftv_seek .__ftv_btn{display:flex;flex-direction:column;align-items:center;gap:.45vw;min-width:6.4vw;' +
-        'padding:.8vw 1.1vw .7vw;border-radius:.9vw;font-size:1vw;opacity:.8;transition:background 120ms,opacity 120ms;}' +
-      '#__ftv_seek .__ftv_btn svg{width:2.5vw;height:2.5vw;fill:currentColor;}' +
-      '#__ftv_seek .__ftv_btn.__ftv_on{background:#fff;color:#000;opacity:1;}' +
-      '#__ftv_seek .__ftv_btn.__ftv_cc_on svg{fill:' + A + ';}' +
+      '#__ftv_seek .__ftv_stime{position:absolute;left:0;right:0;bottom:-24px;text-align:center;font-size:13px;text-shadow:2px 2px 0 #000;}' +
+      '#__ftv_seek .__ftv_times{display:flex;justify-content:space-between;margin-top:6px;font-variant-numeric:tabular-nums;}' +
+      // Likes left, playback centred on the screen, subtitles right.
+      '#__ftv_seek .__ftv_btns{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;margin-top:12px;}' +
+      '#__ftv_seek .__ftv_grp{display:flex;align-items:center;gap:8px;}' +
+      '#__ftv_seek .__ftv_grp_l{justify-content:flex-start;}#__ftv_seek .__ftv_grp_r{justify-content:flex-end;}' +
+      '#__ftv_seek .__ftv_btn{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-width:50px;' +
+        'transition:background 120ms,color 120ms,border-color 120ms;}' +
+      '#__ftv_seek .__ftv_btn svg{width:18px;height:18px;fill:currentColor;}' +
       '#__ftv_seek .__ftv_btn[hidden]{display:none;}' +
-      '#__ftv_seek .__ftv_flash{position:absolute;left:50%;top:50%;width:8vw;height:8vw;margin:-4vw 0 0 -4vw;' +
-        'border-radius:50%;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;' +
-        'opacity:0;transform:scale(.85);transition:opacity 220ms,transform 220ms;}' +
+      '#__ftv_seek .__ftv_flash{position:absolute;left:50%;top:50%;width:80px;height:80px;margin:-40px 0 0 -40px;' +
+        'display:flex;align-items:center;justify-content:center;opacity:0;transform:scale(.85);transition:opacity 220ms,transform 220ms;}' +
       '#__ftv_seek .__ftv_flash.__ftv_go{opacity:1;transform:scale(1);}' +
-      '#__ftv_seek .__ftv_flash svg{width:4vw;height:4vw;fill:#fff;}';
+      '#__ftv_seek .__ftv_flash svg{width:40px;height:40px;fill:#fff;}';
+    if (OSD_MDE) css +=
+      '#__ftv_seek{font-family:"Share Tech Mono",monospace;}' +
+      '#__ftv_seek .__ftv_top{padding:22px 34px 60px;background:linear-gradient(rgba(4,8,11,.92),transparent);}' +
+      '#__ftv_seek .__ftv_series{font:16px/16px "FFGothic TwoTwo",sans-serif;text-transform:uppercase;text-shadow:2px 2px 0 #000;}' +
+      '#__ftv_seek .__ftv_series:empty{display:none;}' +
+      '#__ftv_seek .__ftv_series::before{content:"[";color:#25ff06;padding-right:5px;}' +
+      '#__ftv_seek .__ftv_series::after{content:"]";color:#25ff06;padding-left:5px;}' +
+      '#__ftv_seek .__ftv_title{margin-top:8px;font:600 28px/1.05 "FFGothic TwoTwo",sans-serif;letter-spacing:-1.5px;' +
+        'text-shadow:#000 -1px -1px 0,#000 -2px -2px 0,#000 1px -1px 0,#000 -2px 2px 0,#000 2px -2px 0,#000 -1px 1px 0,#000 2px 2px 0,#000 4px 4px 0;}' +
+      '#__ftv_seek .__ftv_stats{margin-top:8px;font-size:12px;color:#aaa;text-transform:uppercase;text-shadow:2px 2px 0 #000;}' +
+      '#__ftv_seek .__ftv_stats b{color:#25ff06;font-weight:400;}' +
+      '#__ftv_seek .__ftv_note{margin-top:6px;min-height:16px;font:16px "FFGothic OneTwo Condensed",sans-serif;color:#25ff06;' +
+        'text-transform:uppercase;text-shadow:2px 2px 0 #000;}' +
+      '#__ftv_seek .__ftv_tab,#__ftv_seek .__ftv_head{display:none;}' +
+      '#__ftv_seek .__ftv_bottom{padding:70px 34px 22px;background:linear-gradient(transparent,rgba(4,8,11,.95) 55%);}' +
+      '#__ftv_seek_bar{height:10px;background:#333;border:1px solid #000;box-shadow:2px 2px 0 rgba(0,0,0,.6);}' +
+      '#__ftv_seek_fill{background:#25ff06;}' +
+      '#__ftv_seek .__ftv_knob{width:12px;height:22px;margin:-11px 0 0 -6px;background:#25ff06;border:1px solid #000;box-shadow:2px 2px 0 #000;}' +
+      '#__ftv_seek_thumb{border:1px solid #505050;border-radius:4px;box-shadow:4px 4px 0 #000;}' +
+      '#__ftv_seek .__ftv_times{font-size:14px;text-shadow:2px 2px 0 #000;}' +
+      '#__ftv_seek .__ftv_btn{padding:5px 6px 4px;border:1px solid #505050;border-radius:4px;background:linear-gradient(#12191f 50%,#04080b);' +
+        'box-shadow:2px 2px 0 #000;font:12px/1 "FFGothic OneTwo Condensed",sans-serif;text-transform:uppercase;text-shadow:2px 2px 0 #000;}' +
+      '#__ftv_seek .__ftv_btn svg{filter:drop-shadow(2px 2px 0 #000);}' +
+      '#__ftv_seek .__ftv_btn.__ftv_big{min-width:64px;padding:6px 8px;border-color:#000;background:#25ff06;color:#000;text-shadow:none;}' +
+      '#__ftv_seek .__ftv_btn.__ftv_big svg{width:24px;height:24px;filter:none;}' +
+      '#__ftv_seek .__ftv_btn.__ftv_on{border-color:#25ff06;color:#25ff06;outline:2px solid #25ff06;outline-offset:2px;}' +
+      '#__ftv_seek .__ftv_btn.__ftv_big.__ftv_on{color:#000;outline-color:#fff;}' +
+      '#__ftv_seek .__ftv_btn.__ftv_liked svg,#__ftv_seek .__ftv_btn.__ftv_cc_on svg{fill:#25ff06;}' +
+      '#__ftv_seek .__ftv_flash{border:1px solid #505050;border-radius:4px;background:rgba(4,8,11,.8);box-shadow:4px 4px 0 #000;}';
+    else css +=
+      '#__ftv_seek{font-family:sofia-pro-variable,sans-serif;color:#191c20;}' +
+      '#__ftv_seek .__ftv_top{display:none;}' +
+      '#__ftv_seek .__ftv_bottom{left:120px;right:120px;bottom:16px;}' +
+      '#__ftv_seek .__ftv_tab{display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 8px;border-top:3px solid oklab(.8929 -.0112 .0329 / .75);' +
+        'border-radius:8px 8px 0 0;background:#df4e1e;color:#fff;font:700 12px/19px sofia-pro-variable,sans-serif;' +
+        'text-shadow:rgba(0,0,0,.584) 1px 1px 1px;box-shadow:rgba(0,0,0,.314) 0 6px 8px,rgba(0,0,0,.314) 2px 2px 0;position:relative;z-index:1;}' +
+      '#__ftv_seek .__ftv_tab svg{width:12px;height:12px;fill:#fff;}' +
+      '#__ftv_seek .__ftv_panel{padding:8px 12px 9px;border-top:2px solid oklab(.9357 -.0067 .0197 / .75);' +
+        'border-bottom:3px solid oklab(.5357 -.0067 .0197 / .5);border-radius:0 8px 8px 8px;' +
+        'background:linear-gradient(rgba(221,222,196,.5),rgba(221,222,196,.5)),url(https://cdn.fishtank.live/images/patterns/otis-redding.png),#dddec4;' +
+        'box-shadow:rgba(0,0,0,.314) 0 6px 8px,rgba(0,0,0,.314) 2px 2px 0;}' +
+      '#__ftv_seek .__ftv_head{display:flex;align-items:baseline;gap:10px;}' +
+      '#__ftv_seek .__ftv_head .__ftv_title2{font:800 16px/1.15 sofia-pro-variable,sans-serif;letter-spacing:-.3px;' +
+        'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}' +
+      '#__ftv_seek .__ftv_head .__ftv_note{font:600 11px sofia-pro-variable,sans-serif;color:#df4e1e;}' +
+      '#__ftv_seek .__ftv_scrub{margin-top:2px;height:18px;}' +
+      '#__ftv_seek_bar{height:7px;border-radius:4px;background:#191c20;box-shadow:inset 0 1px 2px rgba(0,0,0,.6);overflow:visible;}' +
+      '#__ftv_seek_fill{border-radius:5px;background:linear-gradient(to right,#df4e1e,oklch(.6938 .1516 37.15));}' +
+      '#__ftv_seek .__ftv_knob{width:14px;height:14px;margin:-7px 0 0 -7px;border-radius:50%;border:2px solid #dddec4;background:#df4e1e;' +
+        'box-shadow:rgba(0,0,0,.314) 0 3px 4px;}' +
+      '#__ftv_seek_thumb{border:3px solid #dddec4;border-radius:8px;box-shadow:rgba(0,0,0,.314) 0 6px 8px;}' +
+      '#__ftv_seek .__ftv_stime{color:#fff;}' +
+      '#__ftv_seek .__ftv_times{margin-top:2px;font:600 11px sofia-pro-variable,sans-serif;color:rgba(25,28,32,.75);}' +
+      '#__ftv_seek .__ftv_btns{margin-top:4px;}' +
+      // Its framed orange buttons (the "Log In" button), grey for the quieter ones.
+      '#__ftv_seek .__ftv_btn{min-width:58px;padding:4px 6px 4px;border:2px solid oklab(.8929 -.0112 .0329 / .25);border-radius:6px;' +
+        'background:linear-gradient(to top,oklch(.6938 .1516 37.15),#df4e1e);color:#fff;font:600 11px/1 sofia-pro-variable,sans-serif;' +
+        'text-shadow:rgba(0,0,0,.314) 1px 1px 2px;box-shadow:0 0 0 2px #e8754a,rgba(0,0,0,.314) 0 6px 8px;}' +
+      '#__ftv_seek .__ftv_btn.__ftv_grey{background:linear-gradient(to top,#4a5058,#2f343a);box-shadow:0 0 0 2px #3a3f46,rgba(0,0,0,.314) 0 6px 8px;}' +
+      '#__ftv_seek .__ftv_btn svg{width:17px;height:17px;filter:drop-shadow(1px 1px 1px rgba(0,0,0,.4));}' +
+      '#__ftv_seek .__ftv_btn.__ftv_big{min-width:0;width:44px;height:44px;padding:0;border-radius:50%;border:3px solid oklab(.8929 -.0112 .0329 / .75);' +
+        'background:radial-gradient(circle at 50% 35%,oklch(.6938 .1516 37.15),#df4e1e);box-shadow:rgba(0,0,0,.314) 0 6px 8px,rgba(0,0,0,.314) 2px 2px 0;}' +
+      '#__ftv_seek .__ftv_btn.__ftv_big span{display:none;}' +
+      '#__ftv_seek .__ftv_btn.__ftv_big svg{width:20px;height:20px;}' +
+      '#__ftv_seek .__ftv_btn.__ftv_on{outline:3px solid #fff;outline-offset:3px;}' +
+      '#__ftv_seek .__ftv_btn.__ftv_cc_on svg{fill:#efc820;}' +
+      '#__ftv_seek .__ftv_flash{border-radius:50%;background:rgba(25,28,32,.7);}';
+    var style = document.createElement('style');
+    style.textContent = css;
     (document.head || document.documentElement).appendChild(style);
 
     var div = function(cls){ var d = document.createElement('div'); if (cls) d.className = cls; return d; };
     seekOverlayEl = div();
     seekOverlayEl.id = '__ftv_seek';
     var top = div('__ftv_top');
-    osdSeriesEl = div('__ftv_series'); osdTitleEl = div('__ftv_title'); osdNoteEl = div('__ftv_note');
-    top.appendChild(osdSeriesEl); top.appendChild(osdTitleEl); top.appendChild(osdNoteEl);
+    osdSeriesEl = div('__ftv_series'); osdTitleEl = div('__ftv_title'); osdStatsEl = div('__ftv_stats'); osdNoteEl = div('__ftv_note');
+    top.appendChild(osdSeriesEl); top.appendChild(osdTitleEl); top.appendChild(osdStatsEl);
     osdFlashEl = div('__ftv_flash');
     var bottom = div('__ftv_bottom');
+    // fishtank's tab and title row (hidden on mde, which uses the top).
+    osdTabEl = div('__ftv_tab');
+    osdTabEl.innerHTML = '<svg viewBox="0 0 512 512" aria-hidden="true"><path d="M55 18v476h18v-37h46v37h274v-37h46v37h18V18h-18v37h-46V18h-18v60H137V18h-18v37H73V18H55zm18 55h46v46H73V73zm320 0h46v46h-46V73zM137 96h238v320H137V96zm-64 41h46v46H73v-46zm320 0h46v46h-46v-46zM73 201h46v46H73v-46zm320 0h46v46h-46v-46zM73 265h46v46H73v-46zm320 0h46v46h-46v-46zM73 329h46v46H73v-46zm320 0h46v46h-46v-46zM73 393h46v46H73v-46zm320 0h46v46h-46v-46z"/></svg><span></span>';
+    var panel = div('__ftv_panel'), head = div('__ftv_head');
+    osdTitle2El = div('__ftv_title2');
+    head.appendChild(osdTitle2El);
+    // The note sits under the title on mde, beside it on fishtank.
+    (OSD_MDE ? top : head).appendChild(osdNoteEl);
     osdScrubEl = div('__ftv_scrub');
     seekThumbEl = div(); seekThumbEl.id = '__ftv_seek_thumb';
     osdStimeEl = div('__ftv_stime'); seekThumbEl.appendChild(osdStimeEl);
@@ -1423,18 +1501,22 @@
     var times = div('__ftv_times');
     seekOverlayTimeEl = document.createElement('span'); osdRightEl = document.createElement('span');
     times.appendChild(seekOverlayTimeEl); times.appendChild(osdRightEl);
-    var btns = div('__ftv_btns');
-    osdBtnEls = OSD_BUTTONS.map(function(b){
-      var e = div('__ftv_btn');
+    var btns = div('__ftv_btns'), grps = { l: div('__ftv_grp __ftv_grp_l'), c: div('__ftv_grp __ftv_grp_c'), r: div('__ftv_grp __ftv_grp_r') };
+    btns.appendChild(grps.l); btns.appendChild(grps.c); btns.appendChild(grps.r);
+    osdBtnEls = OSD_BUTTONS.map(function(b, i){
+      var e = div('__ftv_btn' + (i === OSD_PLAY ? ' __ftv_big' : '') + (!OSD_MDE && (b[0] === 'restart' || b[0] === 'next') ? ' __ftv_grey' : ''));
       e.innerHTML = osdIcon(b[0]) + '<span></span>';
       e.lastChild.textContent = b[1];
-      btns.appendChild(e);
+      if (!OSD_MDE && (b[0] === 'like' || b[0] === 'dislike')) e.hidden = true;
+      grps[b[2]].appendChild(e);
       return e;
     });
-    bottom.appendChild(osdScrubEl); bottom.appendChild(times); bottom.appendChild(btns);
+    panel.appendChild(head); panel.appendChild(osdScrubEl); panel.appendChild(times); panel.appendChild(btns);
+    bottom.appendChild(osdTabEl); bottom.appendChild(panel);
     seekOverlayEl.appendChild(top); seekOverlayEl.appendChild(osdFlashEl); seekOverlayEl.appendChild(bottom);
     (document.body || document.documentElement).appendChild(seekOverlayEl);
   }
+  var osdStatsEl = null, osdTabEl = null, osdTitle2El = null;
 
   // Title and show of what's playing, as the phone remote shows them.
   function playbackMeta(){
@@ -1449,6 +1531,7 @@
       var id = episodeId() || (/\/episodes\/([0-9a-f-]{36})/.exec(location.pathname) || [])[1];
       try { m.title = (id && localStorage.getItem('__ftv_title_' + id)) || ''; } catch (e) {}
       m.thumb = id ? ftThumb(id) : '';
+      m.series = (id && ftColls[id]) || '';
     }
     return m;
   }
@@ -1475,8 +1558,9 @@
       playBtn.lastChild.textContent = playing ? 'Pause' : 'Play';
     }
     var cc = window.__ftvCaptions ? window.__ftvCaptions('state') : 'none';
-    osdBtnEls[5].hidden = cc === 'none';
-    osdBtnEls[5].classList.toggle('__ftv_cc_on', cc === 'on');
+    osdBtnEls[OSD_CC].hidden = cc === 'none';
+    osdBtnEls[OSD_CC].classList.toggle('__ftv_cc_on', cc === 'on');
+    renderOsdLikes();
     if (osdFocus >= 0 && !osdButtonVisible(osdFocus)) osdFocus = OSD_PLAY;
     seekOverlayEl.classList.toggle('__ftv_scrubbing', scrubTime !== null);
     seekOverlayEl.classList.toggle('__ftv_barfocus', osdFocus < 0);
@@ -1526,14 +1610,14 @@
   // A fishtank episode's thumbnail. Not always <id>/thumbnail.jpg (Season 2's
   // are thumbnail_<hash>.jpg), so the real ones come from the public episode
   // list, fetched once per page; the guess is only for before that arrives.
-  var ftThumbs = null;
+  var ftThumbs = null, ftColls = {};
   function ftThumb(id){
     return (ftThumbs && ftThumbs[id]) || 'https://' + bunnyHost() + '/' + id + '/thumbnail.jpg';
   }
   if (location.host.indexOf('fishtank') >= 0) {
     fetch('https://api.fishtank.live/v1/videos').then(function(r){ return r.json(); }).then(function(j){
       var map = {};
-      (j.videos || []).forEach(function(v){ if (v.id && v.thumbnail) map[v.id] = v.thumbnail; });
+      (j.videos || []).forEach(function(v){ if (v.id && v.thumbnail) map[v.id] = v.thumbnail; if (v.id && v.collection) ftColls[v.id] = v.collection; });
       ftThumbs = map;
       recentSig = '';   // redraw Continue watching with them
       scheduleInvalidate();
@@ -1622,8 +1706,11 @@
     ensureSeekOverlay();
     if (!seekOverlayVisible) {
       var m = playbackMeta();
-      osdTitleEl.textContent = m.title || 'Now playing';
+      osdTitleEl.textContent = osdTitle2El.textContent = m.title || 'Now playing';
       osdSeriesEl.textContent = m.series;
+      // fishtank: the panel's tab names the collection, as the site's tabs do.
+      osdTabEl.lastChild.textContent = (m.series ? m.series + ' \u00b7 ' : '') + 'Now playing';
+      loadOsdLikes();
     }
     if (!osdRaf) osdRaf = requestAnimationFrame(function(){ osdRaf = 0; renderSeekOverlay(); });
     seekOverlayEl.classList.add('__ftv_show');
@@ -1666,6 +1753,57 @@
     osdNoteTimer = setTimeout(function(){ osdNoteEl.textContent = ''; }, 2500);
     showSeekOverlay();
   }
+  // mde's like / dislike and counts for the episode playing, as the TV's
+  // account: { path, id, likes, dislikes, myLike, views, comments }.
+  // myLike is true (liked), false (disliked) or null, as on the site.
+  var osdLikes = null;
+  function loadOsdLikes(){
+    if (!OSD_MDE) return;
+    var m = /^\/series\/[^/]+\/([^/]+)/.exec(location.pathname);
+    if (!m || (osdLikes && osdLikes.path === location.pathname)) return;
+    var path = location.pathname;
+    osdLikes = { path: path };
+    fetch('https://api.mde.tv/v1/videos/' + m[1], { credentials: 'include' }).then(function(r){ return r.json(); }).then(function(j){
+      if (!osdLikes || osdLikes.path !== path) return;
+      var d = j.details || {};
+      osdLikes = { path: path, id: j.video && j.video.id, likes: d.likes || 0, dislikes: d.dislikes || 0,
+                   myLike: d.myLike === true ? true : d.myLike === false ? false : null, views: d.views || 0, comments: d.totalComments || 0 };
+      if (seekOverlayVisible) renderSeekOverlay();
+    }).catch(function(){});
+  }
+  function osdCount(n){ n = n || 0; return n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1).replace(/\.0$/, '') + 'K' : String(n); }
+  function renderOsdLikes(){
+    var on = !!(OSD_MDE && osdLikes && osdLikes.id && osdLikes.path === location.pathname);
+    osdBtnEls[OSD_LIKE].hidden = osdBtnEls[OSD_DISLIKE].hidden = !on;
+    if (osdStatsEl) osdStatsEl.textContent = '';
+    if (!on) return;
+    osdBtnEls[OSD_LIKE].lastChild.textContent = osdCount(osdLikes.likes);
+    osdBtnEls[OSD_DISLIKE].lastChild.textContent = osdCount(osdLikes.dislikes);
+    osdBtnEls[OSD_LIKE].classList.toggle('__ftv_liked', osdLikes.myLike === true);
+    osdBtnEls[OSD_DISLIKE].classList.toggle('__ftv_liked', osdLikes.myLike === false);
+    var b = document.createElement('b');
+    b.textContent = osdLikes.likes.toLocaleString();
+    osdStatsEl.appendChild(b);
+    osdStatsEl.appendChild(document.createTextNode(' likes \u00b7 ' + osdLikes.views.toLocaleString() + ' views \u00b7 ' +
+      osdLikes.comments.toLocaleString() + ' comments'));
+  }
+  // Pressing the one that's on clears it; shown at once, then mde's counts.
+  function osdLike(up){
+    var L = osdLikes;
+    if (!L || !L.id) return;
+    var was = L.myLike;
+    L.myLike = was === up ? null : up;
+    if (was === true) L.likes--;
+    if (was === false) L.dislikes--;
+    if (L.myLike === true) L.likes++;
+    if (L.myLike === false) L.dislikes++;
+    renderOsdLikes();
+    fetch('https://api.mde.tv/v1/videos/' + L.id + '/' + (up ? 'like' : 'dislike'), { method: 'POST', credentials: 'include' })
+      .then(function(r){ if (!r.ok) throw r.status; return r.json(); })
+      .then(function(d){ if (typeof d.likes === 'number') L.likes = d.likes; if (typeof d.dislikes === 'number') L.dislikes = d.dislikes; renderOsdLikes(); })
+      .catch(function(){ L.myLike = was; osdNote('Couldn\u2019t reach MDE'); });
+  }
+
   // Arrow keys while the controls are up (see __ftvNavigate).
   function osdMove(dir){
     if (dir === 'down') { if (osdFocus < 0 && scrubTime === null) osdFocus = OSD_PLAY; }
@@ -1680,6 +1818,7 @@
   function osdPress(){
     var what = OSD_BUTTONS[osdFocus] && OSD_BUTTONS[osdFocus][0];
     if (what === 'play') { window.__ftvTogglePlay(); return; }
+    if (what === 'like' || what === 'dislike') { osdLike(what === 'like'); showSeekOverlay(); return; }
     if (what === 'restart') window.__ftvRemoteSeekTo(0);
     else if (what === 'back10') window.__ftvSeek(-10);
     else if (what === 'fwd30') window.__ftvSeek(30);
@@ -2765,8 +2904,13 @@
 
   window.__ftvActivate = function(){
     if (playingVideo()) {
-      if (seekOverlayVisible && osdFocus >= 0) { osdPress(); return; }
-      if (!window.__ftvScrubCommit()) window.__ftvTogglePlay();
+      // Select brings the controls up (on Pause) rather than pausing
+      // straight away; then it presses whatever's highlighted. A scrub in
+      // progress is committed first, as before. (Play/Pause still toggles.)
+      if (window.__ftvScrubCommit()) return;
+      if (!seekOverlayVisible) { osdFocus = OSD_PLAY; showSeekOverlay(); return; }
+      if (osdFocus >= 0) { osdPress(); return; }
+      window.__ftvTogglePlay();
       return;
     }
     if (silentCur) { revealStart(); return; }    // first press just reveals it

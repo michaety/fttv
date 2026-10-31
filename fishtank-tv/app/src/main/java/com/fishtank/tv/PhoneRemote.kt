@@ -745,6 +745,13 @@ class PhoneRemote(private val context: Context, private val host: Host) {
             val s = t.optJSONObject("settings") ?: return out.put("settings", JSONObject.NULL)
             val clean = JSONObject()
             for (k in FT_THEME_COLORS) s.optString(k).takeIf { hex.matches(it) }?.let { clean.put(k, it) }
+            // Textures, fonts, corners, spacing, animations: only the site's own options.
+            val texture = Regex("^none$|^url\\(https://cdn\\.fishtank\\.live/images/patterns/[a-z0-9-]+\\.png\\)$")
+            for (k in FT_THEME_TEXTURES) s.optString(k).takeIf { texture.matches(it) }?.let { clean.put(k, it) }
+            for (k in listOf("primaryFont", "secondaryFont")) s.optString(k).takeIf { it in FT_THEME_FONTS }?.let { clean.put(k, it) }
+            s.optString("borderRadius").takeIf { it in listOf("none", "sm", "md", "lg") }?.let { clean.put("borderRadius", it) }
+            s.optString("spacing").takeIf { it in listOf("sm", "md", "lg") }?.let { clean.put("spacing", it) }
+            s.optString("animations").takeIf { it == "true" || it == "false" }?.let { clean.put("animations", it) }
             return out.put("settings", clean)
         }
         if (t.has("colors")) {
@@ -893,7 +900,11 @@ class PhoneRemote(private val context: Context, private val host: Host) {
         /** The theme editors' colours: mde's six; Fishtank's main ones (its site has more). */
         private val MDE_THEME_COLORS = listOf("primary", "secondary", "tertiary", "text", "links", "terminal")
         private val FT_THEME_COLORS = listOf("primaryColor", "secondaryColor", "tertiaryColor", "lightColor", "darkColor",
-            "linkColor", "backgroundColor", "lightTextColor", "darkTextColor")
+            "linkColor", "dangerColor", "infoColor", "backgroundColor", "lightTextColor", "darkTextColor")
+        private val FT_THEME_TEXTURES = listOf("backgroundTexture", "panelTexture", "innerPanelTexture", "darkPanelTexture", "metalTexture")
+        /** fishtank's THEME_FONTS values (Sofia Pro, Highway Gothic, Share Tech Mono, JetBrains Mono, DM Sans, Winky Sans). */
+        private val FT_THEME_FONTS = listOf("\"sofia-pro-variable\", sans-serif", "\"highway-gothic\", sans-serif",
+            "\"Share Tech Mono\", monospace", "\"JetBrains Mono\", monospace", "\"DM Sans\", sans-serif", "\"Winky Sans\", sans-serif")
         /** A video, comment or reply id from the phone (mde uses UUIDs; kept loose). */
         private val SAFE_ID = Regex("^[A-Za-z0-9-]{1,64}$")
         private val SPACES = Regex("\\s+")

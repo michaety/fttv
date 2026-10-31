@@ -327,9 +327,12 @@ class MainActivity : Activity() {
                   // The Archives/Episodes/Clips/Merch menu only exists in the
                   // DOM while open, so this can't be a one-time CSS rule --
                   // it relies on siteCleanupJs being re-run on the debounced
-                  // MutationObserver tick in dpad.js.
+                  // MutationObserver tick in dpad.js. Archives and Clips go
+                  // too: they're browsing tools that need a mouse (the user's
+                  // call: "basically unusable without a pc").
                   document.querySelectorAll('button').forEach(function(b){
-                    if (b.textContent.trim() === 'Merch') b.style.display = 'none';
+                    var t = b.textContent.trim();
+                    if ((t === 'Merch' || t === 'Archives' || t === 'Clips') && b.style.display !== 'none') b.style.display = 'none';
                   });
                   // Episodes page: numbered episodes ("10 - Finale" ...
                   // "01 - ...", or "S3E22 - ..." with unnumbered BTS

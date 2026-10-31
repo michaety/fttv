@@ -269,9 +269,18 @@
   }
   // A titled row, with "See all" when there's more than a screen of it.
   // lineOpts(v): options for each line of its "All" list (see line()).
+  // fishtank's tab icons, as on its Episodes page (game-icons.net, CC BY 3.0):
+  // a fishbowl for seasons, pages for digests, a clapperboard for the rest,
+  // and its "Latest Episode" one for Continue watching.
+  var FT_TAB_ICONS = {"season": "<path d=\"M96 39c-4.75 0-8.688.388-12.613 2.385-3.926 1.997-7.284 6.946-7.61 11.176-.65 8.46 3.415 12.92 6.506 18.07 3.09 5.152 6.22 10.342 7.428 13.966 1.21 3.623 1.275 3.692-.073 5.04l-.035.034-.034.035C48.298 131.88 23 192.615 23 256c0 84.586 49.342 158.86 116.316 199.686C176.136 478.13 214.018 473 256 473c41.406 0 80.11 4.575 116.62-17.277C440.496 415.1 489 341.143 489 256c0-63.218-25.516-124.14-66.553-166.28l-.04-.042-.044-.04c-1.348-1.35-1.282-1.42-.074-5.042 1.207-3.624 4.336-8.814 7.427-13.965 3.09-5.15 7.156-9.61 6.506-18.07-.326-4.23-3.684-9.178-7.61-11.175C424.688 39.388 420.75 39 416 39H96zm0 18h320c.277 0 .127.03.38.037-.584 1.346-1.09 2.656-2.097 4.332-2.91 4.848-6.78 10.658-9.072 17.534-2.29 6.877-2.225 16.808 4.427 23.46l-.084-.085C447.116 140.852 471 197.657 471 256c0 78.296-44.763 146.655-107.62 184.277C332.713 458.63 298.577 455 256 455c-43.3 0-76.282 4.233-107.316-14.686C86.65 402.5 41 333.556 41 256c0-58.569 23.653-115.098 61.432-153.705l-.07.068c6.653-6.65 6.72-16.582 4.427-23.46-2.293-6.875-6.164-12.685-9.073-17.534-1.006-1.677-1.513-2.987-2.096-4.333.253-.008.103-.037.38-.037zm87.484 61.742c-3.14-.01-6.395.055-9.734.186-20.032.785-43.117 3.942-63.287 7.217-2.172.352-4.24.706-6.332 1.06-5.374 5.666-10.308 12.474-14.8 20.115-.174.296-.34.6-.514.9 7.16-1.346 15.486-2.84 24.532-4.308 26.376-4.282 58.298-8.124 78.11-6.928 40.6 2.452 80.8 29.15 128 32 23.11 1.396 55.185-2.763 82.08-7.13 9.824-1.594 18.89-3.226 26.49-4.665-2.093-4.34-4.305-8.55-6.655-12.547-.815-1.386-1.65-2.734-2.494-4.063-6.142 1.128-12.943 2.325-20.228 3.508-26.376 4.282-58.298 8.124-78.11 6.928-40.6-2.452-80.8-29.15-128-32-2.888-.175-5.916-.263-9.058-.274zm-66.115 42.77l-30.026 2.88A192 192 0 0 0 64 256a192 192 0 0 0 62.63 141.56A224 224 0 0 1 87.88 272a224 224 0 0 1 29.49-110.488zm250.806 13.435a24 24 0 0 0-24 24 24 24 0 0 0 24 24 24 24 0 0 0 24-24 24 24 0 0 0-24-24zm30.83 78.46a16 16 0 0 0-16 16 16 16 0 0 0 16 16 16 16 0 0 0 16-16 16 16 0 0 0-16-16zm-94.026 18.546c-29.042.46-80.674 29.662-102.882 42.205C187.845 300.326 172.085 288 144 288c16 16 16 48 0 64 28.08 0 37.343-22.155 56.672-22.168C220 329.82 289.394 372.967 320 368c38.434-6.237 64-32 64-48-1.427-24.583-47.862-46.512-76.28-48-.89-.046-1.803-.062-2.74-.047zM336 293.385a10.81 10.81 0 0 1 10.81 10.808 10.81 10.81 0 0 1-10.81 10.81 10.81 10.81 0 0 1-10.81-10.81A10.81 10.81 0 0 1 336 293.385z\"></path>", "digest": "<path d=\"M41 66.91V415.8c86.5 1 147.5 14.8 206 29.3V141.4c-45.3-30.1-90.4-58.75-206-74.49zm430 0C355.4 82.65 310.3 111.3 265 141.4v303.7c58.5-14.5 119.5-28.3 206-29.3zm-20.9 26.6l.8 66.99c-59.4 17.6-114.5 37.9-168.9 56-.4-20.9-.7-41.7-1.1-62.6 52.8-29.2 111.2-48.1 169.2-60.39zM69.01 105.3C129.8 119.4 184.1 136 226.1 150.1l.2 19c-41.6-13.9-101.3-32.3-161.35-46.3zm.12 46.6l35.97 6.5-3.2 17.8-35.97-6.5zm54.17 11.3l32.5 6.2-3.4 17.6-32.5-6.2zm53.2 10.5l49.6 9.6-3.4 17.6-49.6-9.6zm263.1 19.9l5.2 17.2-56 16.9-5.2-17.2zm-377.68 4.7C119.2 205 176 212.2 223.8 225l-4.6 17.4c-46-12.4-102.2-19.6-159.38-26.3zM357.1 216l4.8 17.4-71.7 19.8-4.8-17.4zm86.4 21l4.8 17.4-32.8 9.1-4.8-17.4zm-378.3 1.6l49.9 5.2-2 18-49.8-5.4zm76.9 9.8l82.1 12.3-2.6 17.8-82.1-12.3zm248.5 3.7l4.8 17.4L288.5 299l-4.8-17.4zm55.8 22.9l4.6 17.4L348.5 319l-4.6-17.4zm-388.06 6.4c29.84 3.1 61.96 7.5 84.46 13v111L59.2 398c-.33-38.9-.48-77.7-.86-116.6zm104.56 14.7l61.5 7.5-2.2 17.8-61.5-7.5zm161.5 11.8l4.2 17.5-37.8 9.1-4.2-17.5zm129.1 4.1l.4 82.2-78.5 10.2c-.3-23.8-.4-47.7-.7-71.5zM164 334.4l59.8 9.8-3 17.8-59.8-9.8zm271.7 1l-42.8 11.3.3 37.3 42.7-5.6zm-81.4 9.8l3.4 17.6-68.9 13.1-3.4-17.6zm-191.1 29.1l62.6 12.4-3.4 17.6-62.6-12.4zm186.6 6.8l4 17.6-62.5 13.9-4-17.6z\"></path>", "film": "<path d=\"M419.682 26.2l-8.66 2.452L32.915 135.81 55.27 214.7l386.77-109.608L419.683 26.2zm-12.41 22.224l9.074 32.014-41.086-22.942 32.013-9.072zM350.77 64.438l56.8 31.714-37.084 10.51-56.8-31.715 37.084-10.51zm-61.577 17.45l56.803 31.716-37.084 10.51-56.8-31.718 37.08-10.51zm-61.574 17.45l56.802 31.715-37.084 10.51-56.803-31.715 37.084-10.51zm-61.577 17.45l56.803 31.716-37.084 10.51-56.8-31.717 37.08-10.51zm-61.574 17.45l56.8 31.715-37.083 10.51-56.802-31.715 37.084-10.51zm-45.86 26.227l41.085 22.94-32.01 9.072-9.074-32.012zM55 215v274h402V215H55zm18 18h33.273L73 266.273V233zm58.727 0h38.546l-46 46H85.727l46-46zm64 0h38.546l-46 46h-38.546l46-46zm64 0h38.546l-46 46h-38.546l46-46zm64 0h38.546l-46 46h-38.546l46-46zm64 0h38.546l-46 46h-38.546l46-46zM439 245.727V279h-33.273L439 245.727zM73 297h366v174H73V297zm248.635 46.57l-192.44.703.067 18 192.44-.703-.067-18zM130.7 391.33l-.134 17.998 92.707.703.137-18-92.71-.7zm127.155.7l-.2 18 63.913.702.2-17.998-63.913-.703z\"></path>", "latest": "<path d=\"M55 18v476h18v-37h46v37h274v-37h46v37h18V18h-18v37h-46V18h-18v60H137V18h-18v37H73V18H55zm18 55h46v46H73V73zm320 0h46v46h-46V73zm-256 41h238v156H137V114zm-64 23h46v46H73v-46zm320 0h46v46h-46v-46zM73 201h46v46H73v-46zm320 0h46v46h-46v-46zM73 265h46v46H73v-46zm320 0h46v46h-46v-46zm-256 41h238v156H137V306zm-64 23h46v46H73v-46zm320 0h46v46h-46v-46zM73 393h46v46H73v-46zm320 0h46v46h-46v-46z\"></path>"};
+  function ftTabIcon(title){
+    var k = /season \d+$/i.test(title) ? 'season' : /digest/i.test(title) ? 'digest' : /continue|latest/i.test(title) ? 'latest' : 'film';
+    return '<svg viewBox="0 0 512 512" aria-hidden="true">' + FT_TAB_ICONS[k] + '</svg>';
+  }
   function rowSection(title, list, make, emptyText, seeAll, lineOpts){
-    var sec = el('section'), head = el('div', 'head');
-    head.appendChild(el('h2', '', title));
+    var sec = el('section'), head = el('div', 'head'), h = el('h2', '', title);
+    if (fishtank) h.insertAdjacentHTML('afterbegin', ftTabIcon(title));
+    head.appendChild(h);
     if (seeAll && list && list.length > 3) {
       var more = el('button', 'more', 'All ›');
       more.onclick = function(){ openSheet(title, Promise.resolve(list), lineOpts); };
@@ -1001,7 +1010,24 @@
     ['text', 'Text', '#ffffff'], ['links', 'Links', '#fff105'], ['terminal', 'Terminal', '#25ff06']];
   var FT_COLORS = [['primaryColor', 'Primary', '#df4e1e'], ['secondaryColor', 'Secondary', '#26b64b'], ['tertiaryColor', 'Tertiary', '#3370b8'],
     ['lightColor', 'Light', '#dddec4'], ['darkColor', 'Dark', '#191c20'], ['linkColor', 'Links', '#efc820'],
+    ['dangerColor', 'Danger', '#c92a2a'], ['infoColor', 'Info', '#0d9488'],
     ['backgroundColor', 'Background', '#557194'], ['lightTextColor', 'Light text', '#ffffff'], ['darkTextColor', 'Dark text', '#191c20']];
+  // The rest of fishtank's theme editor, with its own options and defaults.
+  var FT_PATTERN = function(f){ return f ? 'url(https://cdn.fishtank.live/images/patterns/' + f + ')' : 'none'; };
+  var FT_TEXTURE_OPTS = [['None', ''], ['Asphalt Light', 'asfalt-light.png'], ['Asphalt Dark', 'asfalt-dark.png'], ['Otis Redding', 'otis-redding.png'],
+    ['Cardboard', 'cardboard.png'], ['Light Aluminum', 'light-aluminum.png'], ['Heavy Metal', 'metal.png'], ['Ice Age', 'ice-age.png'],
+    ['Concrete', 'concrete-wall.png'], ['Notebook', 'notebook.png'], ['Old Husks', 'old-husks.png'], ['Wood', 'dark-wood.png'],
+    ['Tire', 'dark-tire.png'], ['Leather', 'leather.png'], ['Brick', 'brick-wall-dark.png'], ['Snow', 'snow.png']];
+  var FT_TEXTURES = [['backgroundTexture', 'Background', 'asfalt-light.png'], ['panelTexture', 'Panels', 'otis-redding.png'],
+    ['innerPanelTexture', 'Inner panels', 'ice-age.png'], ['darkPanelTexture', 'Dark panels', 'light-aluminum.png'], ['metalTexture', 'Metal', 'metal.png']];
+  var FT_FONT_OPTS = [['Sofia Pro', '"sofia-pro-variable", sans-serif'], ['Highway Gothic', '"highway-gothic", sans-serif'],
+    ['Share Tech Mono', '"Share Tech Mono", monospace'], ['JetBrains Mono', '"JetBrains Mono", monospace'],
+    ['DM Sans', '"DM Sans", sans-serif'], ['Winky Sans', '"Winky Sans", sans-serif']];
+  var FT_CHOICES = [['primaryFont', 'Main font', FT_FONT_OPTS, '"sofia-pro-variable", sans-serif'],
+    ['secondaryFont', 'Second font', FT_FONT_OPTS, '"Share Tech Mono", monospace'],
+    ['borderRadius', 'Corners', [['Square', 'none'], ['Small', 'sm'], ['Medium', 'md'], ['Large', 'lg']], 'sm'],
+    ['spacing', 'Spacing', [['Tight', 'sm'], ['Normal', 'md'], ['Roomy', 'lg']], 'md'],
+    ['animations', 'Animations', [['On', 'true'], ['Off', 'false']], 'true']];
 
   function loadAccount(){
     return api('/api/account').then(function(a){
@@ -1157,6 +1183,38 @@
       grid.appendChild(lab);
     });
     box.appendChild(grid);
+    if (fishtank) {
+      // Textures and the other choices, as drop-downs (the site's options).
+      var pick = function(label, opts, value, set){
+        var lab = el('label', 'ac-pick'), sel = document.createElement('select');
+        opts.forEach(function(o){ var op = document.createElement('option'); op.value = o[1]; op.textContent = o[0]; sel.appendChild(op); });
+        sel.value = value;
+        sel.onchange = function(){ set(sel.value); };
+        lab.appendChild(el('span', '', label));
+        lab.appendChild(sel);
+        return lab;
+      };
+      box.appendChild(el('div', 'ps-h', 'Textures'));
+      var tex = el('div', 'ac-picks');
+      FT_TEXTURES.forEach(function(t){
+        var cur = src[t[0]] || FT_PATTERN(t[2]);
+        vals[t[0]] = cur;
+        var file = (/patterns\/([^)]+)\)/.exec(cur) || [])[1] || '';
+        var row = pick(t[1], FT_TEXTURE_OPTS, file, function(v){ vals[t[0]] = FT_PATTERN(v); sw.style.backgroundImage = v ? FT_PATTERN(v) : 'none'; });
+        var sw = el('i', 'sw');
+        sw.style.backgroundImage = file ? FT_PATTERN(file) : 'none';
+        row.insertBefore(sw, row.firstChild);
+        tex.appendChild(row);
+      });
+      box.appendChild(tex);
+      box.appendChild(el('div', 'ps-h', 'Fonts and layout'));
+      var more = el('div', 'ac-picks');
+      FT_CHOICES.forEach(function(c){
+        vals[c[0]] = src[c[0]] || c[3];
+        more.appendChild(pick(c[1], c[2], vals[c[0]], function(v){ vals[c[0]] = v; }));
+      });
+      box.appendChild(more);
+    }
     if (!fishtank) {
       box.appendChild(el('div', 'ps-h', 'Background'));
       var bgs = el('div', 'ac-bgs');

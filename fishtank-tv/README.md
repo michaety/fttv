@@ -177,7 +177,10 @@ page.
   FFGothic fonts load from cdn.mde.tv, Fishtank's textures and logo from
   cdn.fishtank.live). Fishtank's Sofia Pro is an Adobe Fonts kit locked to
   fishtank.live, so Figtree stands in. Restyle each against its site's mobile
-  layout at 412px.
+  layout at 412px. Scrolling: backgrounds sit on a fixed `body::before` layer
+  (`background-attachment: fixed` repainted the page every frame on phones)
+  and off-screen sections use `content-visibility: auto`. Fishtank's tab
+  icons are the site's own (from game-icons.net, CC BY 3.0).
 - Account (the top-right button), as the account signed in on the TV:
   - `/api/account`: profile (mde: `/auth` user, `/silver/me` level and
     silver, `/rewards/me` calling cards and the equipped loadout; fishtank:
@@ -192,7 +195,8 @@ page.
     `background` (a name from `cdn.mde.tv/backgrounds/`, listed in
     `mde-backgrounds.json`, copied from its Theme dialog); fishtank's db
     `fishtank` key `themeSettingsV2` (any subset of its DEFAULT_THEME, here
-    its main colours). dpad.js reads them into `window.__ftvTheme` and
+    all of its editor: 11 colours, 5 textures, 2 fonts, corners, spacing,
+    animations). dpad.js reads them into `window.__ftvTheme` and
     `__ftvThemeSet` writes them (`/api/theme/set?v=`, cleaned to just those
     fields by `cleanTheme`) and reloads the TV's page, unless a video is
     playing.

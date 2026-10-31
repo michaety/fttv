@@ -24,8 +24,14 @@
 [hidden] { display: none !important; }
 html { background: var(--bg); }
 body { margin: 0; min-height: 100vh; color: var(--text); font-family: var(--font); font-size: 16px;
-  background: linear-gradient(45deg, #141a1d 25%, #0d1213 50%, #0d1516 75%, #111a1b 100%) fixed;
   padding: 0 0 calc(100px + env(safe-area-inset-bottom)); -webkit-tap-highlight-color: transparent; }
+/* The page's gradient on its own fixed layer: background-attachment: fixed
+   made phones repaint the whole page on every frame of a scroll. */
+body::before { content: ''; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+  background: linear-gradient(45deg, #141a1d 25%, #0d1213 50%, #0d1516 75%, #111a1b 100%); }
+/* Rows off screen aren't drawn until they're near (the series grid alone
+   is a long page of pictures). */
+main > section, #sections > section, #shows > section { content-visibility: auto; contain-intrinsic-size: auto 300px; }
 body.sheet-open { overflow: hidden; }
 button { cursor: pointer; }
 svg { display: block; fill: currentColor; }

@@ -23,6 +23,7 @@
     <input type="search" id="q" placeholder="Search" enterkeyhint="search" autocomplete="off">
     <button>SEARCH</button>
   </form>
+  <button id="acctBtn" aria-label="Your account" hidden></button>
 </header>
 <div id="banner"></div>
 <main id="main">
@@ -33,6 +34,14 @@
   <div id="sections"><p class="empty" style="margin-top:18px">Loading…</p></div>
   <div id="shows"></div>
 </main>
+<div id="acct">
+  <div class="sh-head">
+    <button id="acBack" aria-label="Back">‹</button>
+    <h2 id="acTitle">Account</h2>
+  </div>
+  <div class="ac-tabs" id="acTabs"></div>
+  <div class="ac-body" id="acBody"></div>
+</div>
 <div id="sheet">
   <div class="sh-head">
     <button id="shBack" aria-label="Back">‹</button>
@@ -346,6 +355,7 @@
   window.addEventListener('popstate', function(){
     if (sheetOpen && (!playerOpen || sheetOverPlayer)) closeSheet();
     else if (playerOpen) closePlayer();
+    else if (acctOpen) closeAccount();
   });
   $('#shBack').onclick = function(){ if (sheetOpen) history.back(); };
   $('#shSort').onclick = function(){ reversed = !reversed; renderSheet(); $('#shList').scrollTop = 0; };
@@ -979,7 +989,219 @@
     }).catch(function(e){ toast(String(e && e.message) === '404' ? 'Couldn’t find that episode' : 'Couldn’t add it'); });
   }
 
+  // ---- Account ----
+  // The top-right button, as on both sites: who's signed in on the TV, and
+  // (mde) their calling cards and History, and the theme the TV uses. The
+  // theme is the site's own theme editor's setting, kept in the TV's
+  // browser; saving it reloads the TV's page to show it.
+  var acct = null, acctOpen = false, acctTab = 'profile', backgrounds = null;
+  var ACCT_TABS = fishtank ? [['profile', 'Profile'], ['theme', 'Theme']]
+    : [['profile', 'Profile'], ['cards', 'Calling cards'], ['history', 'History'], ['theme', 'Theme']];
+  var MDE_COLORS = [['primary', 'Primary', '#12191f'], ['secondary', 'Secondary', '#04080b'], ['tertiary', 'Tertiary', '#1a272b'],
+    ['text', 'Text', '#ffffff'], ['links', 'Links', '#fff105'], ['terminal', 'Terminal', '#25ff06']];
+  var FT_COLORS = [['primaryColor', 'Primary', '#df4e1e'], ['secondaryColor', 'Secondary', '#26b64b'], ['tertiaryColor', 'Tertiary', '#3370b8'],
+    ['lightColor', 'Light', '#dddec4'], ['darkColor', 'Dark', '#191c20'], ['linkColor', 'Links', '#efc820'],
+    ['backgroundColor', 'Background', '#557194'], ['lightTextColor', 'Light text', '#ffffff'], ['darkTextColor', 'Dark text', '#191c20']];
+
+  function loadAccount(){
+    return api('/api/account').then(function(a){
+      acct = a;
+      var b = $('#acctBtn');
+      b.hidden = !a.signedIn;
+      b.innerHTML = '';
+      if (a.signedIn) img(b, a.profile.photo, true);
+      if (acctOpen) renderAccount();
+      return a;
+    });
+  }
+  function openAccount(tab){
+    acctOpen = true;
+    acctTab = tab || 'profile';
+    $('#acct').classList.add('on');
+    document.body.classList.add('sheet-open');
+    history.pushState({ acct: 1 }, '');
+    renderAccount();
+    loadAccount().catch(offline);
+  }
+  function closeAccount(){
+    acctOpen = false;
+    $('#acct').classList.remove('on');
+    if (!sheetOpen && !playerOpen) document.body.classList.remove('sheet-open');
+  }
+  $('#acctBtn').onclick = function(){ openAccount(); };
+  $('#acBack').onclick = function(){ if (acctOpen) history.back(); };
+
+  function renderAccount(){
+    var tabs = $('#acTabs');
+    tabs.innerHTML = '';
+    ACCT_TABS.forEach(function(t){
+      var b = el('button', t[0] === acctTab ? 'on' : '', t[1]);
+      b.onclick = function(){ acctTab = t[0]; renderAccount(); $('#acBody').scrollTop = 0; };
+      tabs.appendChild(b);
+    });
+    var box = $('#acBody');
+    box.innerHTML = '';
+    if (!acct) { box.appendChild(el('p', 'empty', 'Loading…')); return; }
+    if (!acct.signedIn) { box.appendChild(el('p', 'empty', 'The TV isn’t signed in to ' + (fishtank ? 'Fishtank' : 'MDE') + '. Sign in on the TV first.')); return; }
+    ({ profile: renderProfile, cards: renderCards, history: renderHistory, theme: renderTheme })[acctTab](box);
+  }
+
+  function cardById(id){
+    return (acct.cards || []).filter(function(c){ return c.id === id; })[0] || null;
+  }
+  function renderProfile(box){
+    var p = acct.profile, head = el('div', 'ac-profile');
+    if (!fishtank) {
+      var cc = cardById(p.callingCard);
+      if (cc && cc.card) { var banner = el('div', 'ac-banner'); img(banner, cc.card, true); head.appendChild(banner); }
+    }
+    var row = el('div', 'ac-who'), av = el('div', 'ac-av');
+    img(av, p.photo, true);
+    row.appendChild(av);
+    var meta = el('div', 'ac-meta'), name = el('div', 'ac-name', p.name || 'You');
+    if (/^#[0-9a-f]{3,8}$/i.test(p.color || '')) name.style.color = p.color;
+    meta.appendChild(name);
+    var facts = fishtank
+      ? [p.xp ? p.xp.toLocaleString() + ' XP' : '', '₣' + (p.tokens || 0).toLocaleString(), p.clan ? '[' + p.clan + ']' : '', p.pass]
+      : ['Level ' + (p.level || 0) + (p.prestige ? ' · Prestige ' + p.prestige : ''), (p.silver || 0).toLocaleString() + ' silver'];
+    meta.appendChild(el('div', 'ac-facts', facts.filter(Boolean).join(' · ')));
+    if (!fishtank) {
+      var em = cardById(p.emblem);
+      if (em && em.emblem) { var e = el('div', 'ac-emblem'); img(e, em.emblem, true); row.appendChild(e); }
+    }
+    row.insertBefore(meta, row.children[1] || null);
+    head.appendChild(row);
+    if (fishtank && p.bio) head.appendChild(el('p', 'ac-bio', p.bio));
+    box.appendChild(head);
+    if (!fishtank) {
+      var n = (acct.cards || []).filter(function(c){ return c.unlocked; }).length;
+      var go = el('button', 'ac-link', 'Calling cards · ' + n + ' of ' + (acct.cards || []).length + ' unlocked ›');
+      go.onclick = function(){ acctTab = 'cards'; renderAccount(); };
+      box.appendChild(go);
+      var h = el('button', 'ac-link', 'History ›');
+      h.onclick = function(){ acctTab = 'history'; renderAccount(); };
+      box.appendChild(h);
+    }
+    var t = el('button', 'ac-link', 'Theme ›');
+    t.onclick = function(){ acctTab = 'theme'; renderAccount(); };
+    box.appendChild(t);
+  }
+
+  // mde's calling cards: unlocked first (rarest first), then the rest with
+  // how far along they are. An unlocked one can be worn as the calling card
+  // (the banner) or the emblem; pressing the one that's on takes it off.
+  // Rarest first, by name (mde's rarity_rank runs the other way to what you'd guess).
+  function RARITY(c){ return ['common', 'uncommon', 'rare', 'epic', 'legendary', 'mythic'].indexOf(String(c.rarity).toLowerCase()); }
+  function renderCards(box){
+    var p = acct.profile, list = (acct.cards || []).slice().sort(function(a, b){
+      return (b.unlocked - a.unlocked) || (RARITY(b) - RARITY(a)) || a.title.localeCompare(b.title);
+    });
+    list.forEach(function(c){
+      var it = el('div', 'ac-card' + (c.unlocked ? '' : ' locked')), pic = el('div', 'pic');
+      img(pic, c.card);
+      it.appendChild(pic);
+      var info = el('div', 'info');
+      info.appendChild(el('b', '', c.title));
+      info.appendChild(el('span', 'rar ' + String(c.rarity).toLowerCase(), c.rarity + (c.category ? ' · ' + c.category : '')));
+      if (c.description) info.appendChild(el('p', '', c.description));
+      if (!c.unlocked) {
+        var bar = el('div', 'prog'), fill = el('i');
+        fill.style.width = Math.min(100, c.goal ? c.progress / c.goal * 100 : 0) + '%';
+        bar.appendChild(fill);
+        info.appendChild(bar);
+        info.appendChild(el('span', 'num', (c.progress || 0) + ' / ' + (c.goal || 0)));
+      } else {
+        var acts = el('div', 'acts');
+        [['calling_card', 'Calling card', p.callingCard], ['emblem', 'Emblem', p.emblem]].forEach(function(k){
+          var on = k[2] === c.id, b = el('button', on ? 'on' : '', (on ? '✓ ' : '') + k[1]);
+          b.onclick = function(){
+            var q = {}; q[k[0]] = on ? '' : c.id;
+            b.disabled = true;
+            api('/api/loadout', q).then(function(a){ acct = a; toast(on ? 'Taken off' : 'Equipped: ' + c.title); renderAccount(); })
+              .catch(function(){ b.disabled = false; toast('Couldn’t reach MDE'); });
+          };
+          acts.appendChild(b);
+        });
+        info.appendChild(acts);
+      }
+      it.appendChild(info);
+      box.appendChild(it);
+    });
+  }
+
+  function renderHistory(box){
+    box.appendChild(el('p', 'empty', 'Loading…'));
+    api('/api/history').then(function(d){
+      if (!acctOpen || acctTab !== 'history') return;
+      box.innerHTML = '';
+      if (!d.items.length) { box.appendChild(el('p', 'empty', 'Nothing watched yet.')); return; }
+      d.items.forEach(function(v){ box.appendChild(line(v, null, null)); });
+    }).catch(offline);
+  }
+
+  // The site's theme editor, for the TV: its colours (and mde's backgrounds).
+  function renderTheme(box){
+    var cur = acct.theme || {}, spec = fishtank ? FT_COLORS : MDE_COLORS;
+    var vals = {}, bg = fishtank ? null : (cur.background || null);
+    var src = fishtank ? (cur.settings || {}) : (cur.colors || {});
+    spec.forEach(function(s){ vals[s[0]] = /^#[0-9a-f]{6}$/i.test(src[s[0]] || '') ? src[s[0]].toLowerCase() : s[2]; });
+    box.appendChild(el('p', 'ac-note', 'Changes the ' + (fishtank ? 'Fishtank' : 'MDE') + ' app’s look on the TV, like the site’s own Theme editor. The TV’s page reloads to show it (or after the episode, if one is playing).'));
+    box.appendChild(el('div', 'ps-h', 'Colours'));
+    var grid = el('div', 'ac-colors');
+    spec.forEach(function(s){
+      var lab = el('label'), inp = document.createElement('input');
+      inp.type = 'color'; inp.value = vals[s[0]];
+      inp.oninput = function(){ vals[s[0]] = inp.value; };
+      lab.appendChild(inp);
+      lab.appendChild(el('span', '', s[1]));
+      grid.appendChild(lab);
+    });
+    box.appendChild(grid);
+    if (!fishtank) {
+      box.appendChild(el('div', 'ps-h', 'Background'));
+      var bgs = el('div', 'ac-bgs');
+      var none = el('button', 'none' + (bg ? '' : ' on'), 'None');
+      none.onclick = function(){ bg = null; mark(); };
+      bgs.appendChild(none);
+      var mark = function(){ [].forEach.call(bgs.children, function(b){ b.classList.toggle('on', (b.dataset.name || null) === bg); }); };
+      var fill = function(list){
+        list.groups.forEach(function(g){
+          g.files.forEach(function(f){
+            var name = f.replace(/\.(gif|png)$/, ''), b = el('button', name === bg ? 'on' : '');
+            b.dataset.name = name;
+            b.style.backgroundImage = 'url("https://cdn.mde.tv/backgrounds/' + f + '")';
+            b.title = name;
+            b.onclick = function(){ bg = name; mark(); };
+            bgs.appendChild(b);
+          });
+        });
+      };
+      if (backgrounds) fill(backgrounds);
+      else api('/api/backgrounds').then(function(d){ backgrounds = d; fill(d); });
+      box.appendChild(bgs);
+    }
+    var acts = el('div', 'ac-actions'), save = el('button', 'primary', 'Save'), reset = el('button', '', 'Reset');
+    var send = function(theme, msg){
+      save.disabled = reset.disabled = true;
+      api('/api/theme/set', { v: JSON.stringify(theme) }).then(function(){ toast(msg); return loadAccount(); })
+        .catch(function(){ toast('Couldn’t reach the TV'); })
+        .then(function(){ save.disabled = reset.disabled = false; });
+    };
+    save.onclick = function(){
+      send(fishtank ? { settings: vals } : { colors: vals, background: bg }, 'Theme set on the TV');
+    };
+    reset.onclick = function(){
+      var d = {};
+      spec.forEach(function(s){ d[s[0]] = s[2]; });
+      send(fishtank ? { settings: null } : { colors: d, background: null }, 'Theme reset on the TV');
+    };
+    acts.appendChild(save);
+    acts.appendChild(reset);
+    box.appendChild(acts);
+  }
+
   document.addEventListener('visibilitychange', function(){ if (!document.hidden) { load(); poll(); } });
+  loadAccount().catch(function(){});
   load();
   poll();
 })();

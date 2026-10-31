@@ -178,6 +178,24 @@ page.
   cdn.fishtank.live). Fishtank's Sofia Pro is an Adobe Fonts kit locked to
   fishtank.live, so Figtree stands in. Restyle each against its site's mobile
   layout at 412px.
+- Account (the top-right button), as the account signed in on the TV:
+  - `/api/account`: profile (mde: `/auth` user, `/silver/me` level and
+    silver, `/rewards/me` calling cards and the equipped loadout; fishtank:
+    `/auth` for the id only, it also carries the session's tokens, then
+    `/profile/<id>`), plus the TV's current theme.
+  - `/api/loadout?calling_card=&emblem=` (mde): `PUT /rewards/me/loadout`;
+    an empty value takes it off.
+  - `/api/history` (mde): the History list, as cards.
+  - Theme: neither site keeps it on the account. Their theme editors save
+    to the browser's localforage IndexedDB (each value wrapped as
+    `{value, expiry}`): mde's db `mde` keys `colors` (six hex values) and
+    `background` (a name from `cdn.mde.tv/backgrounds/`, listed in
+    `mde-backgrounds.json`, copied from its Theme dialog); fishtank's db
+    `fishtank` key `themeSettingsV2` (any subset of its DEFAULT_THEME, here
+    its main colours). dpad.js reads them into `window.__ftvTheme` and
+    `__ftvThemeSet` writes them (`/api/theme/set?v=`, cleaned to just those
+    fields by `cleanTheme`) and reloads the TV's page, unless a video is
+    playing.
 - `/api/home`: Continue watching (`__ftv_recent`, read from the WebView) and,
   from `/v1/site/landing`, every playlist (New, Popular, Free...), the
   Spotlight (its "Featured" playlist) and the series list. Unlike

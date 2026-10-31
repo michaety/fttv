@@ -329,3 +329,64 @@ input.scrub::-moz-range-thumb { width: 12px; height: 20px; border: 1px solid #00
 .np button { flex: none; width: 48px; height: 48px; padding: 0; background: none; border: 0; color: #fff;
   display: flex; align-items: center; justify-content: center; }
 .np button svg { width: 30px; height: 30px; filter: drop-shadow(2px 2px 0 #000); }
+
+/* Account (the top-right button): in mde's style, like its own Profile,
+   Theme and calling-card pages. */
+#acctBtn { flex: none; width: 32px; height: 32px; padding: 0; overflow: hidden; position: relative; border: 1px solid var(--gray);
+  border-radius: 4px; background: var(--button); box-shadow: var(--shadow); }
+#acctBtn img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+#acct { position: fixed; inset: 0; z-index: 9; display: flex; flex-direction: column; visibility: hidden;
+  background: linear-gradient(45deg, #141a1d 25%, #0d1213 50%, #0d1516 75%, #111a1b 100%);
+  transform: translateX(100%); transition: transform .22s ease-out; }
+#acct.on { transform: none; visibility: visible; }
+#acBack { font-size: 28px !important; line-height: 1; color: #fff !important; }
+.ac-tabs { display: flex; gap: 4px; padding: 8px; overflow-x: auto; scrollbar-width: none; border-bottom: 1px solid var(--gray-dark); }
+.ac-tabs button { flex: none; height: 32px; padding: 0 10px; border: 1px solid var(--gray); border-radius: 4px; background: var(--button);
+  box-shadow: var(--shadow); color: #fff; font: 18px var(--cond); text-transform: uppercase; text-shadow: var(--shadow); }
+.ac-tabs button.on { border-color: var(--accent); color: var(--accent); }
+.ac-body { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 8px 0 calc(110px + env(safe-area-inset-bottom)); }
+.ac-profile { margin: 0 8px 12px; border: 1px solid var(--gray); border-radius: 4px; box-shadow: var(--shadow); overflow: hidden;
+  background: var(--darkest); }
+.ac-banner { position: relative; aspect-ratio: 18 / 5; }
+.ac-banner img, .ac-av img, .ac-emblem img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.ac-who { display: flex; align-items: center; gap: 10px; padding: 10px; }
+.ac-av { position: relative; flex: none; width: 56px; height: 56px; overflow: hidden; border: 1px solid var(--gray); border-radius: 4px; }
+.ac-emblem { position: relative; flex: none; width: 48px; height: 48px; }
+.ac-emblem img { object-fit: contain; }
+.ac-meta { flex: 1; min-width: 0; }
+.ac-name { font: 22px/1.1 var(--head); text-shadow: var(--shadow); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ac-facts { margin-top: 4px; color: var(--gray-light); font-size: 13px; text-transform: uppercase; }
+.ac-bio { margin: 0 10px 10px; font-size: 14px; }
+.ac-link { display: block; width: calc(100% - 16px); margin: 0 8px 8px; padding: 10px; text-align: left; border: 1px solid var(--gray);
+  border-radius: 4px; background: var(--button); box-shadow: var(--shadow); color: #fff; font: 18px var(--cond);
+  text-transform: uppercase; text-shadow: var(--shadow); }
+.ac-card { display: flex; flex-direction: column; margin: 0 8px 10px; border: 1px solid var(--gray); border-radius: 4px;
+  box-shadow: var(--shadow); background: var(--darkest); overflow: hidden; }
+.ac-card .pic { position: relative; aspect-ratio: 18 / 5; background: #000; }
+.ac-card .pic img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.ac-card.locked .pic { filter: grayscale(1) brightness(.45); }
+.ac-card .info { padding: 8px 10px 10px; }
+.ac-card b { display: block; font: 18px var(--cond); text-transform: uppercase; text-shadow: var(--shadow); }
+.ac-card .rar { display: block; margin-top: 2px; font-size: 11px; text-transform: uppercase; color: var(--gray-light); }
+.ac-card .rar.legendary, .ac-card .rar.mythic { color: var(--yellow); }
+.ac-card .rar.epic { color: #c77dff; }
+.ac-card .rar.rare { color: #4fb3ff; }
+.ac-card p { margin: 6px 0 0; font-size: 13px; color: rgba(255,255,255,.8); }
+.ac-card .prog { height: 8px; margin-top: 8px; background: var(--gray-dark); box-shadow: 2px 2px 0 rgba(0,0,0,.5); }
+.ac-card .prog i { display: block; height: 100%; background: var(--accent); }
+.ac-card .num { display: block; margin-top: 4px; color: var(--accent); font: 12px var(--cond); }
+.ac-card .acts { display: flex; gap: 6px; margin-top: 8px; }
+.ac-card .acts button, .ac-actions button { height: 32px; padding: 0 10px; border: 1px solid var(--gray); border-radius: 4px;
+  background: var(--button); box-shadow: var(--shadow); color: #fff; font: 16px var(--cond); text-transform: uppercase; text-shadow: var(--shadow); }
+.ac-card .acts button.on, .ac-actions .primary { border-color: var(--accent); color: var(--accent); }
+.ac-note { margin: 4px 12px 8px; color: var(--gray-light); font-size: 13px; }
+.ac-colors { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 0 12px; }
+.ac-colors label { display: flex; align-items: center; gap: 8px; padding: 6px; border: 1px solid var(--gray-dark); border-radius: 4px;
+  background: rgba(0,0,0,.25); font: 16px var(--cond); text-transform: uppercase; }
+.ac-colors input { width: 34px; height: 26px; padding: 0; border: 1px solid var(--gray); background: none; }
+.ac-bgs { display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 6px; padding: 0 12px; }
+.ac-bgs button { aspect-ratio: 1; padding: 0; border: 1px solid var(--gray); border-radius: 4px; background: #000 center / cover;
+  color: var(--gray-light); font: 12px var(--cond); text-transform: uppercase; }
+.ac-bgs button.on { border: 2px solid var(--yellow); }
+.ac-actions { display: flex; gap: 8px; padding: 14px 12px; }
+.ac-actions button { flex: 1; height: 40px; }

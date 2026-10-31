@@ -179,6 +179,29 @@ class PhoneRemote(private val context: Context, private val host: Host) {
                 episode(p)?.let { json(it) } ?: Triple("400 Bad Request", "text/plain", "bad path")
             }
             "/api/queue" -> json(queue())
+            // The account button: profile, (mde) calling cards and history, theme.
+            "/api/account" -> json(account())
+            "/api/history" -> if (fishtank) Triple("400 Bad Request", "text/plain", "mde only") else json(history())
+            "/api/backgrounds" -> Triple("200 OK", "application/json; charset=utf-8",
+                context.assets.open("mde-backgrounds.json").bufferedReader().use { it.readText() })
+            "/api/loadout" -> {
+                if (fishtank) return Triple("400 Bad Request", "text/plain", "mde only")
+                val body = JSONObject()
+                for (k in listOf("calling_card", "emblem")) q[k]?.let { v ->
+                    if (v.isNotEmpty() && !SAFE_ID.matches(v)) return Triple("400 Bad Request", "text/plain", "bad id")
+                    body.put(k, if (v.isEmpty()) JSONObject.NULL else v)
+                }
+                apiSend("PUT", "/rewards/me/loadout", body)?.let { json(account()) }
+                    ?: Triple("502 Bad Gateway", "text/plain", "mde said no")
+            }
+            "/api/theme/set" -> {
+                // Only the shapes each site's theme takes, nothing else.
+                val t = try { JSONObject(q["v"].orEmpty()) } catch (e: Exception) { null }
+                    ?: return Triple("400 Bad Request", "text/plain", "bad theme")
+                val clean = cleanTheme(t) ?: return Triple("400 Bad Request", "text/plain", "bad theme")
+                evalOnMain("window.__ftvThemeSet ? window.__ftvThemeSet(" + JSONObject.quote(clean.toString()) + ") : 'no'")
+                json(JSONObject().put("ok", true))
+            }
             // mde's like / dislike, comments and replies, as the TV's account.
             "/api/comments" -> {
                 val id = q["id"].orEmpty()
@@ -639,6 +662,104 @@ class PhoneRemote(private val context: Context, private val host: Host) {
         return JSONArray(out.sortedBy { it.optDouble("t") })
     }
 
+    /**
+     * The account button's page: who's signed in on the TV, their (mde)
+     * calling cards and level, and the site theme the TV is using.
+     */
+    private fun account(): JSONObject {
+        val out = JSONObject().put("site", if (fishtank) "fishtank" else "mde")
+        val theme = evalOnMain("JSON.stringify(window.__ftvTheme || null)")?.let { unquote(it) }
+        out.put("theme", theme?.let { try { JSONObject(it) } catch (e: Exception) { null } } ?: JSONObject.NULL)
+        if (fishtank) {
+            // /auth also carries the session's tokens: only the id is used.
+            val id = ftApi("/auth")?.optJSONObject("session")?.optJSONObject("user")?.optString("id").orEmpty()
+            val p = (if (SAFE_ID.matches(id)) ftApi("/profile/$id")?.optJSONObject("profile") else null)
+                ?: return out.put("signedIn", false)
+            return out.put("signedIn", true).put("profile", JSONObject()
+                .put("name", p.optString("displayName"))
+                .put("color", p.optString("color"))
+                .put("photo", p.optString("photo"))
+                .put("xp", p.optInt("xp"))
+                .put("tokens", p.optInt("tokens"))
+                .put("clan", p.optJSONObject("clan")?.optString("tag")?.ifEmpty { null } ?: p.optString("clan").takeIf { it != "null" }.orEmpty())
+                .put("bio", p.optString("bio").takeIf { it != "null" }.orEmpty())
+                .put("pass", when {
+                    p.optBoolean("seasonPassXL") -> "Season Pass XL"
+                    p.optBoolean("seasonPass") -> "Season Pass"
+                    else -> ""
+                }))
+        }
+        val user = api("/auth")?.optJSONObject("user") ?: return out.put("signedIn", false)
+        val silver = api("/silver/me")
+        val rewards = api("/rewards/me")
+        val loadout = rewards?.optJSONObject("loadout")
+        val cards = JSONArray()
+        rewards?.optJSONArray("rewards")?.let { list ->
+            for (i in 0 until list.length()) {
+                val r = list.optJSONObject(i) ?: continue
+                if (!r.optBoolean("enabled", true)) continue
+                cards.put(JSONObject()
+                    .put("id", r.optString("id"))
+                    .put("title", r.optString("title"))
+                    .put("description", r.optString("description"))
+                    .put("category", r.optString("category"))
+                    .put("rarity", r.optString("rarity_label"))
+                    .put("rarityRank", r.optInt("rarity_rank"))
+                    .put("goal", r.optInt("goal"))
+                    .put("progress", r.optInt("progress"))
+                    .put("unlocked", r.optBoolean("unlocked"))
+                    .put("card", r.optJSONObject("card")?.optString("url").orEmpty())
+                    .put("emblem", r.optJSONObject("emblem")?.optString("url").orEmpty()))
+            }
+        }
+        val equipped = { k: String -> loadout?.optString(k)?.takeIf { it.isNotEmpty() && it != "null" } }
+        return out.put("signedIn", true).put("profile", JSONObject()
+            .put("name", user.optString("display_name"))
+            .put("color", user.optString("color"))
+            .put("photo", user.optString("photo"))
+            .put("level", silver?.optInt("level") ?: 0)
+            .put("prestige", silver?.optInt("prestige") ?: 0)
+            .put("silver", silver?.optInt("balance") ?: 0)
+            .put("callingCard", equipped("calling_card") ?: JSONObject.NULL)
+            .put("emblem", equipped("emblem") ?: JSONObject.NULL))
+            .put("cards", cards)
+    }
+
+    /** mde's History list (every episode opened, newest first), as cards. */
+    private fun history(): JSONObject {
+        val id = api("/auth")?.optJSONObject("user")?.optString("id").orEmpty()
+        if (!SAFE_ID.matches(id)) return JSONObject().put("items", JSONArray())
+        val videos = api("/playlists/history-$id")?.optJSONObject("playlist")?.optJSONArray("videos") ?: JSONArray()
+        return JSONObject().put("items", items(videos) { it.optString("series_tag") })
+    }
+
+    /**
+     * A theme from the phone, rebuilt from only the fields each site uses:
+     * mde {colors: six #hex values, background: a name or null}; fishtank
+     * {settings: its *Color keys as #hex, or null for its default}.
+     */
+    private fun cleanTheme(t: JSONObject): JSONObject? {
+        val hex = Regex("^#[0-9a-fA-F]{6}$")
+        val out = JSONObject()
+        if (fishtank) {
+            val s = t.optJSONObject("settings") ?: return out.put("settings", JSONObject.NULL)
+            val clean = JSONObject()
+            for (k in FT_THEME_COLORS) s.optString(k).takeIf { hex.matches(it) }?.let { clean.put(k, it) }
+            return out.put("settings", clean)
+        }
+        if (t.has("colors")) {
+            val c = t.optJSONObject("colors") ?: return null
+            val clean = JSONObject()
+            for (k in MDE_THEME_COLORS) clean.put(k, c.optString(k).takeIf { hex.matches(it) } ?: return null)
+            out.put("colors", clean)
+        }
+        if (t.has("background")) {
+            val b = t.opt("background")
+            out.put("background", if (b is String && SERIES_TAG.matches(b)) b else JSONObject.NULL)
+        }
+        return out
+    }
+
     /** One page of an episode's comments, in one of mde's four orders. */
     private fun comments(id: String, page: Int, sort: String): JSONObject {
         val (by, order) = when (sort) {
@@ -769,6 +890,10 @@ class PhoneRemote(private val context: Context, private val host: Host) {
         private val COLLECTIONS_TOP = listOf("Season 1", "Season 2", "Season 3")
         private val COLLECTIONS_BOTTOM = listOf("Season 5 Digests", "Off-Season", "Digest", "Shorts", "BTS")
         private val SERIES_TAG = Regex("^[A-Za-z0-9_-]+$")
+        /** The theme editors' colours: mde's six; Fishtank's main ones (its site has more). */
+        private val MDE_THEME_COLORS = listOf("primary", "secondary", "tertiary", "text", "links", "terminal")
+        private val FT_THEME_COLORS = listOf("primaryColor", "secondaryColor", "tertiaryColor", "lightColor", "darkColor",
+            "linkColor", "backgroundColor", "lightTextColor", "darkTextColor")
         /** A video, comment or reply id from the phone (mde uses UUIDs; kept loose). */
         private val SAFE_ID = Regex("^[A-Za-z0-9-]{1,64}$")
         private val SPACES = Regex("\\s+")

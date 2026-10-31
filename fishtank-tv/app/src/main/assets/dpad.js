@@ -2659,6 +2659,60 @@
     return true;
   };
 
+  // ---- Theme (set from the phone remote) -------------------------------
+  // Both sites keep their theme editor's choices in the browser, in
+  // localforage's IndexedDB store, not on the account: mde as 'colors' and
+  // 'background', fishtank as 'themeSettingsV2' ('themeSettings' before its
+  // current look; any subset of its DEFAULT_THEME keys, colours must be
+  // valid). Both wrap each value as {value, expiry}. The phone
+  // reads them from window.__ftvTheme and writes with __ftvThemeSet. A
+  // change shows by reloading the page -- unless something is playing, then
+  // it shows on the next page load.
+  var THEME_DB = location.host.indexOf('mde.tv') >= 0 ? 'mde' : 'fishtank';
+  function themeStore(mode, fn){
+    return new Promise(function(resolve, reject){
+      var open = indexedDB.open(THEME_DB);
+      open.onerror = function(){ reject(open.error); };
+      open.onsuccess = function(){
+        var db = open.result;
+        if (!db.objectStoreNames.contains('keyvaluepairs')) { db.close(); reject(new Error('no store')); return; }
+        var tx = db.transaction('keyvaluepairs', mode), st = tx.objectStore('keyvaluepairs'), out = fn(st);
+        tx.oncomplete = function(){ db.close(); resolve(out && out.result !== undefined ? out.result : out); };
+        tx.onerror = function(){ db.close(); reject(tx.error); };
+      };
+    });
+  }
+  function readTheme(){
+    var got = {};
+    return themeStore('readonly', function(st){
+      (THEME_DB === 'mde' ? ['colors', 'background'] : ['themeSettingsV2', 'themeSettings']).forEach(function(k){
+        var q = st.get(k); q.onsuccess = function(){ got[k] = q.result === undefined ? null : q.result; };
+      });
+    }).then(function(){
+      window.__ftvTheme = THEME_DB === 'mde'
+        ? { colors: got.colors && got.colors.value || null, background: got.background && got.background.value || null }
+        : { settings: (got.themeSettingsV2 || got.themeSettings || {}).value || null };
+      return window.__ftvTheme;
+    }, function(){ window.__ftvTheme = null; });
+  }
+  window.__ftvTheme = null;
+  try { readTheme(); } catch (e) {}
+  // json: mde {colors: {...} or null, background: name or null};
+  // fishtank {settings: {...} or null}. null puts the site's default back.
+  window.__ftvThemeSet = function(json){
+    var t;
+    try { t = JSON.parse(json); } catch (e) { return 'bad'; }
+    themeStore('readwrite', function(st){
+      if (THEME_DB === 'mde') {
+        if ('colors' in t) st.put({ value: t.colors, expiry: null }, 'colors');
+        if ('background' in t) st.put({ value: t.background, expiry: null }, 'background');
+      } else ['themeSettingsV2', 'themeSettings'].forEach(function(k){
+        if (t.settings) st.put({ value: t.settings, expiry: null }, k); else st.delete(k);
+      });
+    }).then(readTheme).then(function(){ if (!playingVideo()) location.reload(); });
+    return 'ok';
+  };
+
   // BACK first closes whatever is open over the page (fishtank's login
   // dialog or menu, a site modal), as on any TV app, instead of leaving the
   // page behind it. True if there was one.

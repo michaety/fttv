@@ -296,3 +296,40 @@ input.scrub::-moz-range-thumb { width: 18px; height: 18px; border: 2px solid var
 .np button { flex: none; width: 44px; height: 44px; margin-right: 4px; padding: 0; border: 2px solid var(--tab-hi); border-radius: 50%;
   background: radial-gradient(circle at 50% 35%, var(--accent-hi), var(--accent)); color: #fff; display: flex; align-items: center; justify-content: center; }
 .np button svg { width: 26px; height: 26px; }
+
+/* Account (the top-right button): Fishtank's profile and theme, on its
+   cream panels. */
+#acctBtn { flex: none; position: relative; width: 40px; height: 40px; padding: 0; overflow: hidden; border: 2px solid var(--tab-hi);
+  border-radius: 8px; background: var(--dark); box-shadow: var(--panel-shadow); }
+#acctBtn img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+#acct { position: fixed; inset: 0; z-index: 9; display: flex; flex-direction: column; visibility: hidden;
+  background: url(https://cdn.fishtank.live/images/patterns/asfalt-light.png), var(--blue);
+  transform: translateX(100%); transition: transform .22s ease-out; }
+#acct.on { transform: none; visibility: visible; }
+#acBack { font-size: 30px !important; line-height: 1; }
+.ac-tabs { display: flex; gap: 4px; padding: 6px 12px 0; }
+.ac-tabs button { height: 30px; padding: 0 10px; border: 0; border-top: 3px solid var(--tab-hi); border-radius: 8px 8px 0 0;
+  background: #3370b8; color: #fff; font: 700 15px var(--font); text-shadow: rgba(0,0,0,.584) 1px 1px 1px; opacity: .8; }
+.ac-tabs button.on { background: var(--accent); opacity: 1; }
+.ac-body { flex: 1; overflow-y: auto; overscroll-behavior: contain; margin: 0 12px; padding: 10px 10px calc(110px + env(safe-area-inset-bottom));
+  border-top: 2px solid var(--bevel-hi); border-radius: 0 8px 0 0; background: var(--paper); box-shadow: var(--panel-shadow); color: var(--text); }
+.ac-profile { margin-bottom: 12px; }
+.ac-who { display: flex; align-items: center; gap: 12px; }
+.ac-av { position: relative; flex: none; width: 64px; height: 64px; overflow: hidden; border-radius: 8px; background: var(--dark); }
+.ac-av img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.ac-meta { flex: 1; min-width: 0; }
+.ac-name { font: 800 22px/1.1 var(--font); letter-spacing: -.4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ac-facts { margin-top: 4px; font: 600 13px var(--font); color: var(--dim); }
+.ac-bio { margin: 10px 0 0; font-size: 14px; }
+.ac-link { display: block; width: 100%; margin-bottom: 8px; padding: 10px 12px; text-align: left; border: 2px solid var(--tab-hi); border-radius: 6px;
+  background: var(--button); color: #fff; font: 700 15px var(--font); text-shadow: var(--tshadow); }
+.ac-note { margin: 0 0 8px; color: var(--dim); font-size: 13px; }
+#acct .ps-h { margin: 12px 0 6px; font: 800 15px var(--font); color: var(--text); }
+.ac-colors { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.ac-colors label { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; background: rgba(25,28,32,.08);
+  font: 600 14px var(--font); }
+.ac-colors input { width: 34px; height: 26px; padding: 0; border: 0; background: none; }
+.ac-actions { display: flex; gap: 8px; padding: 14px 0 4px; }
+.ac-actions button { flex: 1; height: 40px; border: 2px solid var(--tab-hi); border-radius: 6px; background: rgba(25,28,32,.75);
+  color: #fff; font: 700 15px var(--font); text-shadow: var(--tshadow); }
+.ac-actions .primary { background: var(--button); }

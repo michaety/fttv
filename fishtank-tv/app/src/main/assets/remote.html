@@ -194,8 +194,17 @@
   /* The artwork, blurred, behind everything. */
   .pl-bg { position: absolute; inset: -40px; background: center / cover no-repeat; filter: blur(36px) saturate(1.2);
     opacity: .38; transition: background-image .3s; }
-  .pl-main { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column;
+  /* The player fills the first screen; mde's comments are below it, with
+     their heading peeking out so it's clear there's more. */
+  .pl-main { position: relative; flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; }
+  .pl-screen { height: 100%; box-sizing: border-box; display: flex; flex-direction: column;
     padding: calc(6px + env(safe-area-inset-top)) 18px 0; }
+  .has-comments .pl-screen { height: calc(100% - 40px); }
+  .pl-comments { min-height: 100%; padding: 0 0 24px; }
+  .pl-comments > .ps-h:first-child { display: flex; align-items: center; gap: 6px; height: 40px; margin: 0; padding: 0 18px;
+    border-top: 1px solid rgba(255,255,255,.1); color: #fff; }
+  .pl-comments > .ps-h:first-child i { margin-left: auto; width: 22px; height: 22px; color: var(--pdim); }
+  .pl-comments > .ps-h:first-child svg { width: 100%; height: 100%; }
   .pl-top { display: grid; grid-template-columns: 44px 1fr 44px; align-items: center; gap: 4px; }
   .pl-top button { width: 44px; height: 44px; padding: 0; background: none; border: 0; color: #fff;
     display: flex; align-items: center; justify-content: center; }
@@ -239,8 +248,8 @@
   .pl-ctrls button:disabled { opacity: .3; }
   .pl-ctrls .big { width: 78px; height: 78px; background: var(--accent) !important; color: var(--on-accent); }
   .pl-ctrls .big svg { width: 40px; height: 40px; }
-  .pl-extra { display: flex; justify-content: center; gap: 26px; margin: 10px 0 14px; }
-  .pl-extra button { width: 64px; height: 56px; border-radius: 12px; gap: 3px; font: inherit; font-size: 11px; color: var(--pdim); }
+  .pl-extra { display: flex; justify-content: center; gap: min(26px, 3vw); margin: 10px 0 14px; }
+  .pl-extra button { width: 62px; height: 56px; border-radius: 12px; gap: 3px; font: inherit; font-size: 11px; color: var(--pdim); }
   .pl-extra svg { width: 24px; height: 24px; color: #fff; }
   .pl-extra button.on svg { color: var(--accent); }
   /* Up next / Episodes / About: a sheet that pulls up over the controls. */
@@ -271,6 +280,40 @@
   #player .empty { margin: 14px 16px; color: var(--pdim); }
   .ps-about { padding: 14px 18px; font-size: 14px; line-height: 1.55; color: rgba(255,255,255,.85); white-space: pre-line; }
   .ps-about b { display: block; margin-bottom: 6px; font-size: 17px; color: #fff; }
+  /* Chapters (About) and comments (mde). */
+  .ps-chapters { padding: 6px 0 4px; }
+  .ps-chapters button { display: flex; gap: 12px; width: 100%; padding: 9px 18px; background: none; border: 0;
+    color: #fff; font: inherit; font-size: 14px; text-align: left; }
+  .ps-chapters button:active { background: rgba(255,255,255,.08); }
+  .ps-chapters span { flex: none; min-width: 52px; color: var(--accent); font-variant-numeric: tabular-nums; }
+  .ps-h { margin: 12px 18px 2px; font-size: 12px; font-weight: 600; letter-spacing: .6px; color: var(--pdim); text-transform: uppercase; }
+  .cm-sorts { display: flex; gap: 8px; padding: 12px 16px 4px; overflow-x: auto; scrollbar-width: none; }
+  .cm-sorts button { flex: none; padding: 6px 14px; border: 1px solid rgba(255,255,255,.18); border-radius: 16px;
+    background: none; color: var(--pdim); font: inherit; font-size: 13px; }
+  .cm-sorts button.on { border-color: var(--accent); color: #fff; background: rgba(255,255,255,.08); }
+  .cm-new { display: flex; gap: 8px; align-items: flex-end; padding: 10px 16px; }
+  .cm-new textarea { flex: 1; min-height: 40px; max-height: 120px; padding: 9px 12px; resize: none; border-radius: 10px;
+    border: 1px solid rgba(255,255,255,.18); background: rgba(255,255,255,.06); color: #fff; font: inherit; font-size: 16px; }
+  .cm-new button { flex: none; height: 40px; padding: 0 16px; border: 0; border-radius: 10px; background: var(--accent);
+    color: var(--on-accent); font: inherit; font-size: 14px; font-weight: 600; }
+  .cm-new button:disabled { opacity: .4; }
+  .cm { display: flex; gap: 10px; padding: 10px 16px; }
+  .cm.reply { padding-left: 58px; }
+  .cm .av { flex: none; width: 32px; height: 32px; border-radius: 50%; background: #2a2f37 center/cover no-repeat; }
+  .cm.reply .av { width: 24px; height: 24px; }
+  .cm .body { flex: 1; min-width: 0; }
+  .cm .who { font-size: 13px; font-weight: 600; color: #fff; }
+  .cm .who i { margin-left: 6px; font-style: normal; font-weight: 400; color: var(--pdim); }
+  .cm .who .pin { color: var(--accent); }
+  .cm .msg { margin-top: 2px; font-size: 14px; line-height: 1.45; color: rgba(255,255,255,.88); white-space: pre-wrap; overflow-wrap: anywhere; }
+  .cm .msg img { display: block; max-width: 200px; margin-top: 4px; border-radius: 6px; }
+  .cm .acts { display: flex; gap: 4px; margin: 4px 0 0 -8px; }
+  .cm .acts button { display: flex; align-items: center; gap: 4px; padding: 4px 8px; background: none; border: 0;
+    border-radius: 14px; color: var(--pdim); font: inherit; font-size: 12px; }
+  .cm .acts button.on { color: var(--accent); }
+  .cm .acts svg { width: 16px; height: 16px; }
+  .cm-more { display: block; margin: 8px auto 4px; padding: 8px 18px; border: 1px solid rgba(255,255,255,.18);
+    border-radius: 16px; background: none; color: #fff; font: inherit; font-size: 13px; }
 
   /* The mini player along the bottom, like YouTube's while casting. */
   #now { position: fixed; left: 8px; right: 8px; bottom: calc(8px + env(safe-area-inset-bottom)); z-index: 10;
@@ -324,6 +367,7 @@
 <div id="player">
   <div class="pl-bg" id="plBg"></div>
   <div class="pl-main" id="plMain">
+   <div class="pl-screen">
     <div class="pl-top">
       <button id="plClose" aria-label="Close" data-icon="down"></button>
       <div class="pl-head"><b id="plTitle"></b><span id="plSub"></span></div>
@@ -344,10 +388,14 @@
       <button id="plNext" aria-label="Next episode" data-icon="next"></button>
     </div>
     <div class="pl-extra">
+      <button id="plLike" hidden><i data-icon="like"></i><span>Like</span></button>
+      <button id="plDislike" hidden><i data-icon="dislike"></i><span>Dislike</span></button>
       <button id="plCaptions" hidden><i data-icon="cc"></i>Subtitles</button>
       <button id="plRestart"><i data-icon="restart"></i>Restart</button>
       <button id="plStop"><i data-icon="stop"></i>Stop</button>
     </div>
+   </div>
+    <section class="pl-comments" id="plComments"></section>
   </div>
   <div class="pl-sheet" id="plSheet">
     <div class="ps-grip" id="plGrip"><i></i></div>
@@ -662,6 +710,8 @@
   // ---- Icons ----
   var REPLAY = 'M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z';
   var ICONS = {
+    like: '<path d="M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-2z"/>',
+    dislike: '<path d="M15 3H6c-.83 0-1.54.5-1.84 1.22l-3.02 7.05c-.09.23-.14.47-.14.73v2c0 1.1.9 2 2 2h6.31l-.95 4.57-.03.32c0 .41.17.79.44 1.06L9.83 23l6.59-6.59c.36-.36.58-.86.58-1.41V5c0-1.1-.9-2-2-2zm4 0v12h4V3h-4z"/>',
     down: '<path d="M7.4 8.6 12 13.2l4.6-4.6L18 10l-6 6-6-6z"/>',
     list: '<path d="M3 6h14v2H3zm0 5h14v2H3zm0 5h9v2H3zm12 0v-5l6 3.5z"/>',
     cast: '<path d="M21 3H3c-1.1 0-2 .9-2 2v3h2V5h18v14h-7v2h7c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zM1 18v3h3c0-1.66-1.34-3-3-3zm0-4v2c2.76 0 5 2.24 5 5h2c0-3.87-3.13-7-7-7zm0-4v2c4.97 0 9 4.03 9 9h2c0-6.08-4.93-11-11-11z"/>',
@@ -805,6 +855,7 @@
     $('#player').classList.add('on');
     document.body.classList.add('sheet-open');
     history.pushState({ player: 1 }, '');
+    $('#plMain').scrollTop = 0;
     plPath = null;
     updatePlayer(now);
   }
@@ -822,7 +873,8 @@
   (function(){
     var main = $('#plMain'), p = $('#player'), y0 = null, dy = 0;
     main.addEventListener('touchstart', function(e){
-      if (e.target.closest('input, .pl-ctrls, .pl-extra')) return;
+      // Only from the top: further down, a downward swipe scrolls back up.
+      if (e.target.closest('input, textarea, .pl-ctrls, .pl-extra, .pl-comments') || main.scrollTop > 0) return;
       y0 = e.touches[0].clientY; dy = 0;
     }, { passive: true });
     main.addEventListener('touchmove', function(e){
@@ -936,6 +988,8 @@
     renderMore();
     renderAbout();
     renderNav();
+    renderLikes();
+    resetComments();
     loadQueue();
     if (!s.path || s.path === '/') return;
     api('/api/episode', { path: s.path }).then(function(ep){
@@ -947,6 +1001,8 @@
       renderMore();
       renderAbout();
       renderNav();
+      renderLikes();
+      resetComments();
     }).catch(function(){ renderNav(); });
   }
   function setArt(url){
@@ -1000,6 +1056,210 @@
     d.appendChild(el('b', '', (plEp && plEp.title) || (now && now.title) || ''));
     d.appendChild(document.createTextNode((plEp && plEp.description) || (plEp ? 'No description for this one.' : 'Loading…')));
     box.appendChild(d);
+    // Chapters and moments (few mde episodes have them): tap one to jump the TV there.
+    [['Chapters', plEp && plEp.chapters], ['Moments', plEp && plEp.moments]].forEach(function(g){
+      if (!g[1] || !g[1].length) return;
+      box.appendChild(el('div', 'ps-h', g[0]));
+      var list = el('div', 'ps-chapters');
+      g[1].forEach(function(c){
+        var b = el('button');
+        b.appendChild(el('span', '', fmt(c.t)));
+        b.appendChild(document.createTextNode(c.title || g[0].slice(0, -1)));
+        b.onclick = function(){ seekTo(Math.max(0.1, c.t)); toast('Jumped to ' + fmt(c.t)); };
+        list.appendChild(b);
+      });
+      box.appendChild(list);
+    });
+  }
+
+  // ---- Likes (mde) ----
+  // As on the site: liked is myLike true, disliked false, neither null, and
+  // pressing the one that's on clears it. They go out as the TV's account.
+  function count(n){
+    n = n || 0;
+    return n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1).replace(/\.0$/, '') + 'K' : String(n);
+  }
+  function renderLikes(){
+    var on = !fishtank && !!(plEp && plEp.id && plPath === plEp.path);
+    $('#plLike').hidden = $('#plDislike').hidden = !on;
+    if (!on) return;
+    $('#plLike').classList.toggle('on', plEp.myLike === true);
+    $('#plDislike').classList.toggle('on', plEp.myLike === false);
+    $('#plLike span').textContent = count(plEp.likes);
+    $('#plDislike span').textContent = count(plEp.dislikes);
+  }
+  function like(up){
+    var ep = plEp;
+    if (!ep || !ep.id) return;
+    var before = { myLike: ep.myLike, likes: ep.likes, dislikes: ep.dislikes };
+    // Shown at once, then corrected by mde's counts.
+    var was = ep.myLike;
+    ep.myLike = was === up ? null : up;
+    if (was === true) ep.likes--;
+    if (was === false) ep.dislikes--;
+    if (ep.myLike === true) ep.likes++;
+    if (ep.myLike === false) ep.dislikes++;
+    renderLikes();
+    api('/api/like', { id: ep.id, v: up ? 'like' : 'dislike' }).then(function(d){
+      if (typeof d.likes === 'number') ep.likes = d.likes;
+      if (typeof d.dislikes === 'number') ep.dislikes = d.dislikes;
+      if (plEp === ep) renderLikes();
+    }).catch(function(){
+      ep.myLike = before.myLike; ep.likes = before.likes; ep.dislikes = before.dislikes;
+      if (plEp === ep) renderLikes();
+      toast('Couldn’t reach MDE. Is the TV signed in?');
+    });
+  }
+  $('#plLike').onclick = function(){ like(true); };
+  $('#plDislike').onclick = function(){ like(false); };
+
+  // ---- Comments (mde) ----
+  // Under the player: scroll down from the controls, as on YouTube. 10 at a
+  // time, in mde's four orders. Posting, replying and voting go out as the
+  // TV's account.
+  var SORTS = [['best', 'Best'], ['worst', 'Worst'], ['newest', 'Newest'], ['oldest', 'Oldest']];
+  var cmSort = 'newest', cmPage = 0, cmItems = [], cmPinned = [], cmTotal = 0, cmFor = null, cmBusy = false, cmReplyTo = null;
+  function resetComments(){
+    cmFor = null; cmItems = []; cmPinned = []; cmPage = 0; cmTotal = 0; cmReplyTo = null;
+    if (plEp && plEp.id && !fishtank) loadComments();
+    else renderComments();
+  }
+  function loadComments(more){
+    var ep = plEp;
+    if (!ep || !ep.id || cmBusy) { renderComments(); return; }
+    if (!more) { cmPage = 0; cmItems = []; cmPinned = []; }
+    cmBusy = true;
+    cmFor = ep.id;
+    renderComments();
+    var sort = cmSort;
+    api('/api/comments', { id: ep.id, page: cmPage, sort: sort }).then(function(d){
+      if (plEp !== ep || sort !== cmSort) return;
+      if (d.error) throw new Error('mde');
+      if (cmPage === 0) cmPinned = d.pinned || [];
+      cmItems = cmItems.concat((d.comments || []).filter(function(c){
+        return !cmPinned.some(function(p){ return p.id === c.id; });
+      }));
+      cmTotal = d.total || 0;
+      cmPage++;
+    }).catch(function(){ toast('Couldn’t load comments'); })
+      .then(function(){ cmBusy = false; if (plEp === ep) renderComments(); });
+  }
+  function ago(iso){
+    var s = (Date.now() - Date.parse(iso)) / 1000;
+    if (!(s >= 0)) return '';
+    if (s < 60) return 'now';
+    var u = [[31536000, 'y'], [2592000, 'mo'], [604800, 'w'], [86400, 'd'], [3600, 'h'], [60, 'm']];
+    for (var i = 0; i < u.length; i++) if (s >= u[i][0]) return Math.floor(s / u[i][0]) + u[i][1];
+    return '';
+  }
+  function composer(placeholder, onSend, focus){
+    var f = el('div', 'cm-new'), t = document.createElement('textarea'), b = el('button', '', 'Post');
+    t.placeholder = placeholder;
+    t.maxLength = 2000;
+    t.rows = 1;
+    b.disabled = true;
+    t.oninput = function(){ b.disabled = !t.value.trim(); t.style.height = 'auto'; t.style.height = t.scrollHeight + 'px'; };
+    b.onclick = function(){
+      var msg = t.value.trim();
+      if (!msg) return;
+      b.disabled = t.disabled = true;
+      onSend(msg).then(function(){ t.value = ''; }, function(){ toast('Couldn’t post it'); })
+        .then(function(){ t.disabled = false; b.disabled = !t.value.trim(); });
+    };
+    f.appendChild(t);
+    f.appendChild(b);
+    if (focus) setTimeout(function(){ t.focus(); }, 50);
+    return f;
+  }
+  function commentRow(c, o){
+    var r = el('div', 'cm' + (o.reply ? ' reply' : '')), av = el('div', 'av'), body = el('div', 'body');
+    if (/^https:/.test(c.photo || '')) av.style.backgroundImage = 'url("' + c.photo.replace(/"/g, '%22') + '")';
+    var who = el('div', 'who', c.name || 'Someone');
+    if (o.pinned) who.appendChild(el('i', 'pin', 'Pinned'));
+    who.appendChild(el('i', '', ago(c.at)));
+    var msg = el('div', 'msg', c.message || '');
+    if (c.gif) { var g = document.createElement('img'); g.src = c.gif; g.loading = 'lazy'; g.alt = 'GIF'; msg.appendChild(g); }
+    var acts = el('div', 'acts');
+    [true, false].forEach(function(up){
+      var b = el('button', (up ? c.iLike : c.iDislike) ? 'on' : '');
+      icon(b, up ? 'like' : 'dislike');
+      b.appendChild(document.createTextNode(count(up ? c.likes : c.dislikes)));
+      b.onclick = function(){
+        api('/api/comment/vote', { id: c.id, reply: o.reply ? 1 : 0, v: up ? 'like' : 'dislike' }).then(function(d){
+          // mde sends the counts back; which one is ours flips as on the site.
+          if (up) { c.iLike = !c.iLike; if (c.iLike) c.iDislike = false; }
+          else { c.iDislike = !c.iDislike; if (c.iDislike) c.iLike = false; }
+          if (typeof d.likes === 'number') c.likes = d.likes;
+          if (typeof d.dislikes === 'number') c.dislikes = d.dislikes;
+          renderComments();
+        }).catch(function(){ toast('Couldn’t reach MDE'); });
+      };
+      acts.appendChild(b);
+    });
+    if (!o.reply) {
+      var rb = el('button', '', 'Reply');
+      rb.onclick = function(){ cmReplyTo = cmReplyTo === c.id ? null : c.id; renderComments(); };
+      acts.appendChild(rb);
+    }
+    body.appendChild(who);
+    body.appendChild(msg);
+    body.appendChild(acts);
+    r.appendChild(av);
+    r.appendChild(body);
+    return r;
+  }
+  function renderComments(){
+    var box = $('#plComments'), main = $('#plMain'), y = main.scrollTop;
+    box.innerHTML = '';
+    var on = !fishtank && !!(plEp && plEp.id);
+    $('#player').classList.toggle('has-comments', on);
+    if (!on) return;
+    var ep = plEp, sorts = el('div', 'cm-sorts');
+    var head = el('div', 'ps-h', 'Comments' + (ep.comments ? ' · ' + count(ep.comments) : '')), arrow = el('i');
+    icon(arrow, 'down');
+    head.appendChild(arrow);
+    // Tapping the peeking heading scrolls them up.
+    head.onclick = function(){ if (main.scrollTop < 10) main.scrollTo({ top: box.offsetTop, behavior: 'smooth' }); };
+    box.appendChild(head);
+    SORTS.forEach(function(s){
+      var b = el('button', s[0] === cmSort ? 'on' : '', s[1]);
+      b.onclick = function(){ if (cmSort !== s[0] && !cmBusy) { cmSort = s[0]; loadComments(); } };
+      sorts.appendChild(b);
+    });
+    box.appendChild(sorts);
+    box.appendChild(composer('Add a comment…', function(msg){
+      return api('/api/comment/post', { id: ep.id, message: msg }).then(function(){
+        ep.comments = (ep.comments || 0) + 1;
+        renderLikes();
+        toast('Comment posted');
+        cmSort = 'newest';
+        loadComments();
+      });
+    }));
+    var add = function(c, pinned){
+      box.appendChild(commentRow(c, { pinned: pinned }));
+      (c.replies || []).forEach(function(r){ box.appendChild(commentRow(r, { reply: true })); });
+      if (cmReplyTo !== c.id) return;
+      var f = composer('Reply to ' + (c.name || 'this comment') + '…', function(msg){
+        return api('/api/comment/post', { id: c.id, reply: 1, message: msg }).then(function(){
+          toast('Reply posted');
+          cmReplyTo = null;
+          loadComments();
+        });
+      }, true);
+      f.style.paddingLeft = '58px';
+      box.appendChild(f);
+    };
+    cmPinned.forEach(function(c){ add(c, true); });
+    cmItems.forEach(function(c){ add(c, false); });
+    if (cmBusy) box.appendChild(el('p', 'empty', 'Loading comments…'));
+    else if (cmFor === ep.id && !cmItems.length && !cmPinned.length) box.appendChild(el('p', 'empty', 'No comments yet.'));
+    else if (cmItems.length + cmPinned.length < cmTotal) {
+      var more = el('button', 'cm-more', 'More comments');
+      more.onclick = function(){ loadComments(true); };
+      box.appendChild(more);
+    }
+    main.scrollTop = y;
   }
 
   // ---- Queue ----

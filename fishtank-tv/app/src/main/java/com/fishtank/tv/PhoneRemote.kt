@@ -176,6 +176,33 @@ class PhoneRemote(private val context: Context, private val host: Host) {
                 episode(p)?.let { json(it) } ?: Triple("400 Bad Request", "text/plain", "bad path")
             }
             "/api/queue" -> json(queue())
+            // mde's like / dislike, comments and replies, as the TV's account.
+            "/api/comments" -> {
+                val id = q["id"].orEmpty()
+                if (fishtank || !SAFE_ID.matches(id)) Triple("400 Bad Request", "text/plain", "bad id")
+                else json(comments(id, q["page"]?.toIntOrNull()?.coerceIn(0, 1000) ?: 0, q["sort"].orEmpty()))
+            }
+            "/api/like" -> {
+                val id = q["id"].orEmpty()
+                if (fishtank || !SAFE_ID.matches(id)) return Triple("400 Bad Request", "text/plain", "bad id")
+                apiSend("POST", "/videos/$id/" + if (q["v"] == "dislike") "dislike" else "like")
+                    ?.let { json(it) } ?: Triple("502 Bad Gateway", "text/plain", "mde said no")
+            }
+            "/api/comment/post" -> {
+                val id = q["id"].orEmpty()
+                val reply = q["reply"] == "1"
+                val msg = q["message"].orEmpty().trim()
+                if (fishtank || !SAFE_ID.matches(id) || msg.isEmpty() || msg.length > 2000) return Triple("400 Bad Request", "text/plain", "bad comment")
+                val r = apiSend("POST", if (reply) "/videos/comments/$id/reply" else "/videos/$id/comments", JSONObject().put("message", msg))
+                r?.let { json(JSONObject().put("ok", true)) } ?: Triple("502 Bad Gateway", "text/plain", "mde said no")
+            }
+            "/api/comment/vote" -> {
+                val id = q["id"].orEmpty()
+                if (fishtank || !SAFE_ID.matches(id)) return Triple("400 Bad Request", "text/plain", "bad id")
+                val kind = if (q["reply"] == "1") "replies" else "comments"
+                apiSend("PUT", "/videos/$kind/$id/" + if (q["v"] == "dislike") "dislike" else "like")
+                    ?.let { json(it) } ?: Triple("502 Bad Gateway", "text/plain", "mde said no")
+            }
             "/api/recent/remove" -> {
                 val p = q["path"].orEmpty()
                 if (!validPath(p)) return Triple("400 Bad Request", "text/plain", "bad path")
@@ -466,10 +493,20 @@ class PhoneRemote(private val context: Context, private val host: Host) {
                 .put("listTitle", label).put("list", JSONArray(run.map { ftItem(it, label) }))
         }
         val tag = p.split('/')[2]
-        val v = mdeVideo(p) ?: return null
+        val full = api("/videos/" + p.substringAfterLast('/')) ?: return null
+        val v = full.optJSONObject("video") ?: return null
         val (listTitle, run) = mdeRun(tag, v)
+        val d = full.optJSONObject("details") ?: JSONObject()
         return JSONObject()
             .put("path", p)
+            .put("id", v.optString("id"))
+            // Likes and comments act on the account the TV is signed in with.
+            .put("likes", d.optInt("likes"))
+            .put("dislikes", d.optInt("dislikes"))
+            .put("myLike", if (d.isNull("myLike")) JSONObject.NULL else d.optBoolean("myLike"))
+            .put("comments", d.optInt("totalComments"))
+            .put("chapters", marks(full.optJSONArray("chapters")))
+            .put("moments", marks(full.optJSONArray("moments")))
             .put("title", v.optString("title").replace(SPACES, " ").trim())
             .put("series", v.optString("series_name"))
             .put("seriesTag", tag)
@@ -583,8 +620,86 @@ class PhoneRemote(private val context: Context, private val host: Host) {
         return out
     }
 
+    /**
+     * mde chapters / moments as { title, t } (seconds), soonest first. Few
+     * episodes have any, so the field names are read loosely.
+     */
+    private fun marks(list: JSONArray?): JSONArray {
+        val out = ArrayList<JSONObject>()
+        for (i in 0 until (list?.length() ?: 0)) {
+            val m = list!!.optJSONObject(i) ?: continue
+            val t = listOf("start", "time", "timestamp", "startTime", "start_time", "seconds")
+                .firstNotNullOfOrNull { k -> m.opt(k)?.let { (it as? Number)?.toDouble() ?: it.toString().toDoubleOrNull() } } ?: continue
+            val title = listOf("title", "name", "label", "text").map { m.optString(it) }.firstOrNull { it.isNotBlank() }.orEmpty()
+            out.add(JSONObject().put("title", title).put("t", t))
+        }
+        return JSONArray(out.sortedBy { it.optDouble("t") })
+    }
+
+    /** One page of an episode's comments, in one of mde's four orders. */
+    private fun comments(id: String, page: Int, sort: String): JSONObject {
+        val (by, order) = when (sort) {
+            "oldest" -> "created_at" to "asc"
+            "best" -> "likes" to "desc"
+            "worst" -> "dislikes" to "desc"
+            else -> "created_at" to "desc"
+        }
+        val r = api("/videos/$id/comments?page=$page&sort_by=$by&sort_order=$order") ?: return JSONObject().put("error", true)
+        val one = { c: JSONObject -> JSONObject()
+            .put("id", c.optString("id"))
+            .put("name", c.optJSONObject("user")?.optString("display_name").orEmpty())
+            .put("photo", c.optJSONObject("user")?.optString("photo").orEmpty())
+            .put("message", c.optString("message"))
+            .put("gif", c.optString("gif").takeIf { it.startsWith("https://") }.orEmpty())
+            .put("at", c.optString("created_at"))
+            .put("likes", c.optInt("likes"))
+            .put("dislikes", c.optInt("dislikes"))
+            .put("iLike", c.optBoolean("i_like"))
+            .put("iDislike", c.optBoolean("i_dislike")) }
+        val list = { a: JSONArray? -> JSONArray((0 until (a?.length() ?: 0)).mapNotNull { a!!.optJSONObject(it) }.map { c ->
+            one(c).also { o -> c.optJSONArray("replies")?.let { rs ->
+                o.put("replies", JSONArray((0 until rs.length()).mapNotNull { rs.optJSONObject(it) }.map(one)))
+            } }
+        }) }
+        return JSONObject()
+            .put("comments", list(r.optJSONArray("comments")))
+            // Pinned ones are sent with the first page only.
+            .put("pinned", if (page == 0) list(r.optJSONArray("pinnedComments")) else JSONArray())
+            .put("total", r.optInt("total"))
+    }
+
     /** GET api.mde.tv/v1[path] with the WebView's cookies (watched flags need them). */
     private fun api(path: String): JSONObject? = get("https://api.mde.tv/v1$path", "https://www.mde.tv")
+
+    /**
+     * A change on the account the TV is signed in with (a like, a comment):
+     * [method] api.mde.tv/v1[path], with [body] as JSON if given.
+     */
+    private fun apiSend(method: String, path: String, body: JSONObject? = null): JSONObject? {
+        val url = "https://api.mde.tv/v1$path"
+        val conn = URL(url).openConnection() as HttpURLConnection
+        return try {
+            conn.requestMethod = method
+            conn.connectTimeout = 8_000
+            conn.readTimeout = 10_000
+            conn.setRequestProperty("Origin", "https://www.mde.tv")
+            conn.setRequestProperty("Referer", "https://www.mde.tv/")
+            CookieManager.getInstance().getCookie(url)?.let { conn.setRequestProperty("Cookie", it) }
+            if (body != null) {
+                conn.doOutput = true
+                conn.setRequestProperty("Content-Type", "application/json")
+                conn.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
+            }
+            val code = conn.responseCode
+            if (code !in 200..299) { Log.w(TAG, "$method $path: $code"); null }
+            else conn.inputStream.bufferedReader().use { it.readText() }.let { if (it.isBlank()) JSONObject() else JSONObject(it) }
+        } catch (e: Exception) {
+            Log.w(TAG, "$method $url: $e")
+            null
+        } finally {
+            conn.disconnect()
+        }
+    }
 
     private fun ftApi(path: String): JSONObject? = get("https://api.fishtank.live/v1$path", "https://www.fishtank.live")
 
@@ -651,6 +766,8 @@ class PhoneRemote(private val context: Context, private val host: Host) {
         private val COLLECTIONS_TOP = listOf("Season 1", "Season 2", "Season 3")
         private val COLLECTIONS_BOTTOM = listOf("Season 5 Digests", "Off-Season", "Digest", "Shorts", "BTS")
         private val SERIES_TAG = Regex("^[A-Za-z0-9_-]+$")
+        /** A video, comment or reply id from the phone (mde uses UUIDs; kept loose). */
+        private val SAFE_ID = Regex("^[A-Za-z0-9-]{1,64}$")
         private val SPACES = Regex("\\s+")
         private val EXTRAS = Regex("\\(extras\\)", RegexOption.IGNORE_CASE)
         /** mde collections that aren't watched in order: no autoplay list. Same as NO_NEXT_UP in dpad.js. */

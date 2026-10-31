@@ -149,6 +149,23 @@ page.
   newest first.
 - `/api/search?q=`: `/v1/search?query=`. Results carry a series id, not a
   tag, so `/v1/series` maps it to `/series/<tag>/<video>`.
+- mde likes, comments and chapters, all as the account the TV is signed in
+  with (mde's API is cookie-only, so `apiSend` sends the WebView's cookies,
+  like `get`):
+  - `/api/episode` also has the video id, `likes`/`dislikes`/`myLike`
+    (true, false or null, from `details`), the comment count, and `chapters`
+    / `moments` as `{ title, t }`. Few episodes have chapters; the field names
+    are read loosely (`marks`) because none were found to check against.
+  - `/api/like?id=&v=like|dislike`: `POST /v1/videos/<id>/like|dislike`,
+    which toggles on mde's side and returns the counts.
+  - `/api/comments?id=&page=&sort=best|worst|newest|oldest`: 10 per page,
+    pinned ones with page 0, replies inline.
+  - `/api/comment/post?id=&message=[&reply=1]` and
+    `/api/comment/vote?id=&v=like|dislike[&reply=1]`.
+  - These are GETs (the server reads no bodies). The key in every request
+    stops another page from posting as the user.
+  - On the phone, comments sit under the player (scroll down, YouTube-style),
+    with their heading peeking above the Up next / Episodes / About sheet.
 - fishtank: `/api/home` has the cameras from `/v1/live-streams` (online ones
   first; thumbnails come from the tiles on the TV's live page) and episodes
   from `/v1/videos` (public, all ~140 at once) by collection: Seasons 1-3

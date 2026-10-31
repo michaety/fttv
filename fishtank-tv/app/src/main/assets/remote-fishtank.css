@@ -333,3 +333,10 @@ input.scrub::-moz-range-thumb { width: 18px; height: 18px; border: 2px solid var
 .ac-actions button { flex: 1; height: 40px; border: 2px solid var(--tab-hi); border-radius: 6px; background: rgba(25,28,32,.75);
   color: #fff; font: 700 15px var(--font); text-shadow: var(--tshadow); }
 .ac-actions .primary { background: var(--button); }
+
+/* With Up next / Episodes / About pulled up, the comments (below the
+   controls) are hidden, or their heading peeks out above the panel. */
+#player.up .pl-comments { display: none; }
+#player.up .pl-screen { height: 100%; }
+#player.up .pl-main { overflow: hidden; }
+#player.up .pl-device { visibility: hidden; }

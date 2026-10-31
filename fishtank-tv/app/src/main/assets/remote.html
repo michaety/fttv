@@ -599,7 +599,7 @@
         d.classList.add(to > from ? 'slide-l' : 'slide-r');
       }
     });
-    if (tab) $('#plBody').scrollTop = 0;
+    if (tab) { $('#plBody').scrollTop = 0; $('#plMain').scrollTop = 0; }
   }
   document.querySelectorAll('.ps-tabs button').forEach(function(b){
     b.onclick = function(){ setSheet(sheetTab === b.dataset.tab ? null : b.dataset.tab); };

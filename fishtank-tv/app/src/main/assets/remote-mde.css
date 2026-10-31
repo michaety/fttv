@@ -390,3 +390,11 @@ input.scrub::-moz-range-thumb { width: 12px; height: 20px; border: 1px solid #00
 .ac-bgs button.on { border: 2px solid var(--yellow); }
 .ac-actions { display: flex; gap: 8px; padding: 14px 12px; }
 .ac-actions button { flex: 1; height: 40px; }
+
+/* With Up next / Episodes / About pulled up, the comments (below the
+   controls) are hidden, or their heading peeks out above the panel. */
+#player.up .pl-comments { display: none; }
+#player.up .pl-screen { height: 100%; }
+#player.up .pl-main { overflow: hidden; }
+.ps-tabs button { white-space: nowrap; }
+#player.up .pl-device { visibility: hidden; }

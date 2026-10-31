@@ -147,6 +147,9 @@ class PhoneRemote(private val context: Context, private val host: Host) {
                 main.post { host.onPhoneConnected() }
                 Triple("200 OK", "text/html; charset=utf-8",
                     context.assets.open("remote.html").bufferedReader().use { it.readText() }
+                        // Each app's own look, matching its site (one file per site).
+                        .replace("/*__FTV_CSS__*/", context.assets.open(if (fishtank) "remote-fishtank.css" else "remote-mde.css")
+                            .bufferedReader().use { it.readText() })
                         .replace("__FTV_SITE__", if (fishtank) "fishtank" else "mde")
                         .replace("__FTV_KEY__", key))
             }

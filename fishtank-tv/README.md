@@ -141,6 +141,13 @@ runs the new app's `onStart` before the old one's `onStop` frees the port, so
 `start()` binds on a thread and retries for ~10s. The dialog (picture:
 `res/<flavor>/drawable-nodpi/link_phone.png`) closes once a phone loads the
 page.
+- Looks: `remote.html` has the markup and script only. `PhoneRemote` puts the
+  flavor's stylesheet into it: `remote-mde.css` or `remote-fishtank.css`, each
+  copied from its site's own CSS (fonts, colours, borders, shadows; mde's
+  FFGothic fonts load from cdn.mde.tv, Fishtank's textures and logo from
+  cdn.fishtank.live). Fishtank's Sofia Pro is an Adobe Fonts kit locked to
+  fishtank.live, so Figtree stands in. Restyle each against its site's mobile
+  layout at 412px.
 - `/api/home`: Continue watching (`__ftv_recent`, read from the WebView) and,
   from `/v1/site/landing`, every playlist (New, Popular, Free...), the
   Spotlight (its "Featured" playlist) and the series list. Unlike

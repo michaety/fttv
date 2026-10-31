@@ -965,7 +965,9 @@ class MainActivity : Activity() {
      * pages are client-side routes of one Next.js app, so going back that
      * way reuses the booted app.
      *
-     * mde: a plain reload. Opening an mde episode is a full page load, so
+     * mde: a plain reload, except from a page reached from the homepage by
+     * a client-side route (a show, a playlist), where history.back reuses
+     * the booted app (~0.5s). Opening an mde episode is a full page load, so
      * the homepage is gone either way, and measured on the Firestick the
      * reload (~4.3-5.2s) beat both a client-side route via its home link
      * (~7.3s: the server re-renders the homepage first) and history.back
@@ -974,7 +976,14 @@ class MainActivity : Activity() {
      */
     private fun goHome() {
         if (homeUrl.contains("mde.tv")) {
-            webView.loadUrl(homeUrl)
+            webView.evaluateJavascript("window.__ftvHomeBack ? window.__ftvHomeBack() : false") { r ->
+                if (r != "true") {
+                    // Cursor back on the page being left once home loads.
+                    webView.evaluateJavascript("try{if(location.pathname!=='/')sessionStorage.setItem('__ftv_return',location.pathname)}catch(e){}") {
+                        webView.loadUrl(homeUrl)
+                    }
+                }
+            }
             return
         }
         webView.evaluateJavascript("window.__ftvGoHome ? window.__ftvGoHome() : false") { result ->
@@ -1114,8 +1123,10 @@ class MainActivity : Activity() {
                     exitCustomView()
                     return true
                 }
-                // A scrub in progress: BACK cancels it, and only that.
-                webView.evaluateJavascript("window.__ftvScrubCancel ? window.__ftvScrubCancel() : false") { r ->
+                // A scrub in progress: BACK cancels it, and only that. Then
+                // an open dialog or menu: BACK closes it. Only then leave.
+                webView.evaluateJavascript("(window.__ftvScrubCancel && window.__ftvScrubCancel()) || " +
+                    "(window.__ftvDismiss && window.__ftvDismiss()) || false") { r ->
                     if (r != "true") leavePage()
                 }
                 return true

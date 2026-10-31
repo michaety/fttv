@@ -58,6 +58,36 @@ and again on `onPageFinished`. Both are idempotent. It adds:
   row. Up/down to or from a very wide item (over 60% of the screen, like
   mde's Spotlight) is measured edge to edge, not centre to centre, or a
   narrow card off to the side would beat it.
+- Speed (measured over devtools: `window.__ftvNavStats` has each press's ms,
+  `window.__ftvLastScores()` the last press's best candidates). On mde's
+  homepage a press went from ~26ms of work and ~90ms to the screen, to ~13ms
+  and ~48ms:
+  - Scrolling no longer throws the candidate list away, only scrolling more
+    than half a screen since it was built (the list reaches a screen past each
+    edge anyway). Nearly every DOWN scrolls, so most presses used to rebuild it.
+  - Each candidate is measured once per press; the cursor's own box is its
+    unzoomed `curRect`, not its live (zoomed, maybe mid-animation) rect.
+  - A dead end only rebuilds to retry if the page changed since the list was
+    built (`changeCount`), so holding LEFT at a row's start doesn't rebuild
+    every repeat.
+  - The lift moves with `transform` (no layout or shadow repaint unless the
+    size changes).
+- Consistency:
+  - The cursor shows as soon as the page has something to land on (waiting
+    up to ~2.4s for Continue watching); the first press used to only reveal it.
+  - If the site redraws the selected item, the cursor moves onto its
+    replacement (same link, else whatever covers where it was: `refind`),
+    instead of jumping back to the start.
+  - UP doesn't stop at the site's top bar while there's anything else above;
+    it's reached from the top row (`inTopBar`).
+  - BACK first closes an open pop-up (`__ftvDismiss`: dialogs, fishtank's
+    profile drop-down and start menu), then leaves. Back to the homepage puts
+    the cursor on the page left (`noteReturn`), and on mde, from a page reached
+    by a client-side route, it's history.back (~0.5s, no reload).
+  - Play/Pause does nothing away from a player (it used to open a stuck OSD).
+- Memory: detached elements (the old list, a replaced `<video>`) are let go
+  in the tick, sprite sheets are capped at 4, and the loader's timeupdate
+  check and the Spotlight follow-interval only run while needed.
 - mde's Spotlight: left/right on the slide press the carousel's next/previous
   button (`stepSpotlight`), so its 1-7 buttons are never focused. The cursor
   is moved to the visible slide's link whenever the carousel turns, by itself

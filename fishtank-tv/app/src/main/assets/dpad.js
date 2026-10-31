@@ -36,10 +36,12 @@
     // The zoom amount and anchor point are set inline per item (see
     // fitZoom); the class only carries the animation.
     '.__ftv_focus{outline:none !important;transition:scale 160ms ease-out !important;}' +
+    // Moved with transform (the compositor slides it without repainting);
+    // only a change of size re-lays out and repaints its blurred shadow.
     '#__ftv_veil{position:fixed;left:0;top:0;width:0;height:0;pointer-events:none;' +
-      'z-index:2147483646;border-radius:6px;opacity:0;' +
+      'z-index:2147483646;border-radius:6px;opacity:0;will-change:transform;' +
       'box-shadow:0 0 0 1px rgba(255,255,255,.55),0 10px 28px 6px rgba(0,0,0,.6);' +
-      'transition:opacity 160ms ease-out,left 160ms ease-out,top 160ms ease-out,' +
+      'transition:opacity 160ms ease-out,transform 160ms ease-out,' +
         'width 160ms ease-out,height 160ms ease-out;}' +
     '#__ftv_veil.__ftv_on{opacity:1;}' +
     '#__ftv_veil.__ftv_snap{transition:opacity 160ms ease-out;}';
@@ -154,8 +156,16 @@
     return coveredMemo.get(el);
   }
 
+  // changeCount: real changes to the page (mutations, big scrolls) so far;
+  // builtAt: its value when the list was built. A press that finds nothing
+  // that way only rebuilds to retry if something changed since.
+  var changeCount = 0, builtAt = -1;
   function items(){
-    if (dirty || !cache) { cache = computeItems(); coveredMemo = new Map(); dirty = false; }
+    if (dirty || !cache) {
+      cache = computeItems(); coveredMemo = new Map(); dirty = false;
+      builtAt = changeCount;
+      if (typeof scrolledFrom !== 'undefined') scrolledFrom = new Map();
+    }
     return cache;
   }
 
@@ -175,10 +185,26 @@
   var invalidateTimer = null;
   function scheduleInvalidate(){
     if (invalidateTimer) return;
+    changeCount++;
     invalidateTimer = setTimeout(function(){
       invalidateTimer = null;
+      changeCount++;
       dirty = true;
-      if (cur && !document.contains(cur)) hideVeil();
+      // The selected item was redrawn (a row rebuilt, React re-rendering):
+      // move the cursor onto its replacement -- same link, else whatever is
+      // where it was (refind) -- or let go of it if there's none.
+      if (cur && !document.contains(cur)) {
+        var again = silentCur || playingVideo() ? null : refind(items());
+        if (again) mark(again);
+        else { hideVeil(); cur = null; trackFor = null; }
+      }
+      // Let go of a page's elements once they're gone, or they (and the
+      // whole page around them) stay in memory: during playback the cursor
+      // never moves, so the previous page's list kept all of it alive, and
+      // an old episode's <video> survived into the next one (renderer
+      // crashes happen exactly when switching episodes).
+      if (cache && cache.length && !document.contains(cache[0])) { cache = null; coveredMemo = new Map(); }
+      if (trackedVideo && !document.contains(trackedVideo)) trackedVideo = null;
       if (window.__ftvSiteCleanup) {
         try { window.__ftvSiteCleanup(); } catch (e) {}
       }
@@ -213,7 +239,25 @@
   // don't bubble, so a listener on window only ever sees the page itself
   // scrolling. Capture-phase delegation from document catches any nested
   // scrollable container too (a horizontally-scrolling carousel row).
-  document.addEventListener('scroll', scheduleInvalidate, { passive: true, capture: true });
+  //
+  // A scroll moves things but doesn't add or remove any, and the list
+  // already reaches a screen past each edge, so it's only rebuilt once
+  // something has scrolled more than half a screen since it was built.
+  // (It used to be rebuilt after every scroll, and nearly every DOWN press
+  // scrolls, so most presses paid for a full rebuild.)
+  var scrolledFrom = new Map();   // scroller -> [left, top] when the list was built
+  function scrollPos(t){
+    return t === document || t === document.documentElement || t === document.body
+      ? [window.scrollX, window.scrollY] : [t.scrollLeft, t.scrollTop];
+  }
+  document.addEventListener('scroll', function(e){
+    var t = e.target, p = scrollPos(t), from = scrolledFrom.get(t);
+    if (!from) { scrolledFrom.set(t, p); return; }
+    if (Math.abs(p[0] - from[0]) > window.innerWidth / 2 || Math.abs(p[1] - from[1]) > window.innerHeight / 2) {
+      scrolledFrom.set(t, p);
+      scheduleInvalidate();
+    }
+  }, { passive: true, capture: true });
 
   // ---- Video / player control ------------------------------------------
   // Both sites' actual watch pages turned out to embed their player as a
@@ -1517,6 +1561,10 @@
       };
       im.src = url;
       sprites[url] = im;
+      // Keep the last few sheets only: each is a decoded 1800x1008 image,
+      // and on fishtank (one page app) they piled up episode after episode.
+      var keys = Object.keys(sprites);
+      if (keys.length > 4) delete sprites[keys[0]];
     }
     if (then) sprites[url].__then = then;
     return false;
@@ -1646,6 +1694,10 @@
   // the common case) a cross-origin Bunny iframe reachable only via
   // postMessage.
   window.__ftvTogglePlay = function(){
+    // Not on a watch page (Play/Pause pressed while browsing): nothing to
+    // control. It used to bring up the player controls anyway, which then
+    // never went away and blocked BACK.
+    if (!playingVideo()) return;
     if (trackedVideo && document.contains(trackedVideo)) {
       if (trackedVideo.paused) { trackedVideo.play(); osdFlash('play'); } else { trackedVideo.pause(); osdFlash('pause'); }
       showSeekOverlay();
@@ -1857,6 +1909,17 @@
   // headers live) solves it either way -- fishtank has no equivalent to
   // mde's class-based check at all, so this also fixes fishtank always
   // defaulting onto its logo.
+  // Part of the site's top bar that stays on screen as the page scrolls
+  // (its search, logo, account): stuck there rather than just near the top.
+  function inTopBar(el, r){
+    if (el.closest('[class*="top-bar-module"], [class*="search-module"], [class*="_topBar"], header')) return true;
+    if (r.top > 90) return false;
+    for (var a = el; a && a !== document.body; a = a.parentElement) {
+      var p = getComputedStyle(a).position;
+      if (p === 'fixed' || p === 'sticky') return true;
+    }
+    return false;
+  }
   function isChrome(el){
     if (el.closest('[class*="top-bar-module"], [class*="search-module"], [class*="_topBar"]')) return true;
     return el.getBoundingClientRect().top < 70;
@@ -1929,6 +1992,7 @@
   // at all; the lift edge still marks it) rather than getting clipped.
   var curZoom = 1, curOx = 0, curOy = 0;
   var curRect = null;          // cur's unzoomed rect
+  var curRadius = null;        // cur's corner rounding, for the lift
   var curRef = null;           // cur's parent rect when curRect was taken
   var savedScale = null, savedOrigin = null;
 
@@ -2015,11 +2079,11 @@
     if (!veil.isConnected) document.body.appendChild(veil);
     var r = curRect || cur.getBoundingClientRect();
     veil.classList.toggle('__ftv_snap', !!snap);
-    veil.style.left = (r.left + curOx * (1 - curZoom)) + 'px';
-    veil.style.top = (r.top + curOy * (1 - curZoom)) + 'px';
-    veil.style.width = (r.width * curZoom) + 'px';
-    veil.style.height = (r.height * curZoom) + 'px';
-    veil.style.borderRadius = getComputedStyle(cur).borderRadius || '6px';
+    var w = Math.round(r.width * curZoom) + 'px', h = Math.round(r.height * curZoom) + 'px';
+    veil.style.transform = 'translate(' + (r.left + curOx * (1 - curZoom)) + 'px,' + (r.top + curOy * (1 - curZoom)) + 'px)';
+    if (veil.style.width !== w) veil.style.width = w;
+    if (veil.style.height !== h) veil.style.height = h;
+    if (curRadius && veil.style.borderRadius !== curRadius) veil.style.borderRadius = curRadius;
     veil.classList.add('__ftv_on');
   }
   function hideVeil(){ veil.classList.remove('__ftv_on'); }
@@ -2036,16 +2100,38 @@
       if (!cur || !curRect || !curRef || !cur.parentElement) return;
       var pr = cur.parentElement.getBoundingClientRect();
       var dx = pr.left - curRef.left, dy = pr.top - curRef.top;
-      curRect = { left: curRect.left + dx, top: curRect.top + dy, width: curRect.width, height: curRect.height };
+      // A whole rect (right/bottom too): navigation measures from it.
+      var l = curRect.left + dx, t = curRect.top + dy;
+      curRect = { left: l, top: t, width: curRect.width, height: curRect.height,
+                  right: l + curRect.width, bottom: t + curRect.height };
       curRef = { left: pr.left, top: pr.top };
       placeVeil(true);
     });
   }, { passive: true, capture: true });
 
+  // The selected item's link, to find it again if the site replaces it
+  // (see doNavigate); failing that, whatever covers where it was (curRect,
+  // which outlives it).
+  var lostHref = null;
+  function refind(list){
+    var i, lostRect = curRect;
+    if (lostHref) for (i = 0; i < list.length; i++) if (list[i].getAttribute('href') === lostHref) return list[i];
+    if (!lostRect) return null;
+    var cx = lostRect.left + lostRect.width / 2, cy = lostRect.top + lostRect.height / 2, best = null, bd = 1e9;
+    for (i = 0; i < list.length; i++) {
+      var r = list[i].getBoundingClientRect();
+      if (cx < r.left || cx > r.right || cy < r.top || cy > r.bottom) continue;   // must cover the old centre
+      var d = Math.abs(r.width - lostRect.width) + Math.abs(r.height - lostRect.height);
+      if (d < bd) { bd = d; best = list[i]; }
+    }
+    return best;
+  }
+
   function mark(el, silent){
     if (cur) { zoomOff(cur); }
     cur = el || null;
     curRect = curRef = null;
+    lostHref = cur && cur.getAttribute && cur.getAttribute('href');
     if (!cur) { silentCur = false; hideVeil(); return; }
     if (silent) { silentCur = true; return; }
     silentCur = false;
@@ -2072,9 +2158,12 @@
     curRect = cur.getBoundingClientRect();
     var pr = cur.parentElement && cur.parentElement.getBoundingClientRect();
     curRef = pr ? { left: pr.left, top: pr.top } : null;
+    // Read before zoomOn's writes, so it doesn't force a second style pass.
+    curRadius = getComputedStyle(cur).borderRadius || '6px';
     fitZoom(cur, curRect);
     zoomOn(cur);
     placeVeil(false);
+    watchSpotlight();
   }
 
   window.__ftvReset = function(){
@@ -2104,14 +2193,36 @@
     return null;
   }
 
-  function inBeam(el, dir){
-    var a = cur.getBoundingClientRect(), b = el.getBoundingClientRect();
+  // The scrolling row the cursor is in (or null), looked up once per item
+  // rather than on every LEFT/RIGHT (it walks every ancestor's style).
+  var trackFor = null, trackOfCur = null;
+  function curTrack(){
+    if (trackFor !== cur) { trackFor = cur; trackOfCur = cur && scrollableAncestor(cur, 'x'); }
+    return trackOfCur;
+  }
+
+  // The last press's best few candidates, for checking navigation over
+  // devtools (window.__ftvLastScores()).
+  var lastScored = [];
+  window.__ftvLastScores = function(){
+    return lastScored.map(function(s){
+      var e = s.el, r = e.getBoundingClientRect();
+      return Math.round(s.score) + ' ' + (e.getAttribute('href') || e.tagName) + ' @' + Math.round(r.top) + (isCovered(e) ? ' covered' : '');
+    }).join(' | ');
+  };
+
+  // a: the cursor's rect, b: a candidate's.
+  function inBeam(a, b, dir){
     if (dir === 'left' || dir === 'right') return b.bottom > a.top + 2 && b.top < a.bottom - 2;
     return b.right > a.left + 2 && b.left < a.right - 2;
   }
 
   function nearest(list, dir){
-    var c = centre(cur);
+    // The cursor's own box unzoomed (curRect, kept up to date on scroll):
+    // measured live it's up to 10% bigger and off-centre, or mid-animation
+    // on a quick press, so the same press could pick differently.
+    var a = curRect || cur.getBoundingClientRect();
+    var c = { x: a.left + a.width / 2, y: a.top + a.height / 2 };
     var scored = [];
 
     // Left/right inside a horizontally-scrolling carousel must stay locked
@@ -2122,14 +2233,18 @@
     // section entirely (this got a lot more likely to bite once the Series
     // grid went from 2 columns to 4 -- more rows means more diagonal
     // neighbours close enough to out-score a genuinely-empty "next" slot).
-    var track = (dir === 'left' || dir === 'right') ? scrollableAncestor(cur, 'x') : null;
-    var a = cur.getBoundingClientRect(), wideW = window.innerWidth * 0.6;
+    var track = (dir === 'left' || dir === 'right') ? curTrack() : null;
+    var wideW = window.innerWidth * 0.6;
+    var curInTopBar = dir === 'up' && inTopBar(cur, a);
 
     for (var i = 0; i < list.length; i++) {
       var el = list[i];
       if (el === cur) continue;
       if (track && !track.contains(el)) continue;
-      var p = centre(el);
+      // Each candidate measured once, and nothing written in between, so
+      // these reads share one layout.
+      var b = el.getBoundingClientRect();
+      var p = { x: b.left + b.width / 2, y: b.top + b.height / 2 };
       var dx = p.x - c.x;
       var dy = p.y - c.y;
       var along, across;
@@ -2144,7 +2259,6 @@
       // "far" from everything beside its middle, so DOWN from Continue
       // watching skipped it for a card further down, and UP from it went
       // to the search box. Measure edge to edge when either side is that wide.
-      var b = el.getBoundingClientRect();
       if (dir !== 'left' && dir !== 'right' && (a.width > wideW || b.width > wideW)) {
         along = Math.max(5, dir === 'up' ? a.top - b.bottom : b.top - a.bottom);
         across = Math.max(0, b.left - a.right, a.left - b.right);
@@ -2155,11 +2269,16 @@
       // as Android's own focus search does. Without this, RIGHT from a
       // section's tabs went down into the nearby cards and that section's
       // far-right "View All" link could never be reached.
-      if (!inBeam(el, dir)) score += 1e6;
+      if (!inBeam(a, b, dir)) score += 1e6;
+      // UP through the page doesn't stop at the top bar (it stays on screen,
+      // so it was nearly always "closest" and every other press landed on
+      // the search box). It's reached when nothing else is above.
+      if (dir === 'up' && !curInTopBar && inTopBar(el, b)) score += 1e7;
       scored.push({ el: el, score: score });
     }
     // Best first, skipping anything hidden under something else.
     scored.sort(function(a, b){ return a.score - b.score; });
+    lastScored = scored.slice(0, 6);
     for (var j = 0; j < scored.length; j++) {
       if (!isCovered(scored[j].el)) return scored[j].el;
     }
@@ -2182,8 +2301,17 @@
     if (a) { dirty = true; mark(a); }
   }
   // Follow the carousel's own rotation too, so the ring never sits on a
-  // hidden slide.
-  setInterval(function(){ if (cur && !silentCur) syncSpotlight(); }, 500);
+  // hidden slide -- checked only while a slide has the cursor (mark()
+  // starts and stops it), not all the time.
+  var spotTimer = null;
+  function watchSpotlight(){
+    var on = !!(cur && !silentCur && spotlightOf(cur));
+    if (on && !spotTimer) spotTimer = setInterval(function(){
+      if (!cur || !spotlightOf(cur)) { clearInterval(spotTimer); spotTimer = null; return; }
+      syncSpotlight();
+    }, 500);
+    else if (!on && spotTimer) { clearInterval(spotTimer); spotTimer = null; }
+  }
   function stepSpotlight(dir){
     var car = spotlightOf(cur);
     if (!car) return false;
@@ -2207,7 +2335,17 @@
     // e.g. by the scroll fallback below -- it keeps navigating from where
     // it is, instead of jumping back up to the top-left item.
     if (cur && document.contains(cur) && list.indexOf(cur) < 0 && !dirty) { dirty = true; list = items(); }
-    if (!cur || !document.contains(cur) || list.indexOf(cur) < 0 || isCovered(cur)) { mark(pickDefault(list)); return; }
+    if (!cur || !document.contains(cur)) {
+      // The site redrew the selected card (React re-rendering a row,
+      // Continue watching rebuilt): carry on from its replacement -- the
+      // same link, else whatever now sits where it was -- rather than
+      // jumping back to the start of the page.
+      if (lostHref || curRect) { dirty = true; list = items(); }
+      var again = refind(list);
+      if (!again) { mark(pickDefault(list)); return; }
+      mark(again);
+    }
+    if (list.indexOf(cur) < 0 || isCovered(cur)) { mark(pickDefault(list)); return; }
 
     var best = nearest(list, dir);
 
@@ -2215,8 +2353,9 @@
     // scroll happened to invalidate it yet) is a far more common reason to
     // come up empty than "there's truly nothing that way", so force one
     // fresh read and retry before concluding that and falling back to
-    // scrolling.
-    if (!best && !dirty) {
+    // scrolling -- but only if the page has changed since the list was
+    // built, or holding LEFT at the start of a row rebuilt it every repeat.
+    if (!best && !dirty && changeCount !== builtAt) {
       dirty = true;
       list = items();
       best = nearest(list, dir);
@@ -2234,7 +2373,7 @@
       // reveal more instead of dead-ending; the retry-fresh-recompute above
       // already covers rediscovering the newly-visible cards on the next
       // press once the scroll settles.
-      var track = cur && scrollableAncestor(cur, 'x');
+      var track = cur && curTrack();
       if (track) {
         var amount = Math.round(track.clientWidth * 0.8);
         track.scrollBy({ left: dir === 'right' ? amount : -amount, behavior: 'auto' });
@@ -2269,9 +2408,15 @@
       rafScheduled = false;
       var d = pendingDir;
       pendingDir = null;
-      if (d) doNavigate(d);
+      if (!d) return;
+      var t0 = performance.now();
+      doNavigate(d);
+      // How long each press took, for measuring (window.__ftvNavStats).
+      navStats.push(Math.round(performance.now() - t0));
+      if (navStats.length > 50) navStats.shift();
     });
   };
+  var navStats = window.__ftvNavStats = [];
 
   // Client-side route to the homepage via the site's own home link (a
   // Next.js <Link>, which intercepts the click), instead of a full reload.
@@ -2390,6 +2535,8 @@
   // A frame actually on screen (the player may have started before this
   // script was injected, so its play events were missed).
   document.addEventListener('timeupdate', function(e){
+    // Only while the loading screen is up (this fires ~4x a second all episode).
+    if (!loaderEl || !loaderEl.parentNode || loaderEl.classList.contains('__ftv_out')) return;
     var v = e.target;
     if (v && v.tagName === 'VIDEO' && v.currentTime > 0 && isEpisodePath(location.pathname) &&
         v.getBoundingClientRect().width >= window.innerWidth * 0.5) playbackStarted();
@@ -2475,19 +2622,32 @@
     mark(a);
   }
 
+  // The homepage puts the cursor back on the page being left (a show's
+  // tile, a playlist), the way BACK from an episode already does.
+  function noteReturn(){
+    if (location.pathname === '/') return;
+    try { sessionStorage.setItem(RETURN_KEY, location.pathname); } catch (e) {}
+    returnTo = location.pathname;
+    returnUntil = Date.now() + 10000;
+  }
+  // Came straight from the homepage by a client-side route: go back to it.
+  // Next.js restores a back navigation from its client cache (and keeps the
+  // scroll position) -- measured ~0.5s, where clicking the home link waits
+  // on the server to render the homepage again (~4.4s on mde, no better
+  // than a full reload). False if that isn't how we got here.
+  window.__ftvHomeBack = function(){
+    if (prevPath !== '/') return false;
+    noteReturn();
+    undoFullscreen();
+    if (cur) { zoomOff(cur); cur = null; }
+    hideVeil();
+    prevPath = null;
+    history.back();
+    return true;
+  };
   window.__ftvGoHome = function(){
-    // Came straight from the homepage: go back to it. Next.js restores a
-    // back navigation from its client cache (and keeps the scroll position)
-    // -- measured ~0.5s, where clicking the home link waits on the server to
-    // render the homepage again (~4.4s on mde, no better than a full reload).
-    if (prevPath === '/') {
-      undoFullscreen();
-      if (cur) { zoomOff(cur); cur = null; }
-      hideVeil();
-      prevPath = null;
-      history.back();
-      return true;
-    }
+    if (window.__ftvHomeBack()) return true;
+    noteReturn();
     var link = document.querySelector('a[href="/"]') ||
                document.querySelector('a[href="' + location.origin + '/"]') ||
                document.querySelector('a[href="' + location.origin + '"]');
@@ -2496,6 +2656,56 @@
     if (cur) { zoomOff(cur); cur = null; }
     hideVeil();
     link.click();
+    return true;
+  };
+
+  // BACK first closes whatever is open over the page (fishtank's login
+  // dialog or menu, a site modal), as on any TV app, instead of leaving the
+  // page behind it. True if there was one.
+  function shown(e){
+    var r = e.getBoundingClientRect(), s = getComputedStyle(e);
+    return r.width > 40 && r.height > 40 && s.visibility !== 'hidden' && s.display !== 'none' && parseFloat(s.opacity) > 0.1;
+  }
+  window.__ftvDismiss = function(){
+    var i, j, list;
+    // fishtank's pop-ups aren't marked as dialogs. A drop-down (the profile
+    // menu): a small fixed panel of buttons, closed by the button that
+    // opened it, beside it.
+    list = document.querySelectorAll('div.fixed');
+    for (i = 0; i < list.length; i++) {
+      var d = list[i], dr = d.getBoundingClientRect();
+      // (Hanging from the top-right, where menus open -- not, say, a chat panel.)
+      if (dr.top < 30 || dr.top > window.innerHeight * 0.4 || dr.right < window.innerWidth * 0.6 ||
+          dr.width >= window.innerWidth * 0.5 || !shown(d) || d.querySelectorAll('button, a[href]').length < 3) continue;
+      var opener = null, sib = d.parentElement ? d.parentElement.querySelectorAll('button') : [];
+      for (j = 0; j < sib.length; j++) if (!d.contains(sib[j])) opener = sib[j];
+      if (opener) { opener.click(); dirty = true; return true; }
+    }
+    // A menu or panel over the whole screen (its start menu): a full-screen
+    // fixed layer holding a smaller panel, whose close button sits in the
+    // panel's top-right corner.
+    for (i = 0; i < list.length; i++) {
+      var L = list[i], lr = L.getBoundingClientRect();
+      if (lr.width < window.innerWidth * 0.9 || lr.height < window.innerHeight * 0.9 || !shown(L)) continue;
+      var btns = L.querySelectorAll('button');
+      for (j = 0; j < btns.length; j++) {
+        var b = btns[j], br = b.getBoundingClientRect(), p = b.parentElement && b.parentElement.closest('div'), pr = p && p.getBoundingClientRect();
+        if (!pr || pr.width > window.innerWidth * 0.8 || pr.height > window.innerHeight * 0.9) continue;
+        if (br.width < 60 && pr.right - br.right < 40 && br.top - pr.top < 40) { b.click(); dirty = true; return true; }
+      }
+    }
+    var open = null;
+    list = document.querySelectorAll('[role="dialog"], [aria-modal="true"], dialog[open]');
+    for (i = 0; i < list.length; i++) if (shown(list[i])) { open = list[i]; break; }
+    if (!open) return false;
+    var close = open.querySelector('[aria-label*="close" i], button[class*="close" i], [data-dismiss], [class*="_close"]');
+    if (close) close.click();
+    else {
+      var esc = { key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true, cancelable: true };
+      (document.activeElement || document.body).dispatchEvent(new KeyboardEvent('keydown', esc));
+      document.dispatchEvent(new KeyboardEvent('keydown', esc));
+    }
+    dirty = true;
     return true;
   };
 
@@ -2537,12 +2747,21 @@
     cur.click();
   };
 
-  // Silent: this establishes a starting point for navigation without
-  // dimming the screen before the user has touched the remote at all --
-  // __ftvNavigate/__ftvActivate reveal it (full visual mark) on first press.
-  setTimeout(function(){
-    if (cur) return;
-    var list = items();
-    if (list.length) { mark(pickDefault(list), true); }
-  }, 1200);
+  // The cursor shows as soon as the page has something to land on, so the
+  // first press moves it. (It used to be placed invisibly, which made the
+  // first press on every page do nothing but reveal it; that was to avoid
+  // dimming the screen, and the dimming is long gone.) Waits a little for
+  // the preferred start -- Continue watching renders after the rest -- then
+  // settles for the default. Silent on a watch page, where the player owns
+  // the keys.
+  var placeTries = 0;
+  (function place(){
+    if (cur && !silentCur) return;   // the user got there first
+    // (Injected at commit, the page is often still empty: keep trying.)
+    dirty = true;
+    var list = items(), pref = list.length ? preferredStart(list) : null;
+    placeTries++;
+    if (!pref && (placeTries < 4 || (!list.length && placeTries < 12))) { setTimeout(place, 600); return; }
+    if (list.length) mark(pref || pickDefault(list), playingVideo());
+  })();
 })();

@@ -22,7 +22,8 @@ Unofficial. Not affiliated with, endorsed by, or supported by either site.
 
 - **TV layout:** clutter removed and easy navigation for your TV.
 - **Remote control:** browse the site with the arrows and Select.
-- **Link your phone:** browse, search and play on the TV from your phone.
+- **Link your phone:** browse, search and play on the TV from your phone, plus
+  themes, and comments and likes on MDE.
   See [Link your phone](#link-your-phone).
 - **Search:** MDE's search box is in the header.
 - **63% less CPU:** compared with v1.0, measured on MDE's homepage.
@@ -36,7 +37,8 @@ Unofficial. Not affiliated with, endorsed by, or supported by either site.
 
 Press Menu (☰) on the TV, choose **Link your phone** and scan the QR code (same
 Wi-Fi as the TV). Pick something on your phone and it plays on the TV, with
-full controls and a queue. Add the page to your home screen to skip the QR
+full controls and a queue. You can also change the app's theme from your phone, and on MDE read and post
+comments and like episodes. Add the page to your home screen to skip the QR
 code next time.
 
 <img src="assets/screenshots/link-phone-tv.jpg" alt="Link your phone screen on the TV" width="720">

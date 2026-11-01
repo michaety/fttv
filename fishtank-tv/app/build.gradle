@@ -11,8 +11,8 @@ android {
         applicationId "com.fishtank.tv"
         minSdk 22
         targetSdk 34
-        versionCode 21
-        versionName "1.9.2"
+        versionCode 22
+        versionName "2.0.0"
     }
 
     flavorDimensions = ["site"]

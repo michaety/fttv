@@ -493,7 +493,9 @@
     if (document.hidden) return;
     api('/api/status').then(function(s){
       banner('');
-      if (pending && (s.path === pending.path || Date.now() - pending.at > 20000)) pending = null;
+      // Still starting until the TV is actually playing it: while the page
+      // loads the TV reports the new path with no video, which would hide the bar.
+      if (pending && ((s.path === pending.path && s.video) || Date.now() - pending.at > 20000)) pending = null;
       if (s.video) {
         idlePolls = 0;
         // Just pressed something: keep what the press showed until the TV catches up.

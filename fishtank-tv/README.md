@@ -370,6 +370,14 @@ minute:
   of a progress bar. It goes away as soon as anything newer is opened
   anywhere, so there's only ever one. It starts from the beginning.
 
+**One copy of the app.** MainActivity is `singleTask`. It used to be the
+default launch mode, so opening the app while it was already open (Fire TV
+home, the installer's OPEN, `am start`) stacked another copy on top; four
+were found, each with its own WebView, player and audio stream alive in the
+background, using the memory the renderer needs and competing for the video
+hardware (two audio streams at once, out-of-sync audio). Check with
+`dumpsys activity activities | grep Activities=` -- there should be one.
+
 **Renderer crashes.** On a ~2GB Firestick the low-memory killer sometimes
 takes out the WebView's renderer, most often when mde's up-next card switches
 episodes. `onRenderProcessGone` rebuilds the WebView and reloads where it was.

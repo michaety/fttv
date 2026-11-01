@@ -19,10 +19,16 @@
         android:hardwareAccelerated="true"
         android:theme="@style/AppTheme">
 
+        <!-- singleTask: launching the app while it's open brings that copy back
+             rather than starting another on top. Each extra copy kept its own
+             WebView, player and audio stream running in the background (four
+             were found stacked), which used memory the renderer needs and put
+             the copies' players in competition for the video hardware. -->
         <activity
             android:name=".MainActivity"
             android:banner="@drawable/banner"
             android:exported="true"
+            android:launchMode="singleTask"
             android:screenOrientation="landscape"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|uiMode|keyboard|keyboardHidden|navigation">
             <intent-filter>

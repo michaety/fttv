@@ -410,7 +410,25 @@ For the phone's Continue watching, `syncAccount` copies the list into
   nothing is ever saved) and 409 otherwise.
 - Paused: the controls show the episode's date and the first four lines of its
   description (`.__ftv_desc`, from the same `/videos/<tag>` request as the likes).
-- Shuffle: the TV Menu on a show's page or episode offers "Shuffle <show>"
+- Spotlight full screen: while the cursor is on it and its clip is playing,
+  the clip fills the screen with the slide's name over it. The Fire TV draws
+  video on its own layer *under* the page, so everything else goes to
+  `opacity:0` (still hit-testable, unlike `visibility:hidden`). The Spotlight
+  link and its thumbnail also go `position:fixed` full-screen, because the
+  browser keeps the clip's box inside that link. Clips wider than 2.2:1
+  (16:9 footage stretched for the banner) use `object-fit:fill`, which
+  squeezes them back to 16:9; the rest use `contain`.
+- Up reaches the top bar (search, profile) only from the very top of the page.
+  Further down, Up scrolls the page instead, even when the rows above are out
+  of the candidates' reach.
+- The episode player is never paused as a "homepage video" (decided by being
+  inside the landing page, not by the address, which lags behind in-page
+  navigation), and it's unmuted when it starts. The site falls back to muted
+  playback when a start is interrupted.
+- Shuffle: a button on each show's page, in the row with Play and Share, using
+  the site's own FatCow icon `arrow_switch.png`. The phone's show sheet has
+  one too (`/api/shuffle?tag=`). The TV Menu on a show's page or episode
+  offers "Shuffle <show>"
   (name from `/series/<tag>`). It plays a random episode of that show from
   `/series/<tag>/videos`. Autoplay keeps shuffling, because the `/videos/next`
   answer is swapped, as the queue does. It stops as soon as anything else is

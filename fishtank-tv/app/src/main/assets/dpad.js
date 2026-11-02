@@ -217,6 +217,7 @@
       try { renderRecent(); } catch (e) {}
       try { syncAccount(); } catch (e) {}
       try { renderPscRows(); } catch (e) {}
+      try { renderShuffleButton(); } catch (e) {}
       restoreReturnFocus();
     }, 250);
   }
@@ -1179,8 +1180,9 @@
     if (!name && location.pathname === '/series/' + tag) { var h = document.querySelector('h1'); name = h && cleanTitle(h.textContent); }
     return name || tag;
   };
-  window.__ftvShuffle = function(){
-    var tag = showTag();
+  // tag: the show to shuffle (from the phone); else the one this page is about.
+  window.__ftvShuffle = function(want){
+    var tag = (typeof want === 'string' && /^[a-z0-9-]+$/.test(want) && want) || showTag();
     if (!tag) return 'none';
     showEpisodes(tag).then(function(list){
       var v = randomEpisode(list);
@@ -1191,6 +1193,46 @@
     });
     return 'ok';
   };
+  // A Shuffle button on a show's page, in the row with the site's own
+  // buttons and styled like them. Ours, so only ever added or re-added.
+  function renderShuffleButton(){
+    var tag = showTag();
+    var page = tag && location.pathname === '/series/' + tag;
+    var mine = document.getElementById('__ftv_shuffle_btn');
+    if (!page) { if (mine) mine.remove(); return; }
+    if (mine && document.contains(mine) && mine.__tag === tag) return;
+    var info = document.querySelector('main [class*="_header"] [class*="_info"]');
+    var row = info && (info.querySelector('[class*="_buttons"]') || null);
+    var siteBtn = row && row.querySelector('button, a');
+    if (!siteBtn) return;   // not rendered yet: next tick
+    if (mine) mine.remove();
+    var cs = getComputedStyle(siteBtn);
+    var b = document.createElement('button');
+    b.id = '__ftv_shuffle_btn';
+    b.__tag = tag;
+    b.type = 'button';
+    // The site's own icon set (FatCow, as its Play and Share), and its
+    // button's exact look, copied from the button beside it.
+    var ic = document.createElement('img');
+    ic.src = 'https://cdn.mde.tv/icons/32/arrow_switch.png';
+    ic.alt = '';
+    var si = siteBtn.querySelector('img');
+    var isz = si ? getComputedStyle(si) : null;
+    ic.style.cssText = 'width:' + (isz ? isz.width : '32px') + ';height:' + (isz ? isz.height : '32px') + ';flex:none;';
+    b.appendChild(ic);
+    b.appendChild(document.createTextNode('Shuffle'));
+    b.setAttribute('aria-label', 'Shuffle this show');
+    ['display', 'alignItems', 'justifyContent', 'gap', 'font', 'letterSpacing', 'textTransform', 'color', 'background',
+     'border', 'borderRadius', 'boxShadow', 'padding', 'height', 'textShadow', 'flex', 'width', 'minWidth'].forEach(function(k){
+      try { b.style[k] = cs[k]; } catch (e) {}
+    });
+    b.style.margin = '0';
+    b.style.cursor = 'pointer';
+    b.addEventListener('click', function(e){ e.preventDefault(); window.__ftvShuffle(tag); });
+    row.appendChild(b);
+    dirty = true;
+  }
+
   // Autoplay's pick while shuffling (null: not shuffling, or not loaded yet).
   function shuffleNext(){
     var st = shuffleState(), tag = showTag();
@@ -1385,11 +1427,81 @@
   }
   function isSpotPlaying(v){ return spotOn && v && v === spotVideo(); }
   function updateSpotlightVideo(){
-    if (!PAUSE_HOME_VIDEOS || location.pathname !== '/') { spotOn = false; return; }
+    if (!PAUSE_HOME_VIDEOS || location.pathname !== '/') { spotOn = false; spotFull(null); return; }
     var v = spotVideo();
     spotOn = !!v;
     if (v && v.paused) { v.muted = true; try { var p = v.play(); if (p && p.catch) p.catch(function(){}); } catch (e) {} }
     if (!v) pauseHomeVideos();
+    spotFull(v);
+  }
+  // While the Spotlight has the cursor its clip fills the screen, in its own
+  // shape (the banner is ~5:1, so it showed a cropped, zoomed strip), with
+  // the slide's name over it. Purely a look: pointer-events:none keeps the
+  // page underneath as it is for the cursor (elementFromPoint skips it), so
+  // LEFT/RIGHT still change slides, Select opens one, DOWN goes back.
+  var spotFullEl = null, spotFullTimer = null;
+  function spotFull(v){
+    var root = document.documentElement;
+    if (!v) {
+      if (spotFullTimer) { clearInterval(spotFullTimer); spotFullTimer = null; }
+      root.classList.remove('__ftv_spotfull');
+      if (spotFullEl) spotFullEl.classList.remove('__ftv_on');
+      return;
+    }
+    if (!spotFullEl) {
+      var st = document.createElement('style');
+      st.textContent =
+        // The Fire TV draws video on its own layer *under* the page, so the
+        // rest of the page is made transparent (opacity, not visibility:
+        // still there for the cursor's hit tests) rather than covered.
+        'html.__ftv_spotfull,html.__ftv_spotfull body{background:#000!important;}' +
+        'html.__ftv_spotfull body *:not(:has(video)):not(video):not(#__ftv_spottitle):not(#__ftv_spottitle *){opacity:0!important;transition:opacity .25s;}' +
+        // The browser keeps the clip's box inside the Spotlight link (it acts
+        // as its container), so the link and its thumbnail fill the screen too.
+        'html.__ftv_spotfull [class*="_spotlight"] a:has(video),html.__ftv_spotfull [class*="_spotlight"] a:has(video) [class*="_thumbnail"]{' +
+          'position:fixed!important;left:0!important;top:0!important;width:100vw!important;height:100vh!important;margin:0!important;border-radius:0!important;}' +
+        'html.__ftv_spotfull [class*="_spotlight"] video{position:fixed!important;left:0!important;top:0!important;' +
+          'width:100vw!important;height:100vh!important;max-width:none!important;' +
+          'background:#000!important;z-index:2147483000!important;pointer-events:none!important;transform:none!important;}' +
+        'html.__ftv_spotfull #__ftv_veil{opacity:0!important;}' +
+        '#__ftv_spottitle{position:fixed;left:0;right:0;bottom:0;z-index:2147483001;pointer-events:none;opacity:0;' +
+          'padding:120px 48px 40px;background:linear-gradient(transparent,rgba(0,0,0,.85));transition:opacity .35s;' +
+          'font:600 44px/1.05 "FFGothic TwoTwo",sans-serif;color:#fff200;text-transform:uppercase;text-shadow:3px 3px 0 #000;}' +
+        '#__ftv_spottitle.__ftv_on{opacity:1;}' +
+        '#__ftv_spottitle small{display:block;margin-top:10px;font:30px/1.1 "FFGothic TwoTwo",sans-serif;color:#fff;text-transform:none;}' +
+        '#__ftv_spottitle i{display:block;margin-top:14px;font:15px "Share Tech Mono",monospace;color:#aaa;font-style:normal;text-transform:none;}';
+      document.head.appendChild(st);
+      spotFullEl = document.createElement('div');
+      spotFullEl.id = '__ftv_spottitle';
+      document.body.appendChild(spotFullEl);
+    }
+    // Only once the clip is really playing (no black screen while it loads),
+    // and the title follows the slide as the carousel rotates.
+    var sync = function(){
+      var vv = spotVideo();
+      if (!vv) return spotFull(null);
+      var on = !vv.paused && vv.currentTime > 0.2;
+      // Some clips are 16:9 footage stretched to ~2.7:1 for the banner:
+      // squeezed back to 16:9. Others keep their own shape.
+      var ratio = vv.videoWidth && vv.videoHeight ? vv.videoWidth / vv.videoHeight : 16 / 9;
+      vv.style.setProperty('object-fit', on ? (ratio > 2.2 ? 'fill' : 'contain') : '', on ? 'important' : '');
+      root.classList.toggle('__ftv_spotfull', on);
+      var a = cur && cur.closest && cur.closest('a[href]');
+      var lines = a ? a.innerText.split('\n').map(function(t){ return t.trim(); }).filter(Boolean) : [];
+      var sig = lines.join('|');
+      if (spotFullEl.__sig !== sig) {
+        spotFullEl.__sig = sig;
+        spotFullEl.textContent = '';
+        spotFullEl.appendChild(document.createTextNode(lines[0] || ''));
+        if (lines.length > 1) { var sm = document.createElement('small'); sm.textContent = lines.slice(1).join(' \u00b7 '); spotFullEl.appendChild(sm); }
+        var hint = document.createElement('i');
+        hint.textContent = 'Select to watch \u00b7 \u25C0 \u25B6 more \u00b7 \u25BC browse';
+        spotFullEl.appendChild(hint);
+      }
+      spotFullEl.classList.toggle('__ftv_on', on);
+    };
+    sync();
+    if (!spotFullTimer) spotFullTimer = setInterval(sync, 300);
   }
   function stopAfterFirstFrame(v){
     if (v.poster) {
@@ -2638,6 +2750,8 @@
     var track = (dir === 'left' || dir === 'right') ? curTrack() : null;
     var wideW = window.innerWidth * 0.6;
     var curInTopBar = dir === 'up' && inTopBar(cur, a);
+    var se = document.scrollingElement || document.documentElement;
+    var pageScrolledDown = dir === 'up' && !curInTopBar && Math.max(window.scrollY || 0, se.scrollTop || 0) > 40;
 
     for (var i = 0; i < list.length; i++) {
       var el = list[i];
@@ -2674,8 +2788,13 @@
       if (!inBeam(a, b, dir)) score += 1e6;
       // UP through the page doesn't stop at the top bar (it stays on screen,
       // so it was nearly always "closest" and every other press landed on
-      // the search box). It's reached when nothing else is above.
-      if (dir === 'up' && !curInTopBar && inTopBar(el, b)) score += 1e7;
+      // the search box). It's reached only from the very top of the page:
+      // further down, with the rows above out of the candidates' reach, UP
+      // scrolls the page instead (doNavigate's fallback) of jumping to it.
+      if (dir === 'up' && !curInTopBar && inTopBar(el, b)) {
+        if (pageScrolledDown) continue;
+        score += 1e7;
+      }
       scored.push({ el: el, score: score });
     }
     // Best first, skipping anything hidden under something else.

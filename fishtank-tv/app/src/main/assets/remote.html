@@ -46,6 +46,7 @@
   <div class="sh-head">
     <button id="shBack" aria-label="Back">‹</button>
     <h2 id="shTitle"></h2>
+    <button id="shShuffle" hidden>&#x292E; Shuffle</button>
     <button id="shSort"></button>
   </div>
   <div class="list" id="shList"></div>
@@ -245,7 +246,7 @@
     }
     if (s.episodes) foot.appendChild(el('span', 'eps', s.episodes + (s.episodes === 1 ? ' episode' : ' episodes')));
     b.appendChild(foot);
-    b.onclick = function(){ openSheet(s.title, api('/api/series', { tag: s.tag }).then(function(d){ return d.items; })); };
+    b.onclick = function(){ openSheet(s.title, api('/api/series', { tag: s.tag }).then(function(d){ return d.items; }), null, s.tag); };
     return b;
   }
   function seriesGrid(list){
@@ -338,8 +339,12 @@
     if (!list.length) box.appendChild(el('p', 'empty', 'Nothing here right now.'));
     $('#shSort').textContent = sheetItems.length > 1 ? '⇅ Reverse' : '';
   }
-  function openSheet(title, items, lineOpts){
+  // showTag: an mde show's tag, for its Shuffle button (else none).
+  var sheetShow = null;
+  function openSheet(title, items, lineOpts, showTag){
     $('#shTitle').textContent = title;
+    sheetShow = (!fishtank && showTag) || null;
+    $('#shShuffle').hidden = !sheetShow;
     sheetItems = []; reversed = false; sheetLineOpts = lineOpts || null;
     $('#shList').innerHTML = '<p class="empty" style="margin-top:14px">Loading…</p>';
     $('#shSort').textContent = '';
@@ -367,6 +372,10 @@
   });
   $('#shBack').onclick = function(){ if (sheetOpen) history.back(); };
   $('#shSort').onclick = function(){ reversed = !reversed; renderSheet(); $('#shList').scrollTop = 0; };
+  $('#shShuffle').onclick = function(){
+    if (!sheetShow) return;
+    api('/api/shuffle', { tag: sheetShow }).then(function(){ toast('Shuffling on the TV'); setTimeout(poll, 3000); }).catch(offline);
+  };
 
   function load(){
     api('/api/home').then(function(d){
@@ -712,7 +721,7 @@
     $('#plBg').style.backgroundImage = url ? 'url("' + url.replace(/"/g, '%22') + '")' : '';
   }
   $('#plSeries').onclick = function(){
-    if (plEp && plEp.seriesTag) openSheet(plEp.series, api('/api/series', { tag: plEp.seriesTag }).then(function(d){ return d.items; }));
+    if (plEp && plEp.seriesTag) openSheet(plEp.series, api('/api/series', { tag: plEp.seriesTag }).then(function(d){ return d.items; }), null, plEp.seriesTag);
   };
 
   function listIndex(){

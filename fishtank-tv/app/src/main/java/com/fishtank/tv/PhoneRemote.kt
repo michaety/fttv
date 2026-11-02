@@ -173,6 +173,15 @@ class PhoneRemote(private val context: Context, private val host: Host) {
                 if (fishtank || !SERIES_TAG.matches(tag)) Triple("400 Bad Request", "text/plain", "bad series")
                 else json(mdeSeries(tag))
             }
+            "/api/shuffle" -> {
+                // mde: a random episode of the show on the TV, and autoplay keeps shuffling.
+                val tag = q["tag"].orEmpty()
+                if (fishtank || !SERIES_TAG.matches(tag)) Triple("400 Bad Request", "text/plain", "bad series")
+                else {
+                    evalOnMain("window.__ftvShuffle ? window.__ftvShuffle(" + JSONObject.quote(tag) + ") : 'none'")
+                    json(JSONObject().put("ok", true))
+                }
+            }
             "/api/status" -> json(status())
             "/api/episode" -> {
                 val p = q["path"].orEmpty()

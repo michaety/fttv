@@ -1030,7 +1030,7 @@
   // Drag a queued episode by its handle (which never scrolls the page), up
   // or down; drop to save the order. The row stays where it was dropped.
   function dragToReorder(row, list, grip){
-    var startY = 0, rows = null, from = 0, to = 0, h = 0;
+    var startY = 0, rows = null, from = 0, to = 0, h = 0, lastDy = 0;
     grip.addEventListener('touchstart', function(e){
       e.preventDefault();
       e.stopPropagation();
@@ -1048,6 +1048,7 @@
       e.stopPropagation();
       // Kept within the queue: first place to last.
       var dy = Math.max(-from * h, Math.min((rows.length - 1 - from) * h, e.touches[0].clientY - startY));
+      lastDy = dy;
       row.style.transform = 'translateY(' + dy + 'px)';
       to = Math.max(0, Math.min(rows.length - 1, from + Math.round(dy / h)));
       rows.forEach(function(r, i){
@@ -1058,12 +1059,23 @@
     }, { passive: false });
     var end = function(){
       if (!rows) return;
-      row.classList.remove('q-drag');
-      rows.forEach(function(r){ r.style.transform = ''; });
+      // Reorder and clear the other rows' shifts in one step, with no
+      // animation (they're already where they end up); then only the dragged
+      // row glides the last few pixels into its slot.
+      rows.forEach(function(r){ r.style.transition = 'none'; r.style.transform = ''; });
       if (to !== from) {
-        // Put it there now, then tell the TV.
         list.removeChild(row);
         list.insertBefore(row, list.children[to] || null);
+      }
+      var rest = lastDy - (to - from) * h;
+      row.style.transform = rest ? 'translateY(' + rest + 'px)' : '';
+      row.getBoundingClientRect();
+      rows.forEach(function(r){ r.style.transition = ''; });
+      row.classList.remove('q-drag');
+      row.style.transform = '';
+      lastDy = 0;
+      if (to !== from) {
+        // Tell the TV.
         var path = row.__v.path, dest = to;
         api('/api/queue/move', { path: path, to: dest }).then(function(d){
           qDragging = false; qPending = null; renderQueue(d);

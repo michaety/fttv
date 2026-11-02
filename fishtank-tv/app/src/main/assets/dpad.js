@@ -2536,6 +2536,8 @@
     savedScale = [el.style.getPropertyValue('scale'), el.style.getPropertyPriority('scale')];
     savedOrigin = [el.style.getPropertyValue('transform-origin'), el.style.getPropertyPriority('transform-origin')];
     el.classList.add('__ftv_focus');
+    // Text fields (the search box) get the ring but no zoom.
+    if (isEditable(el)) curZoom = 1;
     // As percentages, not px: inside an ancestor with CSS zoom (fishtank's
     // episodes page) local px are scaled, while curOx/curOy were measured
     // in screen px -- the zoom would then anchor slightly off the lift.
@@ -2812,7 +2814,24 @@
         if (pageScrolledDown) continue;
         score += 1e7;
       }
-      scored.push({ el: el, score: score });
+      scored.push({ el: el, score: score, r: b });
+    }
+    // UP/DOWN never skip a row: anything with another candidate entirely
+    // between it and the cursor loses to that nearer row. (A full-width
+    // item -- mde's Spotlight -- measured edge to edge scored close enough
+    // that UP from the New row could jump over Continue watching.)
+    if (dir === 'up' || dir === 'down') {
+      for (var x = 0; x < scored.length; x++) {
+        var X = scored[x].r;
+        if (scored[x].score >= 1e7) continue;
+        for (var y = 0; y < scored.length; y++) {
+          if (y === x || scored[y].score >= 1e7) continue;
+          var Y = scored[y].r;
+          var between = dir === 'up' ? (Y.top >= X.bottom - 2 && Y.bottom <= a.top + 2)
+                                     : (Y.bottom <= X.top + 2 && Y.top >= a.bottom - 2);
+          if (between) { scored[x].score += 2e6; break; }
+        }
+      }
     }
     // Best first, skipping anything hidden under something else.
     scored.sort(function(a, b){ return a.score - b.score; });

@@ -585,13 +585,10 @@
     if (!entry || !entry.path || !(entry.dur > 60)) return;
     if (entry.t > entry.dur - 30) { removeRecent(entry.path); return; }   // finished
     if (entry.t < 15) return;                                           // barely started
-    var prev = null;
-    var list = loadRecent().filter(function(x){ if (x.path === entry.path) prev = x; return x.path !== entry.path; });
+    var list = loadRecent().filter(function(x){ return x.path !== entry.path; });
     entry.ts = Date.now();
-    if (prev && prev.wasWatched !== undefined) entry.wasWatched = prev.wasWatched;
     list.unshift(entry);
     saveRecent(list);
-    if (entry.wasWatched === undefined) noteWasWatched(entry.path);
   }
   function cleanTitle(t){
     return String(t || '').replace(/\s+/g, ' ').trim().replace(/\.(mp4|mov|mkv|webm)$/i, '');
@@ -608,106 +605,64 @@
     entry.ts = Date.now();
     list.unshift(entry);
     saveRecent(list);
-    noteWasWatched(entry.path);
   }
 
-  // ---- Watched on another device (mde) --------------------------------
-  // mde keeps two things on the account that every device shares: a watched
-  // flag on each episode (set near its end; from /series/<show>/videos) and
-  // the History list (every episode page opened, newest first -- no times or
-  // positions; positions stay in each browser). On the homepage they're used
-  // to
-  //  - drop an entry finished somewhere else since the TV saved it. Its
-  //    flag is noted when the TV first saves it (wasWatched), so rewatching
-  //    an episode finished long ago doesn't make it vanish;
-  //  - show the last episode opened anywhere, if that was on another device
-  //    and it's unfinished, as one card marked "On another device"
-  //    (elsewhere). It only lasts while it's the latest thing opened, so it
-  //    never piles up, and it starts from the beginning.
-  var LAST_OPENED_KEY = '__ftv_last_opened', DISMISSED_KEY = '__ftv_dismissed';
-  function epOf(path){
-    var m = /^\/series\/([^/]+)\/([^/]+)/.exec(path || '');
-    return m && location.host.indexOf('mde.tv') >= 0 ? { show: m[1], tag: m[2] } : null;
-  }
-  // The episode this TV opened last, to tell its own History entries apart.
-  function noteOpened(){
-    if (epOf(location.pathname)) try { localStorage.setItem(LAST_OPENED_KEY, location.pathname); } catch (e) {}
-  }
-  noteOpened();
-  function dismissed(){
-    try { return JSON.parse(localStorage.getItem(DISMISSED_KEY) || '[]') || []; } catch (e) { return []; }
+  // ---- Continue watching from the account (mde) ----------------------
+  // mde saves where you are in each episode to the account (since Nov 2026:
+  // its player PUTs /v1/playback-progress/video/<id> every 30s and resumes
+  // from it on any device), and GET /v1/playback-progress lists the
+  // unfinished ones, newest first -- the site's own "Continue watching and
+  // listening" row. On the homepage the TV's row is rebuilt from that list,
+  // so it matches the site and every other device; the TV's own entries
+  // only fill in until then (or when it can't be reached, or signed out),
+  // and "Up next" cards stay, since the account doesn't do those.
+  // There's no way to delete from that list, so "Remove from Continue
+  // watching" hides an entry here until it's watched again somewhere.
+  var DISMISSED_KEY = '__ftv_dismissed';
+  function dismissedAt(){
+    var out = {}, l = [];
+    try { l = JSON.parse(localStorage.getItem(DISMISSED_KEY) || '[]') || []; } catch (e) {}
+    l.forEach(function(x){ if (x && x.path) out[x.path] = x.at || 0; });
+    return out;
   }
   function dismiss(path){
-    var l = dismissed().filter(function(p){ return p !== path; });
-    l.unshift(path);
-    try { localStorage.setItem(DISMISSED_KEY, JSON.stringify(l.slice(0, 30))); } catch (e) {}
-  }
-  function mdeApi(u){
-    return fetch('https://api.mde.tv/v1/' + u, { credentials: 'include' })
-      .then(function(r){ if (!r.ok) throw new Error(r.status); return r.json(); });
-  }
-  var showWatched = {};   // show -> promise of { episode tag: watched }
-  function watchedIn(show){
-    if (!showWatched[show]) showWatched[show] = mdeApi('series/' + show + '/videos').then(function(j){
-      var m = {};
-      (j.videos || []).forEach(function(v){ m[v.tag] = !!v.watched; });
-      return m;
-    });
-    return showWatched[show];
-  }
-  function noteWasWatched(path){
-    var e = epOf(path);
-    if (!e) return;
-    watchedIn(e.show).then(function(m){
-      if (!(e.tag in m)) return;
-      var list = loadRecent(), hit = false;
-      list.forEach(function(x){ if (x.path === path && x.wasWatched === undefined) { x.wasWatched = m[e.tag]; hit = true; } });
-      if (hit) saveRecent(list);
-    }).catch(function(){});
+    var d = dismissedAt();
+    d[path] = Date.now();
+    var l = Object.keys(d).map(function(p){ return { path: p, at: d[p] }; })
+      .sort(function(x, y){ return y.at - x.at; }).slice(0, 50);
+    try { localStorage.setItem(DISMISSED_KEY, JSON.stringify(l)); } catch (e) {}
   }
   var accountSynced = 0;
   function syncAccount(){
     if (location.host.indexOf('mde.tv') < 0 || location.pathname !== '/' || Date.now() - accountSynced < 60000) return;
     accountSynced = Date.now();
-    showWatched = {};   // fresh flags
-    var last = null, lastPath = '';
-    mdeApi('auth').then(function(j){
-      return mdeApi('playlists/history-' + j.user.id);
-    }).then(function(j){
-      last = j.playlist && j.playlist.videos && j.playlist.videos[0];
-      if (last && last.series_tag && last.tag) lastPath = '/series/' + last.series_tag + '/' + last.tag;
-      var shows = {};
-      loadRecent().concat([{ path: lastPath }]).forEach(function(x){ var e = epOf(x.path); if (e) shows[e.show] = 1; });
-      var names = Object.keys(shows);
-      return Promise.all(names.map(function(s){ return watchedIn(s).catch(function(){ return null; }); })).then(function(maps){
-        var byShow = {};
-        names.forEach(function(s, i){ byShow[s] = maps[i]; });
-        return function(path){ var e = epOf(path), m = e && byShow[e.show]; return m && e.tag in m ? m[e.tag] : undefined; };
-      });
-    }).then(function(watched){
-      var list = loadRecent(), before = JSON.stringify(list);
-      var mine = '';
-      try { mine = localStorage.getItem(LAST_OPENED_KEY) || ''; } catch (e) {}
-      list = list.filter(function(x){
-        var w = watched(x.path);
-        if (x.elsewhere && (x.path !== lastPath || x.path === mine)) return false;
-        if (w === undefined) return true;
-        if (x.elsewhere) return !w;
-        if (x.wasWatched === undefined) { x.wasWatched = w; return true; }
-        return !(w && !x.wasWatched);   // finished somewhere else since
-      });
-      if (lastPath && lastPath !== mine && watched(lastPath) === false && dismissed().indexOf(lastPath) < 0 &&
-          !list.some(function(x){ return x.path === lastPath; })) {
-        list.unshift({ path: lastPath, title: cleanTitle(last.title), series: last.series_name || '',
-                       thumb: last.small_thumbnail || last.thumbnail || '', t: 0, dur: last.duration || 0,
-                       elsewhere: true, wasWatched: false, ts: Date.now() });
-      }
-      if (JSON.stringify(list) !== before) {
-        saveRecent(list);
-        recentSig = '';
-        renderRecent();
-      }
-    }).catch(function(){});
+    fetch('https://api.mde.tv/v1/playback-progress', { credentials: 'include' })
+      .then(function(r){ if (!r.ok) throw new Error(r.status); return r.json(); })
+      .then(function(j){
+        if (!j || !Array.isArray(j.items)) return;
+        var gone = dismissedAt();
+        var acct = j.items.filter(function(i){
+          var m = i && i.media;
+          if (!m || i.kind !== 'video' || !m.series_tag || !m.tag || !(i.position >= 15)) return false;   // barely started
+          var at = gone['/series/' + m.series_tag + '/' + m.tag];
+          return !(at && Date.parse(i.updatedAt) <= at);   // removed here, not watched since
+        }).map(function(i){
+          var m = i.media;
+          return { path: '/series/' + m.series_tag + '/' + m.tag, title: cleanTitle(m.title),
+                   series: m.series_name || '', thumb: m.small_thumbnail || m.medium_thumbnail || '',
+                   t: i.position || 0, dur: i.duration || m.duration || 0, ts: Date.parse(i.updatedAt) || 0 };
+        });
+        var have = {};
+        acct.forEach(function(x){ have[x.path] = 1; });
+        var list = loadRecent(), before = JSON.stringify(list);
+        // Up next cards that haven't been started yet, then the account's list.
+        list = list.filter(function(x){ return x.next && !have[x.path] && !gone[x.path]; }).concat(acct);
+        if (JSON.stringify(list) !== before) {
+          saveRecent(list);
+          recentSig = '';
+          renderRecent();
+        }
+      }).catch(function(){});
   }
 
   // mde: the next episode of the same show, from the API the site's own
@@ -786,12 +741,11 @@
     return bar;
   }
 
-  // Along the bottom of a card's thumbnail: how far in, "Up next", or
-  // "On another device".
+  // Along the bottom of a card's thumbnail: how far in, or "Up next".
   function cardStrip(x){
-    if (!x.next && !x.elsewhere) return progressBar(x.t / x.dur);
+    if (!x.next) return progressBar(x.t / x.dur);
     var tag = document.createElement('div');
-    tag.textContent = x.next ? 'UP NEXT' : 'ON ANOTHER DEVICE';
+    tag.textContent = 'UP NEXT';
     tag.style.cssText = 'position:relative;z-index:2;height:22px;margin-top:-22px;width:100%;box-sizing:border-box;' +
       'padding:0 8px;background:rgba(0,0,0,.75);color:__FTV_ACCENT_HEX__;font:700 13px/22px sans-serif;' +
       'letter-spacing:1px;border-radius:0 0 6px 6px;';
@@ -2572,7 +2526,6 @@
       var r = push.apply(this, arguments);
       if (location.pathname !== from) prevPath = from;
       noteBrowsePage();
-      noteOpened();
       window.__ftvQueue('remove', location.pathname);   // a queued episode opened on the TV
       if (!isEpisodePath(location.pathname)) hideLoader();
       return r;

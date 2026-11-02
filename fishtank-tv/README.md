@@ -144,9 +144,9 @@ again.
 - Continue watching: part-watched episodes (`__ftv_recent` in localStorage,
   newest first, 12 max, dropped when finished) are shown as a row at the top
   of mde's homepage and fishtank's Episodes page. The row is a clone of one
-  of the site's own rows and cards, so it matches each site's style. It's
-  per-TV: neither site stores watch progress on the account (checked by
-  logging playback traffic on both).
+  of the site's own rows and cards, so it matches each site's style. On
+  fishtank it's per-TV (the site keeps no progress on the account); on mde
+  it comes from the account (below).
 - Up next in Continue watching: finishing an episode (last 30s, or `ended`)
   adds the next one with `next: true`, drawn with an "UP NEXT" strip instead
   of a progress bar. On mde the next episode comes from `GET /videos/next/<id>`
@@ -355,20 +355,28 @@ need API 31). It always jumps straight to the latest release, never one version 
   day only for a bug people are actually hitting. Every release costs users
   four presses (prompt, INSTALL, Fire OS's confirmation, OPEN).
 
-**Other devices (mde, `syncAccount` in dpad.js).** Positions aren't on the
-account (each browser keeps its own), but two things are: a `watched` flag per
-episode (`GET /series/<show>/videos`, set near the end) and the History list
-(`GET /playlists/history-<user id>`, user id from `GET /auth`: every episode
-page opened anywhere, newest first, no times). On the homepage, at most once a
-minute:
-- A Continue watching entry is dropped if it's been finished elsewhere since
-  the TV saved it. `wasWatched` is its flag when the TV first saved it, so
-  rewatching an episode finished long ago doesn't vanish.
-- If the newest History entry is unfinished, isn't on the TV, wasn't the last
-  episode this TV opened (`__ftv_last_opened`) and wasn't removed by hand
-  (`__ftv_dismissed`), it goes first with an "On another device" tag instead
-  of a progress bar. It goes away as soon as anything newer is opened
-  anywhere, so there's only ever one. It starts from the beginning.
+**Continue watching from the account (mde, `syncAccount` in dpad.js).** Since
+November 2026 mde keeps your place on the account:
+- Opening an episode: its player calls `POST /v1/playback-progress/video/<id>/session`,
+  which returns the saved `progress`, and starts from it on any device.
+- Saving: it `PUT`s `{sessionId, sequence, position, duration, completed}` to the
+  same URL without `/session`, every 30s and on seek or leaving the page. 409
+  means another device's session took over.
+- Finished: an episode is complete at 98% with 10s or less left.
+- `GET /v1/playback-progress` lists the unfinished ones, newest first. The site's
+  "Continue watching and listening" row is built from it. There's no per-item
+  read and no delete.
+
+On the homepage, at most once a minute, the TV's row is rebuilt from that list:
+- Video items started at least 15s in, plus any "Up next" cards not yet
+  started (the account doesn't do those).
+- The TV's own entries only fill in until then, or when the account can't be
+  reached or you're signed out.
+- "Remove from Continue watching" (TV Menu or phone) can't delete from the
+  account. It hides the entry here instead (`__ftv_dismissed`, `{path, at}`)
+  until its `updatedAt` is newer, i.e. it's been watched again somewhere.
+- The resume itself is the site's own; the app's `__ftv_pos_` resume is
+  fishtank-only.
 
 **One copy of the app.** MainActivity is `singleTask`. It used to be the
 default launch mode, so opening the app while it was already open (Fire TV

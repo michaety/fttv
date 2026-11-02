@@ -29,8 +29,8 @@
 <main id="main">
   <section id="results" hidden><div class="head"><h2>Results</h2></div><div class="plist"></div></section>
   <section id="cameras" hidden><div class="head"><h2>Live</h2></div><div class="row"></div></section>
-  <div id="recent"></div>
   <section id="spotlight" hidden><div class="head"><h2>Spotlight</h2></div><div class="spot"></div><div class="dots"></div></section>
+  <div id="recent"></div>
   <div id="sections"><p class="empty" style="margin-top:18px">Loading…</p></div>
   <div id="shows"></div>
 </main>
@@ -992,14 +992,27 @@
       tools.appendChild(clr);
       box.appendChild(tools);
     }
-    plQueue.queue.forEach(function(v, i){
-      var acts = [['×', function(){ queueOp('remove', v); }, 'Remove from queue']];
-      if (i > 0) acts.unshift(['↑', function(){ queueOp('top', v); }, 'Play this next']);
-      box.appendChild(line(v, null, { label: i === 0 ? 'QUEUED · PLAYS NEXT' : 'QUEUED', actions: acts }));
-    });
-    plQueue.auto.forEach(function(v){
-      box.appendChild(line(v, null, { label: 'AUTOPLAY' }));
-    });
+    // Yours first (hold and drag to reorder), then what autoplay plays after
+    // them: worked out from the show, not stored, so clearing yours leaves it.
+    if (plQueue.queue.length) {
+      box.appendChild(el('div', 'ps-h', 'Your queue'));
+      var mine = el('div', 'q-mine');
+      plQueue.queue.forEach(function(v, i){
+        var acts = [['×', function(){ queueOp('remove', v); }, 'Remove from queue']];
+        var row = line(v, null, { label: i === 0 ? 'PLAYS NEXT' : 'HOLD TO MOVE', actions: acts });
+        row.classList.add('q-item');
+        row.__v = v;
+        dragToReorder(row, mine);
+        mine.appendChild(row);
+      });
+      box.appendChild(mine);
+    }
+    if (plQueue.auto.length) {
+      box.appendChild(el('div', 'ps-h', plQueue.queue.length ? 'Then autoplay' : 'Autoplay'));
+      plQueue.auto.forEach(function(v){
+        box.appendChild(line(v, null, { label: 'AUTOPLAY' }));
+      });
+    }
     if (!plQueue.queue.length && !plQueue.auto.length) {
       box.appendChild(el('p', 'empty', 'Nothing queued. Tap + on any episode to play it next.'));
     }
@@ -1008,6 +1021,46 @@
     $('.ps-tabs [data-tab="next"]').textContent = 'Queue' + (plQueue.queue.length ? ' · ' + plQueue.queue.length : '');
     $('.ps-tabs [data-tab="next"]').title = first ? first.title : '';
     renderNav();
+  }
+  // Hold a queued episode, then drag it up or down; drop to save the order.
+  function dragToReorder(row, list){
+    var timer = null, dragging = false, startY = 0, rows = null, from = 0, to = 0, h = 0;
+    var cancel = function(){ clearTimeout(timer); timer = null; };
+    row.addEventListener('touchstart', function(e){
+      if (e.target.closest('.act')) return;
+      startY = e.touches[0].clientY;
+      timer = setTimeout(function(){
+        dragging = true;
+        rows = [].slice.call(list.children);
+        from = to = rows.indexOf(row);
+        h = row.getBoundingClientRect().height;
+        row.classList.add('q-drag');
+        if (navigator.vibrate) try { navigator.vibrate(15); } catch (e2) {}
+      }, 350);
+    }, { passive: true });
+    row.addEventListener('touchmove', function(e){
+      var y = e.touches[0].clientY;
+      if (!dragging) { if (Math.abs(y - startY) > 8) cancel(); return; }
+      e.preventDefault();
+      var dy = y - startY;
+      row.style.transform = 'translateY(' + dy + 'px)';
+      to = Math.max(0, Math.min(rows.length - 1, from + Math.round(dy / h)));
+      rows.forEach(function(r, i){
+        if (r === row) return;
+        var shift = (from < to && i > from && i <= to) ? -h : (from > to && i < from && i >= to) ? h : 0;
+        r.style.transform = shift ? 'translateY(' + shift + 'px)' : '';
+      });
+    }, { passive: false });
+    var end = function(){
+      cancel();
+      if (!dragging) return;
+      dragging = false;
+      row.classList.remove('q-drag');
+      rows.forEach(function(r){ r.style.transform = ''; });
+      if (to !== from) api('/api/queue/move', { path: row.__v.path, to: to }).then(renderQueue).catch(offline);
+    };
+    row.addEventListener('touchend', end);
+    row.addEventListener('touchcancel', end);
   }
   function queueOp(op, v){
     api('/api/queue/' + op, { path: v.path }).then(renderQueue).catch(offline);

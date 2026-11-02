@@ -527,7 +527,7 @@
     try { q = JSON.parse(sessionStorage.getItem('__ftv_queue') || '[]'); } catch (e) {}
     for (var i = 0; i < q.length; i++) {
       if (q[i].id !== id) continue;
-      for (var j = i + 1; j < q.length && out.length < 5; j++) {
+      for (var j = i + 1; j < q.length && out.length < 60; j++) {
         out.push({ path: '/episodes/' + q[j].id, title: cleanTitle(q[j].title),
                    thumb: ftThumb(q[j].id) });
       }
@@ -545,6 +545,14 @@
       savePlayQueue(q);
     } else if (op === 'clear') {
       savePlayQueue([]);
+    } else if (op === 'move') {
+      // arg: { path, to } -- dragged to position 'to' on the phone.
+      var it = q.filter(function(x){ return x.path === (arg && arg.path); })[0];
+      if (it) {
+        q = q.filter(function(x){ return x !== it; });
+        q.splice(Math.max(0, Math.min(q.length, +arg.to || 0)), 0, it);
+        savePlayQueue(q);
+      }
     } else if (op === 'remove') {
       savePlayQueue(q.filter(function(x){ return x.path !== arg; }));
     } else if (op === 'top') {
@@ -960,6 +968,13 @@
   function injectUpNext(){
     var ul = mdeSiteRow();
     if (!ul) return;
+    // The site puts Continue watching after New and Popular; on the TV it
+    // goes straight under the Spotlight (first in its flex column).
+    var sec = ul.closest('section');
+    if (sec && sec.parentElement && getComputedStyle(sec.parentElement).display === 'flex' && sec.style.order !== '-1') {
+      sec.style.order = '-1';
+      dirty = true;
+    }
     var ups = loadRecent().filter(function(x){ return x.next; });
     var mine = ul.querySelectorAll('li[data-ftv-upnext]');
     var sig = JSON.stringify(ups.map(function(x){ return [x.path, x.seriesThumb || x.thumb]; }));

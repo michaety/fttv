@@ -244,6 +244,13 @@ class PhoneRemote(private val context: Context, private val host: Host) {
                 evalOnMain("window.__ftvRecentRemove && window.__ftvRecentRemove(" + JSONObject.quote(p) + ")")
                 json(JSONObject().put("recent", recent()))
             }
+            "/api/queue/move" -> {
+                val p = q["path"].orEmpty()
+                val to = q["to"]?.toIntOrNull() ?: return Triple("400 Bad Request", "text/plain", "bad position")
+                if (!validPath(p)) return Triple("400 Bad Request", "text/plain", "bad path")
+                evalOnMain("window.__ftvQueue && window.__ftvQueue('move', " + JSONObject().put("path", p).put("to", to) + ")")
+                json(queue())
+            }
             "/api/queue/clear" -> {
                 evalOnMain("window.__ftvQueue && window.__ftvQueue('clear')")
                 json(queue())
@@ -375,7 +382,17 @@ class PhoneRemote(private val context: Context, private val host: Host) {
             val label = p.optString("label")
             val videos = p.optJSONArray("items") ?: JSONArray()
             if (label.equals("Featured", ignoreCase = true)) spotlight = items(videos, big = true) { it.optString("series_tag") }
-            else sections.put(JSONObject().put("title", label).put("items", items(videos) { it.optString("series_tag") }))
+            // The site stopped showing "Free" (Nov 2026).
+            else if (!label.equals("Free", ignoreCase = true))
+                sections.put(JSONObject().put("title", label).put("items", items(videos) { it.optString("series_tag") }))
+        }
+        // Then its hand-picked rows (Directors from Beyond, Rabbit Hole, Car Guys), as the site shows them.
+        val curated = landing.optJSONArray("curatedPlaylists") ?: JSONArray()
+        for (i in 0 until curated.length()) {
+            val p = curated.optJSONObject(i) ?: continue
+            val videos = p.optJSONArray("items") ?: continue
+            if (videos.length() > 0)
+                sections.put(JSONObject().put("title", p.optString("label")).put("items", items(videos) { it.optString("series_tag") }))
         }
         val series = JSONArray()
         val all = landing.optJSONArray("series") ?: JSONArray()
@@ -588,7 +605,7 @@ class PhoneRemote(private val context: Context, private val host: Host) {
                 mdeVideo(p)?.let { v ->
                     val run = mdeRun(tag, v).second
                     val at = run.indexOfFirst { it.optString("id") == v.optString("id") }
-                    if (at >= 0) auto = items(JSONArray(run.drop(at + 1).take(5))) { tag }
+                    if (at >= 0) auto = items(JSONArray(run.drop(at + 1).take(60))) { tag }
                 }
             }
         }

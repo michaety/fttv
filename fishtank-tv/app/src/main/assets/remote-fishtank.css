@@ -360,3 +360,8 @@ h2 svg { flex: none; width: 16px; height: 16px; margin-right: 6px; fill: current
 /* Episodes tab: Shuffle and Reverse along the top. */
 .ps-tools { display: flex; justify-content: flex-end; gap: 4px; padding: 6px 8px 2px; }
 .ps-tools button { padding: 6px 8px; background: none; border: 0; color: #fff; font: 700 14px var(--font); text-transform: uppercase; }
+
+/* Queue: yours (hold and drag to reorder), then autoplay. */
+.q-mine { position: relative; }
+.q-item { transition: transform .15s ease; touch-action: pan-y; -webkit-user-select: none; user-select: none; }
+.q-item.q-drag { transition: none; position: relative; z-index: 5; background: rgba(255,255,255,.08); box-shadow: 0 8px 20px rgba(0,0,0,.6); }

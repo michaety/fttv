@@ -543,6 +543,8 @@
       q = q.filter(function(x){ return x.path !== arg.path; });
       if (op === 'add') q.push(arg); else q.unshift(arg);
       savePlayQueue(q);
+    } else if (op === 'clear') {
+      savePlayQueue([]);
     } else if (op === 'remove') {
       savePlayQueue(q.filter(function(x){ return x.path !== arg; }));
     } else if (op === 'top') {

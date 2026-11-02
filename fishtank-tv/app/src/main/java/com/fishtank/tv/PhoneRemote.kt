@@ -244,6 +244,10 @@ class PhoneRemote(private val context: Context, private val host: Host) {
                 evalOnMain("window.__ftvRecentRemove && window.__ftvRecentRemove(" + JSONObject.quote(p) + ")")
                 json(JSONObject().put("recent", recent()))
             }
+            "/api/queue/clear" -> {
+                evalOnMain("window.__ftvQueue && window.__ftvQueue('clear')")
+                json(queue())
+            }
             "/api/queue/add", "/api/queue/remove", "/api/queue/top" -> {
                 val p = q["path"].orEmpty()
                 if (!validPath(p)) return Triple("400 Bad Request", "text/plain", "bad path")

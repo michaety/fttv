@@ -46,7 +46,6 @@
   <div class="sh-head">
     <button id="shBack" aria-label="Back">‹</button>
     <h2 id="shTitle"></h2>
-    <button id="shShuffle" hidden>&#x292E; Shuffle</button>
     <button id="shSort"></button>
   </div>
   <div class="list" id="shList"></div>
@@ -344,7 +343,6 @@
   function openSheet(title, items, lineOpts, showTag){
     $('#shTitle').textContent = title;
     sheetShow = (!fishtank && showTag) || null;
-    $('#shShuffle').hidden = !sheetShow;
     sheetItems = []; reversed = false; sheetLineOpts = lineOpts || null;
     $('#shList').innerHTML = '<p class="empty" style="margin-top:14px">Loading…</p>';
     $('#shSort').textContent = '';
@@ -372,10 +370,7 @@
   });
   $('#shBack').onclick = function(){ if (sheetOpen) history.back(); };
   $('#shSort').onclick = function(){ reversed = !reversed; renderSheet(); $('#shList').scrollTop = 0; };
-  $('#shShuffle').onclick = function(){
-    if (!sheetShow) return;
-    api('/api/shuffle', { tag: sheetShow }).then(function(){ toast('Shuffling on the TV'); setTimeout(poll, 3000); }).catch(offline);
-  };
+
 
   function load(){
     api('/api/home').then(function(d){
@@ -755,13 +750,6 @@
     box.innerHTML = '';
     if (!list.length) { box.appendChild(el('p', 'empty', plEp ? 'Nothing else in this series.' : 'Loading…')); return; }
     var tools = el('div', 'ps-tools');
-    if (!fishtank && plEp.seriesTag) {
-      var sh = el('button', '', '⤮ Shuffle');
-      sh.onclick = function(){
-        api('/api/shuffle', { tag: plEp.seriesTag }).then(function(){ toast('Shuffling on the TV'); setTimeout(poll, 3000); }).catch(offline);
-      };
-      tools.appendChild(sh);
-    }
     if (list.length > 1) {
       var rv = el('button', '', '⇅ Reverse');
       rv.onclick = function(){ moreReversed = !moreReversed; renderMore(); };
@@ -996,6 +984,14 @@
     plQueue = { queue: d.queue || [], auto: d.auto || [] };
     var box = $('#plQueue');
     box.innerHTML = '';
+    if (plQueue.queue.length) {
+      var tools = el('div', 'ps-tools'), clr = el('button', '', '✕ Clear queue');
+      clr.onclick = function(){
+        api('/api/queue/clear').then(function(d){ renderQueue(d); toast('Queue cleared'); }).catch(offline);
+      };
+      tools.appendChild(clr);
+      box.appendChild(tools);
+    }
     plQueue.queue.forEach(function(v, i){
       var acts = [['×', function(){ queueOp('remove', v); }, 'Remove from queue']];
       if (i > 0) acts.unshift(['↑', function(){ queueOp('top', v); }, 'Play this next']);

@@ -386,9 +386,17 @@ For the phone's Continue watching, `syncAccount` copies the list into
   started (the account doesn't do those).
 - The TV's own entries only fill in until then, or when the account can't be
   reached or you're signed out.
-- Removing an entry on the phone can't delete it from the account. It hides
-  the entry there (`__ftv_dismissed`, `{path, at}`) until its `updatedAt` is
-  newer, i.e. it's been watched again somewhere.
+- Removing an entry (phone, or Menu on an Up next card) deletes it from the
+  account with `DELETE /v1/playback-progress/video/<id>`, the route behind the
+  site's own ✕ on its Continue watching row (added 2026-11-03). Before that
+  existed, and as a fallback if it 404s/405s, it resets the entry:
+  `POST …/video/<id>/session`, then `PUT` the same path with
+  `{sessionId, sequence: 1, position: 0, duration, completed: false}` (a PUT
+  without a session gets 409), which also drops it without marking it watched.
+  Either way the resume point is lost. Finished episodes' watched flags still
+  can't be cleared (`DELETE /videos/<id>/history` 404s). It also hides the
+  entry (`__ftv_dismissed`, `{path, at}`) until its `updatedAt` is newer, i.e.
+  it's been watched again somewhere, in case both calls fail.
 - The resume itself is the site's own; the app's `__ftv_pos_` resume is
   fishtank-only.
 

@@ -597,14 +597,34 @@
   // Removing an entry by hand: from the TV's Menu (the card the cursor is
   // on, see __ftvFocusedRecent) or from the phone remote.
   window.__ftvRecentRemove = function(path){
+    var gone = loadRecent().filter(function(x){ return x.path === path; })[0];
     removeRecent(path);
     dismiss(path);   // and never offer it as "On another device"
+    if (location.host.indexOf('mde.tv') >= 0 && !(gone && gone.next)) {
+      if (gone && gone.id) resetAccountProgress(gone.id, gone.dur);
+      else {
+        // Not in the app's copy yet (a card of the site's own row): look it up.
+        var tag = (/^\/series\/[^/]+\/([^/?#]+)/.exec(path) || [])[1];
+        if (tag) videoInfo(tag).then(function(v){ if (v && v.id) resetAccountProgress(v.id, v.duration); });
+      }
+      // The site's own card goes from its row straight away (hidden, not
+      // removed: React owns that list), and the site is nudged to refetch it.
+      var ul = mdeSiteRow();
+      if (ul) [].forEach.call(ul.querySelectorAll('a[href="' + path + '"]'), function(a){ var li = a.closest('li'); if (li) li.style.display = 'none'; });
+      dirty = true;
+      setTimeout(function(){ try { window.dispatchEvent(new Event('focus')); } catch (e) {} }, 1500);
+    }
     recentSig = '';
     try { renderRecent(); } catch (e) {}
     return 'ok';
   };
   window.__ftvFocusedRecent = function(){
     var a = cur && cur.closest && cur.closest('#__ftv_recent_row a[href], li[data-ftv-upnext] a[href]');
+    // mde's own Continue watching cards too (they can be removed now).
+    if (!a && cur && cur.closest && location.host.indexOf('mde.tv') >= 0) {
+      var ul = mdeSiteRow(), b = ul && cur.closest('a[href]');
+      if (b && ul.contains(b)) a = b;
+    }
     return a ? a.getAttribute('href') : '';
   };
   // entry: { path, title, thumb, t, dur } (seconds)
@@ -643,9 +663,18 @@
   // __ftv_recent for the phone's Continue watching (the TV's own entries
   // only fill in until then, or when it can't be reached or signed out),
   // with "Up next" cards added, since the account doesn't do those.
-  // There's no way to delete from that list, so removing an entry on the
-  // phone hides it there until it's watched again somewhere.
+  // Removing an entry deletes it from the account's list (resetAccountProgress,
+  // the site's own ✕ route). The dismissal also hides it here in case that
+  // fails, until it's watched again.
   var DISMISSED_KEY = '__ftv_dismissed';
+  // Before removing was possible, the phone's x only hid entries, which are
+  // still on the account: start clean once so the phone matches it again.
+  try {
+    if (location.host.indexOf('mde.tv') >= 0 && !localStorage.getItem('__ftv_dismiss_v2')) {
+      localStorage.removeItem(DISMISSED_KEY);
+      localStorage.setItem('__ftv_dismiss_v2', '1');
+    }
+  } catch (e) {}
   function dismissedAt(){
     var out = {}, l = [];
     try { l = JSON.parse(localStorage.getItem(DISMISSED_KEY) || '[]') || []; } catch (e) {}
@@ -658,6 +687,31 @@
     var l = Object.keys(d).map(function(p){ return { path: p, at: d[p] }; })
       .sort(function(x, y){ return y.at - x.at; }).slice(0, 50);
     try { localStorage.setItem(DISMISSED_KEY, JSON.stringify(l)); } catch (e) {}
+  }
+  // Takes an episode off the account's Continue watching for real, the way
+  // the site's own ✕ does: DELETE /v1/playback-progress/video/<id>. If that
+  // isn't there (404/405, an older site), it falls back to what the player
+  // does: open a playback session, then PUT position 0 and completed false,
+  // which also drops the entry without marking it watched. Either way the
+  // resume point is lost. Best effort: if both fail, the dismissal above
+  // still hides it here.
+  function resetAccountProgress(id, dur){
+    if (location.host.indexOf('mde.tv') < 0 || !id) return;
+    var url = 'https://api.mde.tv/v1/playback-progress/video/' + encodeURIComponent(id);
+    var json = { 'Content-Type': 'application/json' };
+    fetch(url, { method: 'DELETE', credentials: 'include' })
+      .then(function(r){
+        if (r.ok) return;
+        if (r.status !== 404 && r.status !== 405) throw new Error(r.status);
+        return fetch(url + '/session', { method: 'POST', credentials: 'include', headers: json, body: '{}' })
+          .then(function(r2){ if (!r2.ok) throw new Error(r2.status); return r2.json(); })
+          .then(function(s){
+            if (!s || !s.sessionId) return;
+            return fetch(url, { method: 'PUT', credentials: 'include', headers: json,
+              body: JSON.stringify({ sessionId: s.sessionId, sequence: 1, position: 0,
+                                     duration: dur || (s.progress && s.progress.duration) || 0, completed: false }) });
+          });
+      }).then(function(){ accountSynced = 0; }).catch(function(){});
   }
   var accountSynced = 0;
   function syncAccount(){
@@ -675,7 +729,7 @@
           return !(at && Date.parse(i.updatedAt) <= at);   // removed here, not watched since
         }).map(function(i){
           var m = i.media;
-          return { path: '/series/' + m.series_tag + '/' + m.tag, title: cleanTitle(m.title),
+          return { id: i.itemId, path: '/series/' + m.series_tag + '/' + m.tag, title: cleanTitle(m.title),
                    series: m.series_name || '', thumb: m.small_thumbnail || m.medium_thumbnail || '',
                    t: i.position || 0, dur: i.duration || m.duration || 0, ts: Date.parse(i.updatedAt) || 0 };
         });

@@ -523,8 +523,13 @@
   // was opened from (see rememberQueue).
   function fishtankAutoNext(){
     var id = episodeId(), q = [], out = [];
+    // After the queue, autoplay carries on through the last queued episode's
+    // season (it brings its row), else the one playing now.
+    var pq = loadPlayQueue(), last = pq[pq.length - 1];
+    var lm = last && /^\/episodes\/([0-9a-f-]{36})$/.exec(last.path);
+    if (lm && last.row && last.row.length) { id = lm[1]; q = last.row; }
     if (!id) return out;
-    try { q = JSON.parse(sessionStorage.getItem('__ftv_queue') || '[]'); } catch (e) {}
+    if (!q.length) try { q = JSON.parse(sessionStorage.getItem('__ftv_queue') || '[]'); } catch (e) {}
     for (var i = 0; i < q.length; i++) {
       if (q[i].id !== id) continue;
       for (var j = i + 1; j < q.length && out.length < 60; j++) {

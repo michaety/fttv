@@ -599,7 +599,10 @@ class PhoneRemote(private val context: Context, private val host: Host) {
         var auto = q.optJSONArray("auto")
         if (auto == null && !fishtank) {
             auto = JSONArray()
-            val p = status().optString("path")
+            // Autoplay carries on from whatever played last: the end of the
+            // queue if there is one, else the episode on the TV now.
+            val lastQueued = if (list.length() > 0) list.optJSONObject(list.length() - 1)?.optString("path").orEmpty() else ""
+            val p = lastQueued.ifEmpty { status().optString("path") }
             val tag = p.split('/').getOrNull(2).orEmpty()
             if (EPISODE_PATH.matches(p) && tag !in NO_NEXT_UP) {
                 mdeVideo(p)?.let { v ->

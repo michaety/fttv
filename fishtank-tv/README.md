@@ -144,9 +144,9 @@ again.
 - Continue watching: part-watched episodes (`__ftv_recent` in localStorage,
   newest first, 12 max, dropped when finished) are shown as a row at the top
   of mde's homepage and fishtank's Episodes page. The row is a clone of one
-  of the site's own rows and cards, so it matches each site's style. On
-  fishtank it's per-TV (the site keeps no progress on the account); on mde
-  it comes from the account (below).
+  of the site's own rows and cards, so it matches each site's style. It's
+  fishtank only, and per-TV (the site keeps no progress on the account). mde
+  has its own row from the account (below), so the app doesn't add one there.
 - Up next in Continue watching: finishing an episode (last 30s, or `ended`)
   adds the next one with `next: true`, drawn with an "UP NEXT" strip instead
   of a progress bar. On mde the next episode comes from `GET /videos/next/<id>`
@@ -367,14 +367,21 @@ November 2026 mde keeps your place on the account:
   "Continue watching and listening" row is built from it. There's no per-item
   read and no delete.
 
-On the homepage, at most once a minute, the TV's row is rebuilt from that list:
+The TV shows mde's own row as it is (the app's row is fishtank-only), and the
+cursor starts on its first card. The site fetches that row after the rest of
+the page, so `place()` waits up to ~7s for it when the account has something
+part-watched. It only fetches while the page is visible: on an asleep TV the
+row never appears.
+
+For the phone's Continue watching, `syncAccount` copies the list into
+`__ftv_recent` from any mde page, at most once a minute:
 - Video items started at least 15s in, plus any "Up next" cards not yet
   started (the account doesn't do those).
 - The TV's own entries only fill in until then, or when the account can't be
   reached or you're signed out.
-- "Remove from Continue watching" (TV Menu or phone) can't delete from the
-  account. It hides the entry here instead (`__ftv_dismissed`, `{path, at}`)
-  until its `updatedAt` is newer, i.e. it's been watched again somewhere.
+- Removing an entry on the phone can't delete it from the account. It hides
+  the entry there (`__ftv_dismissed`, `{path, at}`) until its `updatedAt` is
+  newer, i.e. it's been watched again somewhere.
 - The resume itself is the site's own; the app's `__ftv_pos_` resume is
   fishtank-only.
 

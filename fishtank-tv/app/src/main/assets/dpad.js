@@ -612,12 +612,12 @@
   // its player PUTs /v1/playback-progress/video/<id> every 30s and resumes
   // from it on any device), and GET /v1/playback-progress lists the
   // unfinished ones, newest first -- the site's own "Continue watching and
-  // listening" row. On the homepage the TV's row is rebuilt from that list,
-  // so it matches the site and every other device; the TV's own entries
-  // only fill in until then (or when it can't be reached, or signed out),
-  // and "Up next" cards stay, since the account doesn't do those.
-  // There's no way to delete from that list, so "Remove from Continue
-  // watching" hides an entry here until it's watched again somewhere.
+  // listening" row, which the TV shows as it is. The same list is kept in
+  // __ftv_recent for the phone's Continue watching (the TV's own entries
+  // only fill in until then, or when it can't be reached or signed out),
+  // with "Up next" cards added, since the account doesn't do those.
+  // There's no way to delete from that list, so removing an entry on the
+  // phone hides it there until it's watched again somewhere.
   var DISMISSED_KEY = '__ftv_dismissed';
   function dismissedAt(){
     var out = {}, l = [];
@@ -634,7 +634,7 @@
   }
   var accountSynced = 0;
   function syncAccount(){
-    if (location.host.indexOf('mde.tv') < 0 || location.pathname !== '/' || Date.now() - accountSynced < 60000) return;
+    if (location.host.indexOf('mde.tv') < 0 || Date.now() - accountSynced < 60000) return;
     accountSynced = Date.now();
     fetch('https://api.mde.tv/v1/playback-progress', { credentials: 'include' })
       .then(function(r){ if (!r.ok) throw new Error(r.status); return r.json(); })
@@ -712,11 +712,11 @@
     queueMdeNextUp();
   }, true);
 
-  // Where the row goes on the current page, or null.
+  // Where the row goes on the current page, or null. Not on mde: its
+  // homepage has its own "Continue watching and listening" row, from the
+  // same account list (see syncAccount), so the TV uses that one.
   function recentSlot(){
-    if (location.host.indexOf('mde.tv') >= 0) {
-      return location.pathname === '/' ? document.querySelector('[class*="_landing"]') : null;
-    }
+    if (location.host.indexOf('mde.tv') >= 0) return null;
     if (location.pathname === '/episodes' && !location.search) {
       return document.querySelector('div.flex.flex-col.gap-5.mb-5');
     }
@@ -2023,11 +2023,18 @@
   }
   // The candidate list now reaches a screen past each edge, so the default
   // landing spot has to be chosen from what's actually on screen.
-  // Where the cursor starts: the first Continue watching card if that row
-  // is showing, else fishtank's "Episodes" menu button (the menu it opens
+  // Where the cursor starts: the first Continue watching card (the app's
+  // row, or mde's own) if that row is showing, else fishtank's "Episodes" menu button (the menu it opens
   // on launch), else the first on-screen content item.
   function preferredStart(list){
     var rc = document.querySelector('#__ftv_recent_row a');
+    if (!rc && location.host.indexOf('mde.tv') >= 0) {
+      // mde's own row: the section headed "Continue watching (and listening)".
+      var hs = document.querySelectorAll('section h2');
+      for (var h = 0; h < hs.length && !rc; h++) {
+        if (/continue watching/i.test(hs[h].textContent)) rc = hs[h].parentElement.querySelector('a[href]');
+      }
+    }
     if (rc && list.indexOf(rc) >= 0 && !isCovered(rc)) return rc;
     if (location.host.indexOf('fishtank') >= 0) {
       for (var i = 0; i < list.length; i++) {
@@ -2622,7 +2629,7 @@
     var im = a.querySelector('img');
     return { thumb: im ? (im.currentSrc || im.src) : '',
              title: q('[class*="_title"]') || cleanTitle(a.textContent),
-             series: q('[class*="_seriesName"]') };
+             series: q('[class*="_seriesName"]') || q('[class*="_series"]') };
   }
   // A frame actually on screen (the player may have started before this
   // script was injected, so its play events were missed).
@@ -2912,7 +2919,12 @@
     dirty = true;
     var list = items(), pref = list.length ? preferredStart(list) : null;
     placeTries++;
-    if (!pref && (placeTries < 4 || (!list.length && placeTries < 12))) { setTimeout(place, 600); return; }
+    // mde's own Continue watching row comes from a request of its own, often
+    // after the rest of the page: wait longer for it when the account has
+    // something part-watched (the list syncAccount keeps).
+    var waitFor = location.host.indexOf('mde.tv') >= 0 && location.pathname === '/' &&
+      loadRecent().some(function(x){ return !x.next; }) ? 12 : 4;
+    if (!pref && (placeTries < waitFor || (!list.length && placeTries < 12))) { setTimeout(place, 600); return; }
     if (list.length) mark(pref || pickDefault(list), playingVideo());
   })();
 })();

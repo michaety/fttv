@@ -1458,20 +1458,25 @@
         // still there for the cursor's hit tests) rather than covered.
         'html.__ftv_spotfull,html.__ftv_spotfull body{background:#000!important;}' +
         'html.__ftv_spotfull body *:not(:has(video)):not(video):not(#__ftv_spottitle):not(#__ftv_spottitle *){opacity:0!important;transition:opacity .25s;}' +
-        // The browser keeps the clip's box inside the Spotlight link (it acts
-        // as its container), so the link and its thumbnail fill the screen too.
-        'html.__ftv_spotfull [class*="_spotlight"] a:has(video),html.__ftv_spotfull [class*="_spotlight"] a:has(video) [class*="_thumbnail"]{' +
-          'position:fixed!important;left:0!important;top:0!important;width:100vw!important;height:100vh!important;margin:0!important;border-radius:0!important;}' +
-        'html.__ftv_spotfull [class*="_spotlight"] video{position:fixed!important;left:0!important;top:0!important;' +
-          'width:100vw!important;height:100vh!important;max-width:none!important;' +
-          'background:#000!important;z-index:2147483000!important;pointer-events:none!important;transform:none!important;}' +
+        // A framed 16:9 window, centred, every clip in its own shape inside
+        // it. The browser keeps the clip's box inside the Spotlight link (it
+        // acts as its container), so it's the link that becomes the window.
+        'html.__ftv_spotfull [class*="_spotlight"] a:has(video){position:fixed!important;left:13vw!important;top:4vh!important;' +
+          'width:74vw!important;height:41.625vw!important;margin:0!important;border-radius:6px!important;overflow:hidden!important;' +
+          'background:#000!important;outline:1px solid #505050!important;box-shadow:6px 6px 0 #000!important;scale:none!important;}' +
+        'html.__ftv_spotfull [class*="_spotlight"] a:has(video) [class*="_thumbnail"]{position:absolute!important;inset:0!important;' +
+          'width:100%!important;height:100%!important;margin:0!important;border-radius:0!important;}' +
+        'html.__ftv_spotfull [class*="_spotlight"] video{position:absolute!important;inset:0!important;width:100%!important;height:100%!important;' +
+          'max-width:none!important;object-fit:contain!important;background:#000!important;' +
+          'z-index:2147483000!important;pointer-events:none!important;transform:none!important;}' +
         'html.__ftv_spotfull #__ftv_veil{opacity:0!important;}' +
-        '#__ftv_spottitle{position:fixed;left:0;right:0;bottom:0;z-index:2147483001;pointer-events:none;opacity:0;' +
-          'padding:120px 48px 40px;background:linear-gradient(transparent,rgba(0,0,0,.85));transition:opacity .35s;' +
-          'font:600 44px/1.05 "FFGothic TwoTwo",sans-serif;color:#fff200;text-transform:uppercase;text-shadow:3px 3px 0 #000;}' +
+        '#__ftv_spottitle{position:fixed;left:13vw;right:13vw;top:calc(4vh + 41.625vw + 16px);z-index:2147483001;pointer-events:none;opacity:0;' +
+          'transition:opacity .35s;font:600 28px/1.05 "FFGothic TwoTwo",sans-serif;color:#fff200;text-transform:uppercase;' +
+          'text-shadow:2px 2px 0 #000;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}' +
         '#__ftv_spottitle.__ftv_on{opacity:1;}' +
-        '#__ftv_spottitle small{display:block;margin-top:10px;font:30px/1.1 "FFGothic TwoTwo",sans-serif;color:#fff;text-transform:none;}' +
-        '#__ftv_spottitle i{display:block;margin-top:14px;font:15px "Share Tech Mono",monospace;color:#aaa;font-style:normal;text-transform:none;}';
+        '#__ftv_spottitle small{display:block;margin-top:6px;font:19px/1.1 "FFGothic TwoTwo",sans-serif;color:#fff;text-transform:none;' +
+          'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}' +
+        '#__ftv_spottitle i{display:block;margin-top:8px;font:13px "Share Tech Mono",monospace;color:#aaa;font-style:normal;text-transform:none;}';
       document.head.appendChild(st);
       spotFullEl = document.createElement('div');
       spotFullEl.id = '__ftv_spottitle';
@@ -1483,10 +1488,6 @@
       var vv = spotVideo();
       if (!vv) return spotFull(null);
       var on = !vv.paused && vv.currentTime > 0.2;
-      // Some clips are 16:9 footage stretched to ~2.7:1 for the banner:
-      // squeezed back to 16:9. Others keep their own shape.
-      var ratio = vv.videoWidth && vv.videoHeight ? vv.videoWidth / vv.videoHeight : 16 / 9;
-      vv.style.setProperty('object-fit', on ? (ratio > 2.2 ? 'fill' : 'contain') : '', on ? 'important' : '');
       root.classList.toggle('__ftv_spotfull', on);
       var a = cur && cur.closest && cur.closest('a[href]');
       var lines = a ? a.innerText.split('\n').map(function(t){ return t.trim(); }).filter(Boolean) : [];

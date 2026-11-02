@@ -980,7 +980,9 @@
     api('/api/queue').then(renderQueue).catch(function(){})
       .then(function(){ if (playerOpen) queueTimer = setTimeout(loadQueue, 10000); });
   }
+  var qDragging = false, qPending = null;
   function renderQueue(d){
+    if (qDragging) { qPending = d; return; }
     plQueue = { queue: d.queue || [], auto: d.auto || [] };
     var box = $('#plQueue');
     box.innerHTML = '';
@@ -999,10 +1001,13 @@
       var mine = el('div', 'q-mine');
       plQueue.queue.forEach(function(v, i){
         var acts = [['×', function(){ queueOp('remove', v); }, 'Remove from queue']];
-        var row = line(v, null, { label: i === 0 ? 'PLAYS NEXT' : 'HOLD TO MOVE', actions: acts });
+        var row = line(v, null, { label: i === 0 ? 'PLAYS NEXT' : 'QUEUED', actions: acts });
         row.classList.add('q-item');
         row.__v = v;
-        dragToReorder(row, mine);
+        var grip = el('span', 'q-grip', '\u2261');
+        grip.setAttribute('aria-label', 'Drag to reorder');
+        row.insertBefore(grip, row.firstChild);
+        dragToReorder(row, mine, grip);
         mine.appendChild(row);
       });
       box.appendChild(mine);
@@ -1022,27 +1027,24 @@
     $('.ps-tabs [data-tab="next"]').title = first ? first.title : '';
     renderNav();
   }
-  // Hold a queued episode, then drag it up or down; drop to save the order.
-  function dragToReorder(row, list){
-    var timer = null, dragging = false, startY = 0, rows = null, from = 0, to = 0, h = 0;
-    var cancel = function(){ clearTimeout(timer); timer = null; };
-    row.addEventListener('touchstart', function(e){
-      if (e.target.closest('.act')) return;
-      startY = e.touches[0].clientY;
-      timer = setTimeout(function(){
-        dragging = true;
-        rows = [].slice.call(list.children);
-        from = to = rows.indexOf(row);
-        h = row.getBoundingClientRect().height;
-        row.classList.add('q-drag');
-        if (navigator.vibrate) try { navigator.vibrate(15); } catch (e2) {}
-      }, 350);
-    }, { passive: true });
-    row.addEventListener('touchmove', function(e){
-      var y = e.touches[0].clientY;
-      if (!dragging) { if (Math.abs(y - startY) > 8) cancel(); return; }
+  // Drag a queued episode by its handle (which never scrolls the page), up
+  // or down; drop to save the order. The row stays where it was dropped.
+  function dragToReorder(row, list, grip){
+    var startY = 0, rows = null, from = 0, to = 0, h = 0;
+    grip.addEventListener('touchstart', function(e){
       e.preventDefault();
-      var dy = y - startY;
+      qDragging = true;
+      startY = e.touches[0].clientY;
+      rows = [].slice.call(list.children);
+      from = to = rows.indexOf(row);
+      h = row.getBoundingClientRect().height;
+      row.classList.add('q-drag');
+      if (navigator.vibrate) try { navigator.vibrate(10); } catch (e2) {}
+    }, { passive: false });
+    grip.addEventListener('touchmove', function(e){
+      if (!qDragging || !rows) return;
+      e.preventDefault();
+      var dy = e.touches[0].clientY - startY;
       row.style.transform = 'translateY(' + dy + 'px)';
       to = Math.max(0, Math.min(rows.length - 1, from + Math.round(dy / h)));
       rows.forEach(function(r, i){
@@ -1052,15 +1054,25 @@
       });
     }, { passive: false });
     var end = function(){
-      cancel();
-      if (!dragging) return;
-      dragging = false;
+      if (!rows) return;
       row.classList.remove('q-drag');
       rows.forEach(function(r){ r.style.transform = ''; });
-      if (to !== from) api('/api/queue/move', { path: row.__v.path, to: to }).then(renderQueue).catch(offline);
+      if (to !== from) {
+        // Put it there now, then tell the TV.
+        list.removeChild(row);
+        list.insertBefore(row, list.children[to] || null);
+        var path = row.__v.path, dest = to;
+        api('/api/queue/move', { path: path, to: dest }).then(function(d){
+          qDragging = false; qPending = null; renderQueue(d);
+        }).catch(function(e){ qDragging = false; offline(e); });
+      } else {
+        qDragging = false;
+        if (qPending) { var d = qPending; qPending = null; renderQueue(d); }
+      }
+      rows = null;
     };
-    row.addEventListener('touchend', end);
-    row.addEventListener('touchcancel', end);
+    grip.addEventListener('touchend', end);
+    grip.addEventListener('touchcancel', end);
   }
   function queueOp(op, v){
     api('/api/queue/' + op, { path: v.path }).then(renderQueue).catch(offline);

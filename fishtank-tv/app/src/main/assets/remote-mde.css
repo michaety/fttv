@@ -413,3 +413,8 @@ input.scrub::-moz-range-thumb { width: 12px; height: 20px; border: 1px solid #00
 .q-mine { position: relative; }
 .q-item { transition: transform .15s ease; touch-action: pan-y; -webkit-user-select: none; user-select: none; }
 .q-item.q-drag { transition: none; position: relative; z-index: 5; background: rgba(255,255,255,.08); box-shadow: 0 8px 20px rgba(0,0,0,.6); }
+
+/* Queue drag handle: touching it never scrolls the list. */
+.q-grip { flex: none; width: 34px; align-self: stretch; display: flex; align-items: center; justify-content: center;
+  font-size: 24px; line-height: 1; color: #aaa; touch-action: none; cursor: grab; }
+.q-item { touch-action: auto; }

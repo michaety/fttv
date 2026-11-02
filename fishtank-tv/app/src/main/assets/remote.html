@@ -1006,7 +1006,7 @@
         row.__v = v;
         var grip = el('span', 'q-grip', '\u2261');
         grip.setAttribute('aria-label', 'Drag to reorder');
-        row.insertBefore(grip, row.firstChild);
+        row.appendChild(grip);   // far right, after the x
         dragToReorder(row, mine, grip);
         mine.appendChild(row);
       });

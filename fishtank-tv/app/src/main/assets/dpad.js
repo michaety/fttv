@@ -577,7 +577,7 @@
     return 'ok';
   };
   window.__ftvFocusedRecent = function(){
-    var a = cur && cur.closest && cur.closest('#__ftv_recent_row a[href]');
+    var a = cur && cur.closest && cur.closest('#__ftv_recent_row a[href], li[data-ftv-upnext] a[href]');
     return a ? a.getAttribute('href') : '';
   };
   // entry: { path, title, thumb, t, dur } (seconds)
@@ -684,9 +684,37 @@
       return get('next/' + id).then(function(n){ return n.video; });
     }).then(function(v){
       if (!v || v.series_tag !== m[1]) return;   // last episode of the show
-      recordNextUp({ path: '/series/' + v.series_tag + '/' + v.tag, title: cleanTitle(v.title),
-                     series: v.series_name || '', thumb: v.small_thumbnail || v.thumbnail || '' });
+      var entry = { path: '/series/' + v.series_tag + '/' + v.tag, title: cleanTitle(v.title),
+                    series: v.series_name || '', thumb: v.small_thumbnail || v.thumbnail || '' };
+      return seriesArt(v.series_tag).then(function(art){
+        if (art) entry.seriesThumb = art;
+        recordNextUp(entry);
+      });
     }).catch(function(){});
+  }
+  // mde: a show's own artwork (public, no sign-in), for its Up next card.
+  var seriesArtCache = {};
+  function seriesArt(tag){
+    if (!seriesArtCache[tag]) seriesArtCache[tag] = fetch('https://api.mde.tv/v1/series/' + encodeURIComponent(tag))
+      .then(function(r){ return r.json(); })
+      .then(function(j){ var x = j && j.series; return (x && (x.medium_thumbnail || x.small_thumbnail || x.thumbnail)) || ''; })
+      .catch(function(){ return ''; });
+    return seriesArtCache[tag];
+  }
+  // Up next entries saved before they carried the show's artwork get it.
+  var artFilled = {};
+  function fillSeriesArt(list){
+    list.forEach(function(x){
+      var m = x.next && !x.seriesThumb && /^\/series\/([^/]+)\//.exec(x.path);
+      if (!m || artFilled[x.path]) return;
+      artFilled[x.path] = 1;
+      seriesArt(m[1]).then(function(art){
+        if (!art) return;
+        var l = loadRecent(), hit = false;
+        l.forEach(function(y){ if (y.path === x.path && !y.seriesThumb) { y.seriesThumb = art; hit = true; } });
+        if (hit) { saveRecent(l); recentSig = ''; try { renderRecent(); } catch (e) {} }
+      });
+    });
   }
 
   // mde: its player is the page's own <video>; title and thumbnail come
@@ -712,11 +740,17 @@
     queueMdeNextUp();
   }, true);
 
-  // Where the row goes on the current page, or null. Not on mde: its
-  // homepage has its own "Continue watching and listening" row, from the
-  // same account list (see syncAccount), so the TV uses that one.
+  // Where the row goes on the current page, or null. Not on mde, mostly:
+  // its homepage has its own "Continue watching and listening" row, from
+  // the same account list (see syncAccount), so the TV uses that one, with
+  // the Up next cards added to the front of it (injectUpNext).
   function recentSlot(){
-    if (location.host.indexOf('mde.tv') >= 0) return null;
+    if (location.host.indexOf('mde.tv') >= 0) {
+      // ...except for Up next cards when nothing is part-watched: then the
+      // site shows no row of its own, so they get a row of ours.
+      if (location.pathname !== '/' || mdeSiteRow() || loadRecent().some(function(x){ return !x.next; })) return null;
+      return document.querySelector('[class*="_landing"]');
+    }
     if (location.pathname === '/episodes' && !location.search) {
       return document.querySelector('div.flex.flex-col.gap-5.mb-5');
     }
@@ -865,10 +899,77 @@
     return row;
   }
 
+  // mde's own Continue watching list (the <ul> under its "Continue watching
+  // and listening" heading), or null.
+  function mdeSiteRow(){
+    var hs = document.querySelectorAll('section h2');
+    for (var i = 0; i < hs.length; i++) {
+      if (/continue watching/i.test(hs[i].textContent)) return hs[i].parentElement.querySelector('ul');
+    }
+    return null;
+  }
+  // mde: an Up next card -- the show's artwork, "UP NEXT", the episode's
+  // title; Select plays it -- at the front of the site's own row, made from
+  // a copy of one of its cards. The site's React owns that list, so its own
+  // cards are never touched: ours are only ever added and removed.
+  function upNextCard(tpl, x){
+    var li = tpl.cloneNode(true);
+    li.setAttribute('data-ftv-upnext', '1');
+    li.querySelectorAll('.__ftv_focus').forEach(function(e){ e.classList.remove('__ftv_focus'); });
+    var a = li.querySelector('a[href]');
+    a.href = x.path;
+    a.classList.remove('__ftv_focus');
+    a.removeAttribute('data-ftv');
+    a.setAttribute('aria-label', 'Up next: ' + (x.series ? x.series + ', ' : '') + (x.title || ''));
+    var img = li.querySelector('img');
+    if (img) { img.src = x.seriesThumb || x.thumb || ''; img.removeAttribute('srcset'); img.loading = 'eager'; }
+    li.querySelectorAll('progress').forEach(function(p){ p.remove(); });
+    var set = function(sel, t){ var e = li.querySelector(sel); if (e) e.textContent = t; };
+    set('[class*="_series"]', x.series || '');
+    set('[class*="_title"]', x.title || 'Up next');
+    var rem = li.querySelector('[class*="_remaining"]');
+    if (rem) { rem.textContent = 'Up next'; rem.style.color = '__FTV_ACCENT_HEX__'; }
+    var th = li.querySelector('[class*="_thumbnail"]') || (img && img.parentElement);
+    if (th) {
+      if (getComputedStyle(th).position === 'static') th.style.position = 'relative';
+      var tag = document.createElement('div');
+      tag.textContent = 'UP NEXT';
+      tag.style.cssText = 'position:absolute;left:0;right:0;bottom:0;z-index:2;height:22px;padding:0 8px;' +
+        'background:rgba(0,0,0,.75);color:__FTV_ACCENT_HEX__;font:700 13px/22px sans-serif;letter-spacing:1px;';
+      th.appendChild(tag);
+    }
+    return li;
+  }
+  function injectUpNext(){
+    var ul = mdeSiteRow();
+    if (!ul) return;
+    var ups = loadRecent().filter(function(x){ return x.next; });
+    var mine = ul.querySelectorAll('li[data-ftv-upnext]');
+    var sig = JSON.stringify(ups.map(function(x){ return [x.path, x.seriesThumb || x.thumb]; }));
+    if (ul.__ftvUpSig === sig && mine.length === ups.length && (!mine.length || ul.firstElementChild === mine[0])) return;
+    var tpl = null;
+    for (var i = 0; i < ul.children.length && !tpl; i++) {
+      var c = ul.children[i];
+      if (!c.hasAttribute('data-ftv-upnext') && c.querySelector('a[href]')) tpl = c;
+    }
+    if (!tpl) return;
+    mine.forEach(function(li){ li.remove(); });   // ours, never the site's
+    for (var j = ups.length - 1; j >= 0; j--) ul.insertBefore(upNextCard(tpl, ups[j]), ul.firstChild);
+    ul.__ftvUpSig = sig;
+    dirty = true;
+  }
+
   function renderRecent(){
+    if (location.host.indexOf('mde.tv') >= 0 && location.pathname === '/') {
+      fillSeriesArt(loadRecent());
+      injectUpNext();
+    }
     var slot = recentSlot();
     var row = document.getElementById('__ftv_recent_row');
     var list = slot ? loadRecent() : [];
+    if (location.host.indexOf('mde.tv') >= 0) {
+      list = list.map(function(x){ var y = {}; for (var k in x) y[k] = x[k]; if (x.seriesThumb) y.thumb = x.seriesThumb; return y; });
+    }
     if (!slot || !list.length) { if (row) row.remove(); recentSig = ''; return; }
     // Entries saved with a guessed fishtank thumbnail get the real one.
     list.forEach(function(x){
@@ -2029,6 +2130,10 @@
   function preferredStart(list){
     var rc = document.querySelector('#__ftv_recent_row a');
     if (!rc && location.host.indexOf('mde.tv') >= 0) {
+      // Our Up next card goes in first, so the cursor starts on it rather
+      // than on the site's first card (if it wasn't in the list yet, the
+      // next try picks it up).
+      if (location.pathname === '/') injectUpNext();
       // mde's own row: the section headed "Continue watching (and listening)".
       var hs = document.querySelectorAll('section h2');
       for (var h = 0; h < hs.length && !rc; h++) {

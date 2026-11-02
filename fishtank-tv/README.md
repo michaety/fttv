@@ -367,8 +367,15 @@ November 2026 mde keeps your place on the account:
   "Continue watching and listening" row is built from it. There's no per-item
   read and no delete.
 
-The TV shows mde's own row as it is (the app's row is fishtank-only), and the
-cursor starts on its first card. The site fetches that row after the rest of
+The TV shows mde's own row (the app's row is fishtank-only), and the cursor
+starts on its first card. Up next cards are added to the front of it
+(`injectUpNext`): a copy of one of its cards with the show's artwork
+(`GET /v1/series/<tag>` `medium_thumbnail`, public), "UP NEXT" and the next
+episode's title, which plays it. Those `<li data-ftv-upnext>` are the only
+nodes added to the site's React list, and only they are ever removed. With
+nothing part-watched the site shows no row, so Up next cards get a
+"Continue Watching" row of the app's own (`recentSlot`). The TV Menu's
+"Remove from Continue watching" works on them. The site fetches that row after the rest of
 the page, so `place()` waits up to ~7s for it when the account has something
 part-watched. It only fetches while the page is visible: on an asleep TV the
 row never appears.

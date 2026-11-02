@@ -1437,57 +1437,56 @@
     spotFull(v);
   }
   // While the Spotlight has the cursor and its clip is playing, the banner
-  // grows in place on the homepage (a smooth height animation, the rows
-  // below moving down) so the clip shows at a proper size, in its own shape
-  // (letterboxed on black). It shrinks back when the cursor leaves.
+  // grows downward to ~58% of the screen *over* the rows below (they don't
+  // move: animating the page's layout was janky on a Firestick), the clip in
+  // its own shape on black; it shrinks back when the cursor leaves. Only the
+  // thumbnail box changes size (taken out of the page's flow), and it lets
+  // the cursor's hit tests through (pointer-events:none), so DOWN still
+  // finds Continue watching underneath.
   var spotGrowTimer = null, spotGrown = null, spotStyled = false;
   var SPOT_H = 0.58;   // of the screen height
-  function spotBoxes(v){
-    var a = v && v.closest('a[href]');
-    var t = v && v.closest('[class*="_thumbnail"]');
-    return [a, t].filter(Boolean);
+  function spotStyle(){
+    if (spotStyled) return;
+    spotStyled = true;
+    var st = document.createElement('style');
+    st.textContent =
+      '[class*="_spotlight"] a.__ftv_spotgrow,[class*="_spotlight"] .__ftv_spotchain{overflow:visible!important;}' +
+      '[class*="_spotlight"] a.__ftv_spotgrow{z-index:50!important;}' +
+      '[class*="_spotlight"] .__ftv_spotbox{position:absolute!important;left:0!important;top:0!important;width:100%!important;' +
+        'z-index:50!important;pointer-events:none!important;background:#000!important;border-radius:4px;overflow:hidden!important;' +
+        'outline:2px solid __FTV_ACCENT_HEX__;box-shadow:0 10px 30px rgba(0,0,0,.8);' +
+        'transition:height .38s cubic-bezier(.2,.7,.2,1)!important;will-change:height;}' +
+      '[class*="_spotlight"] .__ftv_spotbox *{pointer-events:none!important;}' +
+      '[class*="_spotlight"] .__ftv_spotbox video{width:100%!important;height:100%!important;object-fit:contain!important;background:#000!important;}' +
+      'html.__ftv_spotgrown #__ftv_veil{opacity:0!important;}';
+    document.head.appendChild(st);
   }
   function setSpotGrow(v, on){
-    var boxes = spotBoxes(v);
-    if (!boxes.length) return;
-    var to = on ? Math.round(window.innerHeight * SPOT_H) + 'px' : null;
-    boxes.forEach(function(b){
-      if (on) {
-        if (!b.__ftvH) b.__ftvH = b.getBoundingClientRect().height;   // the site's own size
-        b.style.setProperty('height', b.__ftvH + 'px', 'important');
-        b.getBoundingClientRect();                                       // start the animation from there
-        b.style.setProperty('transition', 'height .45s cubic-bezier(.2,.7,.2,1)', 'important');
-        b.style.setProperty('height', to, 'important');
-      } else if (b.__ftvH) {
-        b.style.setProperty('transition', 'height .35s ease-in', 'important');
-        b.style.setProperty('height', b.__ftvH + 'px', 'important');
-        (function(bb){ setTimeout(function(){
-          if (bb.__ftvGrown) return;
-          bb.style.removeProperty('height'); bb.style.removeProperty('transition'); bb.__ftvH = 0;
-        }, 400); })(b);
-      }
-      b.__ftvGrown = on;
-    });
-    // The boxes around it (slide, carousel, the Spotlight section) have
-    // fixed heights: they follow it, so the rows below move down.
-    var box = boxes[0].closest('[class*="_spotlight"]');
-    for (var p = boxes[0].parentElement; p && box && box.contains(p); p = p.parentElement) {
-      if (on) { p.style.setProperty('height', 'auto', 'important'); p.style.setProperty('max-height', 'none', 'important'); }
-      else (function(pp){ setTimeout(function(){
-        if (spotGrown) return;
-        pp.style.removeProperty('height'); pp.style.removeProperty('max-height');
-      }, 400); })(p);
+    var a = v && v.closest('a[href]'), t = v && v.closest('[class*="_thumbnail"]');
+    if (!a || !t) return;
+    spotStyle();
+    var root = document.documentElement;
+    if (on) {
+      var h0 = t.getBoundingClientRect().height;
+      a.style.setProperty('height', a.getBoundingClientRect().height + 'px', 'important');   // its place in the page stays as it is
+      a.classList.add('__ftv_spotgrow');
+      for (var p = a.parentElement; p && !/_landing/.test(p.className || ''); p = p.parentElement) p.classList.add('__ftv_spotchain');
+      t.style.setProperty('height', h0 + 'px', 'important');
+      t.classList.add('__ftv_spotbox');
+      t.getBoundingClientRect();
+      t.style.setProperty('height', Math.round(window.innerHeight * SPOT_H) + 'px', 'important');
+      t.__ftvH = h0;
+      root.classList.add('__ftv_spotgrown');
+    } else {
+      t.style.setProperty('height', (t.__ftvH || 178) + 'px', 'important');
+      root.classList.remove('__ftv_spotgrown');
+      setTimeout(function(){
+        if (spotGrown === v) return;
+        t.classList.remove('__ftv_spotbox'); t.style.removeProperty('height');
+        a.classList.remove('__ftv_spotgrow'); a.style.removeProperty('height');
+        document.querySelectorAll('.__ftv_spotchain').forEach(function(e){ e.classList.remove('__ftv_spotchain'); });
+      }, 400);
     }
-    v.style.setProperty('object-fit', on ? 'contain' : '', on ? 'important' : '');
-    v.style.setProperty('background', on ? '#000' : '', on ? 'important' : '');
-    // The cursor's ring follows the banner as it changes size.
-    var follow = function(){ try { if (cur) { curRect = cur.getBoundingClientRect(); placeVeil(false); } } catch (e) {} };
-    [120, 250, 380, 470].forEach(function(ms){ setTimeout(follow, ms); });
-    if (on) setTimeout(function(){
-      // Keep the whole banner in view as it grows.
-      var r = boxes[0].getBoundingClientRect();
-      if (r.bottom > window.innerHeight - 8 || r.top < 52) window.scrollBy({ top: r.top - 60, behavior: 'smooth' });
-    }, 480);
   }
   function spotFull(v){
     if (!v) {

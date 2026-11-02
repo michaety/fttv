@@ -550,6 +550,8 @@
       savePlayQueue(q);
     } else if (op === 'clear') {
       savePlayQueue([]);
+    } else if (op === 'unshuffle') {
+      try { sessionStorage.removeItem(SHUFFLE_KEY); } catch (e) {}
     } else if (op === 'move') {
       // arg: { path, to } -- dragged to position 'to' on the phone.
       var it = q.filter(function(x){ return x.path === (arg && arg.path); })[0];
@@ -567,7 +569,11 @@
     var list = loadPlayQueue().map(function(x){
       return { path: x.path, title: x.title, series: x.series, thumb: x.thumb, dur: x.dur };
     });
-    return JSON.stringify({ queue: list, auto: location.host.indexOf('mde.tv') >= 0 ? null : fishtankAutoNext() });
+    var st = shuffleState();
+    var shuffle = st && st.path === location.pathname ? { tag: st.tag, name: seriesNames[st.tag] || st.tag } : null;
+    if (st && st.path === location.pathname && !seriesNames[st.tag]) seriesArt(st.tag);
+    return JSON.stringify({ queue: list, shuffle: shuffle,
+                            auto: location.host.indexOf('mde.tv') >= 0 ? null : fishtankAutoNext() });
   };
 
   // ---- Continue watching (both sites) ---------------------------------
@@ -1134,7 +1140,12 @@
     // queued from the phone mid-episode still makes it.
     var queuedNext = function(){
       var q = loadPlayQueue()[0];
-      return q && q.video && q.path !== location.pathname ? q.video : null;
+      if (!(q && q.video && q.path !== location.pathname)) return null;
+      var st = shuffleState();
+      if (st && st.path === location.pathname) {
+        try { sessionStorage.setItem(SHUFFLE_KEY, JSON.stringify({ tag: st.tag, path: q.path })); } catch (e) {}
+      }
+      return q.video;
     };
     XMLHttpRequest.prototype.send = function(){
       var xhr = this, next = xhr.__ftvNextOf && (queuedNext() || shuffleNext() || pscNext(xhr.__ftvNextOf));
@@ -1259,8 +1270,9 @@
 
   // Autoplay's pick while shuffling (null: not shuffling, or not loaded yet).
   function shuffleNext(){
-    var st = shuffleState(), tag = showTag();
-    if (!st || st.path !== location.pathname || st.tag !== tag) return null;
+    var st = shuffleState();
+    if (!st || st.path !== location.pathname) return null;
+    var tag = st.tag;
     var list = shuffleEps[tag] && shuffleEps[tag].list;
     var v = list && randomEpisode(list);
     if (!v) return null;
@@ -1269,7 +1281,7 @@
   }
   (function(){
     var st = shuffleState();
-    if (st && st.tag === showTag()) showEpisodes(st.tag);   // ready for when this one ends
+    if (st && st.path === location.pathname) showEpisodes(st.tag);   // ready for when this one ends
     if (showTag()) seriesArt(showTag());                    // the show's full name, for the Menu
   })();
 

@@ -983,7 +983,7 @@
   var qDragging = false, qPending = null;
   function renderQueue(d){
     if (qDragging) { qPending = d; return; }
-    plQueue = { queue: d.queue || [], auto: d.auto || [] };
+    plQueue = { queue: d.queue || [], auto: d.auto || [], shuffle: d.shuffle || null };
     var box = $('#plQueue');
     box.innerHTML = '';
     if (plQueue.queue.length) {
@@ -1014,13 +1014,22 @@
       });
       box.appendChild(mine);
     }
+    if (plQueue.shuffle) {
+      box.appendChild(el('div', 'ps-h', (plQueue.queue.length ? 'Then shuffle' : 'Shuffle') + ' \u00b7 ' + plQueue.shuffle.name));
+      var sp = el('p', 'empty', 'Random episodes of ' + plQueue.shuffle.name + ' play next, after anything you\u2019ve queued.');
+      box.appendChild(sp);
+      var st = el('div', 'ps-tools'), off = el('button', '', '\u2715 Stop shuffle');
+      off.onclick = function(){ api('/api/queue/unshuffle').then(function(d){ renderQueue(d); toast('Shuffle off'); }).catch(offline); };
+      st.appendChild(off);
+      box.appendChild(st);
+    }
     if (plQueue.auto.length) {
       box.appendChild(el('div', 'ps-h', plQueue.queue.length ? 'Then autoplay' : 'Autoplay'));
       plQueue.auto.forEach(function(v){
         box.appendChild(line(v, null, { label: 'AUTOPLAY' }));
       });
     }
-    if (!plQueue.queue.length && !plQueue.auto.length) {
+    if (!plQueue.queue.length && !plQueue.auto.length && !plQueue.shuffle) {
       box.appendChild(el('p', 'empty', 'Nothing queued. Tap + on any episode to play it next.'));
     }
     // The tab says what's next even while the sheet is down.

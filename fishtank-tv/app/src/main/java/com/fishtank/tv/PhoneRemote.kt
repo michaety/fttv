@@ -251,6 +251,10 @@ class PhoneRemote(private val context: Context, private val host: Host) {
                 evalOnMain("window.__ftvQueue && window.__ftvQueue('move', " + JSONObject().put("path", p).put("to", to) + ")")
                 json(queue())
             }
+            "/api/queue/unshuffle" -> {
+                evalOnMain("window.__ftvQueue && window.__ftvQueue('unshuffle')")
+                json(queue())
+            }
             "/api/queue/clear" -> {
                 evalOnMain("window.__ftvQueue && window.__ftvQueue('clear')")
                 json(queue())
@@ -597,6 +601,8 @@ class PhoneRemote(private val context: Context, private val host: Host) {
         val q = try { JSONObject(raw ?: "{}") } catch (e: Exception) { JSONObject() }
         val list = q.optJSONArray("queue") ?: JSONArray()
         var auto = q.optJSONArray("auto")
+        val shuffle = q.optJSONObject("shuffle")
+        if (shuffle != null) auto = JSONArray()   // random picks: nothing to list
         if (auto == null && !fishtank) {
             auto = JSONArray()
             // Autoplay carries on from whatever played last: the end of the

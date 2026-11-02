@@ -786,7 +786,7 @@
   function cardStrip(x){
     if (!x.next) return progressBar(x.t / x.dur);
     var tag = document.createElement('div');
-    tag.textContent = 'UP NEXT';
+    tag.textContent = 'NEXT EPISODE';
     tag.style.cssText = 'position:relative;z-index:2;height:22px;margin-top:-22px;width:100%;box-sizing:border-box;' +
       'padding:0 8px;background:rgba(0,0,0,.75);color:__FTV_ACCENT_HEX__;font:700 13px/22px sans-serif;' +
       'letter-spacing:1px;border-radius:0 0 6px 6px;';
@@ -931,7 +931,7 @@
     a.href = x.path;
     a.classList.remove('__ftv_focus');
     a.removeAttribute('data-ftv');
-    a.setAttribute('aria-label', 'Up next: ' + (x.series ? x.series + ', ' : '') + (x.title || ''));
+    a.setAttribute('aria-label', 'Next episode: ' + (x.series ? x.series + ', ' : '') + (x.title || ''));
     a.addEventListener('click', function(e){
       e.preventDefault();
       window.__ftvGo(x.path, { title: x.title, series: x.series, thumb: x.seriesThumb || x.thumb });
@@ -941,14 +941,14 @@
     li.querySelectorAll('progress').forEach(function(p){ p.remove(); });
     var set = function(sel, t){ var e = li.querySelector(sel); if (e) e.textContent = t; };
     set('[class*="_series"]', x.series || '');
-    set('[class*="_title"]', x.title || 'Up next');
+    set('[class*="_title"]', x.title || 'Next episode');
     var rem = li.querySelector('[class*="_remaining"]');
-    if (rem) { rem.textContent = 'Up next'; rem.style.color = '__FTV_ACCENT_HEX__'; }
+    if (rem) { rem.textContent = 'Next episode'; rem.style.color = '__FTV_ACCENT_HEX__'; }
     var th = li.querySelector('[class*="_thumbnail"]') || (img && img.parentElement);
     if (th) {
       if (getComputedStyle(th).position === 'static') th.style.position = 'relative';
       var tag = document.createElement('div');
-      tag.textContent = 'UP NEXT';
+      tag.textContent = 'NEXT EPISODE';
       tag.style.cssText = 'position:absolute;left:0;right:0;bottom:0;z-index:2;height:22px;padding:0 8px;' +
         'background:rgba(0,0,0,.75);color:__FTV_ACCENT_HEX__;font:700 13px/22px sans-serif;letter-spacing:1px;';
       th.appendChild(tag);
@@ -1436,75 +1436,80 @@
     if (!v) pauseHomeVideos();
     spotFull(v);
   }
-  // While the Spotlight has the cursor its clip fills the screen, in its own
-  // shape (the banner is ~5:1, so it showed a cropped, zoomed strip), with
-  // the slide's name over it. Purely a look: pointer-events:none keeps the
-  // page underneath as it is for the cursor (elementFromPoint skips it), so
-  // LEFT/RIGHT still change slides, Select opens one, DOWN goes back.
-  var spotFullEl = null, spotFullTimer = null;
+  // While the Spotlight has the cursor and its clip is playing, the banner
+  // grows in place on the homepage (a smooth height animation, the rows
+  // below moving down) so the clip shows at a proper size, in its own shape
+  // (letterboxed on black). It shrinks back when the cursor leaves.
+  var spotGrowTimer = null, spotGrown = null, spotStyled = false;
+  var SPOT_H = 0.58;   // of the screen height
+  function spotBoxes(v){
+    var a = v && v.closest('a[href]');
+    var t = v && v.closest('[class*="_thumbnail"]');
+    return [a, t].filter(Boolean);
+  }
+  function setSpotGrow(v, on){
+    var boxes = spotBoxes(v);
+    if (!boxes.length) return;
+    var to = on ? Math.round(window.innerHeight * SPOT_H) + 'px' : null;
+    boxes.forEach(function(b){
+      if (on) {
+        if (!b.__ftvH) b.__ftvH = b.getBoundingClientRect().height;   // the site's own size
+        b.style.setProperty('height', b.__ftvH + 'px', 'important');
+        b.getBoundingClientRect();                                       // start the animation from there
+        b.style.setProperty('transition', 'height .45s cubic-bezier(.2,.7,.2,1)', 'important');
+        b.style.setProperty('height', to, 'important');
+      } else if (b.__ftvH) {
+        b.style.setProperty('transition', 'height .35s ease-in', 'important');
+        b.style.setProperty('height', b.__ftvH + 'px', 'important');
+        (function(bb){ setTimeout(function(){
+          if (bb.__ftvGrown) return;
+          bb.style.removeProperty('height'); bb.style.removeProperty('transition'); bb.__ftvH = 0;
+        }, 400); })(b);
+      }
+      b.__ftvGrown = on;
+    });
+    // The boxes around it (slide, carousel, the Spotlight section) have
+    // fixed heights: they follow it, so the rows below move down.
+    var box = boxes[0].closest('[class*="_spotlight"]');
+    for (var p = boxes[0].parentElement; p && box && box.contains(p); p = p.parentElement) {
+      if (on) { p.style.setProperty('height', 'auto', 'important'); p.style.setProperty('max-height', 'none', 'important'); }
+      else (function(pp){ setTimeout(function(){
+        if (spotGrown) return;
+        pp.style.removeProperty('height'); pp.style.removeProperty('max-height');
+      }, 400); })(p);
+    }
+    v.style.setProperty('object-fit', on ? 'contain' : '', on ? 'important' : '');
+    v.style.setProperty('background', on ? '#000' : '', on ? 'important' : '');
+    // The cursor's ring follows the banner as it changes size.
+    var follow = function(){ try { if (cur) { curRect = cur.getBoundingClientRect(); placeVeil(false); } } catch (e) {} };
+    [120, 250, 380, 470].forEach(function(ms){ setTimeout(follow, ms); });
+    if (on) setTimeout(function(){
+      // Keep the whole banner in view as it grows.
+      var r = boxes[0].getBoundingClientRect();
+      if (r.bottom > window.innerHeight - 8 || r.top < 52) window.scrollBy({ top: r.top - 60, behavior: 'smooth' });
+    }, 480);
+  }
   function spotFull(v){
-    var root = document.documentElement;
     if (!v) {
-      if (spotFullTimer) { clearInterval(spotFullTimer); spotFullTimer = null; }
-      root.classList.remove('__ftv_spotfull');
-      if (spotFullEl) spotFullEl.classList.remove('__ftv_on');
+      if (spotGrowTimer) { clearInterval(spotGrowTimer); spotGrowTimer = null; }
+      if (spotGrown) { setSpotGrow(spotGrown, false); spotGrown = null; }
       return;
     }
-    if (!spotFullEl) {
-      var st = document.createElement('style');
-      st.textContent =
-        // The Fire TV draws video on its own layer *under* the page, so the
-        // rest of the page is made transparent (opacity, not visibility:
-        // still there for the cursor's hit tests) rather than covered.
-        'html.__ftv_spotfull,html.__ftv_spotfull body{background:#000!important;}' +
-        'html.__ftv_spotfull body *:not(:has(video)):not(video):not(#__ftv_spottitle):not(#__ftv_spottitle *){opacity:0!important;transition:opacity .25s;}' +
-        // A framed 16:9 window, centred, every clip in its own shape inside
-        // it. The browser keeps the clip's box inside the Spotlight link (it
-        // acts as its container), so it's the link that becomes the window.
-        'html.__ftv_spotfull [class*="_spotlight"] a:has(video){position:fixed!important;left:13vw!important;top:4vh!important;' +
-          'width:74vw!important;height:41.625vw!important;margin:0!important;border-radius:6px!important;overflow:hidden!important;' +
-          'background:#000!important;outline:1px solid #505050!important;box-shadow:6px 6px 0 #000!important;scale:none!important;}' +
-        'html.__ftv_spotfull [class*="_spotlight"] a:has(video) [class*="_thumbnail"]{position:absolute!important;inset:0!important;' +
-          'width:100%!important;height:100%!important;margin:0!important;border-radius:0!important;}' +
-        'html.__ftv_spotfull [class*="_spotlight"] video{position:absolute!important;inset:0!important;width:100%!important;height:100%!important;' +
-          'max-width:none!important;object-fit:contain!important;background:#000!important;' +
-          'z-index:2147483000!important;pointer-events:none!important;transform:none!important;}' +
-        'html.__ftv_spotfull #__ftv_veil{opacity:0!important;}' +
-        '#__ftv_spottitle{position:fixed;left:13vw;right:13vw;top:calc(4vh + 41.625vw + 16px);z-index:2147483001;pointer-events:none;opacity:0;' +
-          'transition:opacity .35s;font:600 28px/1.05 "FFGothic TwoTwo",sans-serif;color:#fff200;text-transform:uppercase;' +
-          'text-shadow:2px 2px 0 #000;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}' +
-        '#__ftv_spottitle.__ftv_on{opacity:1;}' +
-        '#__ftv_spottitle small{display:block;margin-top:6px;font:19px/1.1 "FFGothic TwoTwo",sans-serif;color:#fff;text-transform:none;' +
-          'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}' +
-        '#__ftv_spottitle i{display:block;margin-top:8px;font:13px "Share Tech Mono",monospace;color:#aaa;font-style:normal;text-transform:none;}';
-      document.head.appendChild(st);
-      spotFullEl = document.createElement('div');
-      spotFullEl.id = '__ftv_spottitle';
-      document.body.appendChild(spotFullEl);
-    }
-    // Only once the clip is really playing (no black screen while it loads),
-    // and the title follows the slide as the carousel rotates.
+    // Only once the clip is really playing (no black box while it loads);
+    // the carousel swapping slides swaps the video, which grows in turn.
     var sync = function(){
       var vv = spotVideo();
       if (!vv) return spotFull(null);
       var on = !vv.paused && vv.currentTime > 0.2;
-      root.classList.toggle('__ftv_spotfull', on);
-      var a = cur && cur.closest && cur.closest('a[href]');
-      var lines = a ? a.innerText.split('\n').map(function(t){ return t.trim(); }).filter(Boolean) : [];
-      var sig = lines.join('|');
-      if (spotFullEl.__sig !== sig) {
-        spotFullEl.__sig = sig;
-        spotFullEl.textContent = '';
-        spotFullEl.appendChild(document.createTextNode(lines[0] || ''));
-        if (lines.length > 1) { var sm = document.createElement('small'); sm.textContent = lines.slice(1).join(' \u00b7 '); spotFullEl.appendChild(sm); }
-        var hint = document.createElement('i');
-        hint.textContent = 'Select to watch \u00b7 \u25C0 \u25B6 more \u00b7 \u25BC browse';
-        spotFullEl.appendChild(hint);
+      if (on && spotGrown !== vv) {
+        if (spotGrown) setSpotGrow(spotGrown, false);
+        spotGrown = vv; setSpotGrow(vv, true);
+      } else if (!on && spotGrown === vv && vv.paused) {
+        setSpotGrow(vv, false); spotGrown = null;
       }
-      spotFullEl.classList.toggle('__ftv_on', on);
     };
     sync();
-    if (!spotFullTimer) spotFullTimer = setInterval(sync, 300);
+    if (!spotGrowTimer) spotGrowTimer = setInterval(sync, 300);
   }
   function stopAfterFirstFrame(v){
     if (v.poster) {

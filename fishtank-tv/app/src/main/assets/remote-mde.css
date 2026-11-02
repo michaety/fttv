@@ -104,13 +104,13 @@ h2::after { content: ']'; padding-left: 6px; color: var(--accent); }
   background: var(--button); box-shadow: var(--shadow); color: var(--yellow); font: 16px/16px var(--cond);
   text-transform: uppercase; text-shadow: var(--shadow); }
 
-/* Spotlight: 4:3 slides with mde's big outlined caption, and [1] 2 3
+/* Spotlight: 16:9 slides (the thumbnails' own shape, uncropped) with mde's big outlined caption, and [1] 2 3
    numbers beside the label like the site's selector. */
 #spotlight { position: relative; }
 .spot { display: flex; gap: 10px; overflow-x: auto; padding: 0 8px; scroll-padding: 0 8px; scroll-snap-type: x mandatory;
   scrollbar-width: none; overscroll-behavior-x: contain; }
 .spot::-webkit-scrollbar { display: none; }
-.slide { position: relative; flex: 0 0 100%; aspect-ratio: 4 / 3; scroll-snap-align: center; padding: 0; overflow: hidden;
+.slide { position: relative; flex: 0 0 100%; aspect-ratio: 16 / 9; scroll-snap-align: center; padding: 0; overflow: hidden;
   border: 1px solid var(--gray); border-radius: 4px; box-shadow: var(--shadow); background: var(--darkest);
   color: #fff; text-align: left; font: inherit; }
 .slide img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
@@ -404,3 +404,7 @@ input.scrub::-moz-range-thumb { width: 12px; height: 20px; border: 1px solid #00
 #player.up .pl-main { overflow: hidden; }
 .ps-tabs button { white-space: nowrap; }
 #player.up .pl-device { visibility: hidden; }
+
+/* Episodes tab: Shuffle and Reverse along the top. */
+.ps-tools { display: flex; justify-content: flex-end; gap: 4px; padding: 6px 8px 2px; }
+.ps-tools button { padding: 6px 8px; background: none; border: 0; color: var(--yellow); font: 16px var(--head); text-transform: uppercase; }

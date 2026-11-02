@@ -58,7 +58,7 @@
     <div class="pl-top">
       <button id="plClose" aria-label="Close" data-icon="down"></button>
       <div class="pl-head"><b id="plTitle"></b><span id="plSub"></span></div>
-      <button id="plSeries" aria-label="All episodes" data-icon="list"></button>
+      <button id="plSeries" aria-label="All episodes" data-icon="list" hidden></button>
     </div>
     <div class="pl-art"><div class="frame" id="plArt"><div class="spin"><i></i><span>Starting on the TV…</span></div></div></div>
     <div class="pl-device"><i data-icon="cast"></i><span id="plDevice">Playing on your TV</span></div>
@@ -87,7 +87,7 @@
   <div class="pl-sheet" id="plSheet">
     <div class="ps-grip" id="plGrip"><i></i></div>
     <div class="ps-tabs">
-      <button data-tab="next" class="on">Up next</button>
+      <button data-tab="next" class="on">Queue</button>
       <button data-tab="more">Episodes</button>
       <button data-tab="about">About</button>
     </div>
@@ -152,7 +152,7 @@
   function thumb(v){
     var t = el('div', 'thumb');
     img(t, v.thumb);
-    if (v.next) t.appendChild(el('div', 'tag', 'UP NEXT'));
+    if (v.next) t.appendChild(el('div', 'tag', 'NEXT EPISODE'));
     else if (v.progress > 0) {
       var bar = el('div', 'bar'), fill = el('i');
       fill.style.width = Math.min(100, Math.max(2, v.progress * 100)) + '%';
@@ -749,11 +749,26 @@
   };
   $('#plStop').onclick = function(){ cmd('stop'); if (playerOpen) history.back(); };
 
+  var moreReversed = false;
   function renderMore(){
     var box = $('#plMore'), list = plEp && plEp.list || [];
     box.innerHTML = '';
     if (!list.length) { box.appendChild(el('p', 'empty', plEp ? 'Nothing else in this series.' : 'Loading…')); return; }
-    list.forEach(function(v){
+    var tools = el('div', 'ps-tools');
+    if (!fishtank && plEp.seriesTag) {
+      var sh = el('button', '', '⤮ Shuffle');
+      sh.onclick = function(){
+        api('/api/shuffle', { tag: plEp.seriesTag }).then(function(){ toast('Shuffling on the TV'); setTimeout(poll, 3000); }).catch(offline);
+      };
+      tools.appendChild(sh);
+    }
+    if (list.length > 1) {
+      var rv = el('button', '', '⇅ Reverse');
+      rv.onclick = function(){ moreReversed = !moreReversed; renderMore(); };
+      tools.appendChild(rv);
+    }
+    if (tools.children.length) box.appendChild(tools);
+    (moreReversed ? list.slice().reverse() : list).forEach(function(v){
       var isCur = v.path === plPath;
       box.appendChild(line(v, plEp.listTitle, isCur ? { cur: true, label: 'NOW PLAYING' } : null));
     });
@@ -994,7 +1009,7 @@
     }
     // The tab says what's next even while the sheet is down.
     var first = plQueue.queue[0] || plQueue.auto[0];
-    $('.ps-tabs [data-tab="next"]').textContent = 'Up next' + (plQueue.queue.length ? ' · ' + plQueue.queue.length : '');
+    $('.ps-tabs [data-tab="next"]').textContent = 'Queue' + (plQueue.queue.length ? ' · ' + plQueue.queue.length : '');
     $('.ps-tabs [data-tab="next"]').title = first ? first.title : '';
     renderNav();
   }

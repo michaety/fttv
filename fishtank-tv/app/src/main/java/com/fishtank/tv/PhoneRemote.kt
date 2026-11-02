@@ -630,7 +630,7 @@ class PhoneRemote(private val context: Context, private val host: Host) {
         val queued = (0 until list.length()).map { list.optJSONObject(it)?.optString("path") }.toSet()
         val autoOut = JSONArray()
         auto?.let { a -> for (i in 0 until a.length()) a.optJSONObject(i)?.let { if (it.optString("path") !in queued) autoOut.put(it) } }
-        return JSONObject().put("queue", list).put("auto", autoOut)
+        return JSONObject().put("queue", list).put("auto", autoOut).put("shuffle", shuffle ?: JSONObject.NULL)
     }
 
     private fun ftItem(v: JSONObject, collection: String): JSONObject = JSONObject()

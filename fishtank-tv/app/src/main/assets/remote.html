@@ -1016,12 +1016,11 @@
     }
     if (plQueue.shuffle) {
       box.appendChild(el('div', 'ps-h', (plQueue.queue.length ? 'Then shuffle' : 'Shuffle') + ' \u00b7 ' + plQueue.shuffle.name));
-      var sp = el('p', 'empty', 'Random episodes of ' + plQueue.shuffle.name + ' play next, after anything you\u2019ve queued.');
-      box.appendChild(sp);
       var st = el('div', 'ps-tools'), off = el('button', '', '\u2715 Stop shuffle');
       off.onclick = function(){ api('/api/queue/unshuffle').then(function(d){ renderQueue(d); toast('Shuffle off'); }).catch(offline); };
       st.appendChild(off);
       box.appendChild(st);
+      (plQueue.shuffle.next || []).forEach(function(v){ box.appendChild(line(v, null, { label: 'SHUFFLE' })); });
     }
     if (plQueue.auto.length) {
       box.appendChild(el('div', 'ps-h', plQueue.queue.length ? 'Then autoplay' : 'Autoplay'));

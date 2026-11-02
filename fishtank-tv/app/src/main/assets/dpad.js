@@ -570,7 +570,10 @@
       return { path: x.path, title: x.title, series: x.series, thumb: x.thumb, dur: x.dur };
     });
     var st = shuffleState();
-    var shuffle = st && st.path === location.pathname ? { tag: st.tag, name: seriesNames[st.tag] || st.tag } : null;
+    var shuffle = st && st.path === location.pathname ? { tag: st.tag, name: seriesNames[st.tag] || st.tag,
+      next: (st.next || []).map(function(v){
+        return { path: epPath(v), title: cleanTitle(v.title), series: v.series_name || '', thumb: v.small_thumbnail || v.thumbnail || '', dur: v.duration || 0 };
+      }) } : null;
     if (st && st.path === location.pathname && !seriesNames[st.tag]) seriesArt(st.tag);
     return JSON.stringify({ queue: list, shuffle: shuffle,
                             auto: location.host.indexOf('mde.tv') >= 0 ? null : fishtankAutoNext() });
@@ -1197,6 +1200,14 @@
     }
     return shuffleEps[tag];
   }
+  // The next shuffled episodes, picked up front so the phone can show them:
+  // a random order of the show, nothing repeated, not the one playing.
+  function shuffleOrder(list, avoid){
+    var pool = list.filter(function(v){ return avoid.indexOf('/series/' + v.series_tag + '/' + v.tag) < 0; });
+    for (var i = pool.length - 1; i > 0; i--) { var j = Math.floor(Math.random() * (i + 1)), t = pool[i]; pool[i] = pool[j]; pool[j] = t; }
+    return pool.slice(0, 20);
+  }
+  function epPath(v){ return '/series/' + v.series_tag + '/' + v.tag; }
   function randomEpisode(list){
     var here = location.pathname, pool = list.filter(function(v){ return '/series/' + v.series_tag + '/' + v.tag !== here; });
     return pool.length ? pool[Math.floor(Math.random() * pool.length)] : null;
@@ -1222,8 +1233,8 @@
     showEpisodes(tag).then(function(list){
       var v = randomEpisode(list);
       if (!v) return;
-      var path = '/series/' + v.series_tag + '/' + v.tag;
-      try { sessionStorage.setItem(SHUFFLE_KEY, JSON.stringify({ tag: tag, path: path })); } catch (e) {}
+      var path = epPath(v);
+      try { sessionStorage.setItem(SHUFFLE_KEY, JSON.stringify({ tag: tag, path: path, next: shuffleOrder(list, [path, location.pathname]) })); } catch (e) {}
       window.__ftvGo(path, { title: cleanTitle(v.title), series: v.series_name || '', thumb: v.small_thumbnail || v.thumbnail || '' });
     });
     return 'ok';
@@ -1274,9 +1285,12 @@
     if (!st || st.path !== location.pathname) return null;
     var tag = st.tag;
     var list = shuffleEps[tag] && shuffleEps[tag].list;
-    var v = list && randomEpisode(list);
+    var next = (st.next || []).slice();
+    var v = next.shift() || (list && randomEpisode(list));
     if (!v) return null;
-    try { sessionStorage.setItem(SHUFFLE_KEY, JSON.stringify({ tag: tag, path: '/series/' + v.series_tag + '/' + v.tag })); } catch (e) {}
+    // Keep a few ready: once it runs low, another random round.
+    if (next.length < 5 && list) next = next.concat(shuffleOrder(list, next.map(epPath).concat([epPath(v)])));
+    try { sessionStorage.setItem(SHUFFLE_KEY, JSON.stringify({ tag: tag, path: epPath(v), next: next })); } catch (e) {}
     return v;
   }
   (function(){

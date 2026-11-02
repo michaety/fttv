@@ -1402,13 +1402,21 @@
     v.__ftvStopping = true;
     v.addEventListener('timeupdate', function(){
       v.__ftvStopping = false;
-      if (location.pathname === '/' && !isSpotPlaying(v)) { try { v.pause(); } catch (e) {} }
+      if (isHomeVideo(v) && !isSpotPlaying(v)) { try { v.pause(); } catch (e) {} }
     }, { once: true });
+  }
+  // A video that's part of the homepage itself (Spotlight, banner), not an
+  // episode's player. Decided by where it is, not by the address: going to
+  // an episode in-page (the site's router), its player can start a moment
+  // before the address changes, and pausing it then made the site's player
+  // fall back to playing it muted.
+  function isHomeVideo(v){
+    return location.pathname === '/' && !!(v.closest && v.closest('[class*="_landing"]'));
   }
   function pauseHomeVideos(){
     if (!PAUSE_HOME_VIDEOS || location.pathname !== '/') return;
     var vs = document.querySelectorAll('video');
-    for (var i = 0; i < vs.length; i++) { if (!vs[i].paused && !isSpotPlaying(vs[i])) stopAfterFirstFrame(vs[i]); }
+    for (var i = 0; i < vs.length; i++) { if (!vs[i].paused && isHomeVideo(vs[i]) && !isSpotPlaying(vs[i])) stopAfterFirstFrame(vs[i]); }
   }
 
   document.addEventListener('play', function(e){
@@ -1417,7 +1425,7 @@
     v.disablePictureInPicture = true;
     // Homepage previews (see pauseHomeVideos in MainActivity): stopped as
     // they start, including each new clip the Spotlight carousel rotates to.
-    if (PAUSE_HOME_VIDEOS && location.pathname === '/') {
+    if (PAUSE_HOME_VIDEOS && isHomeVideo(v)) {
       if (!isSpotPlaying(v)) stopAfterFirstFrame(v);
       return;   // never the player, even while it plays
     }
@@ -1436,6 +1444,10 @@
       return;
     }
     trackedVideo = v;
+    // The app has no mute of its own (the TV's volume does that), so the
+    // player is never left muted -- the site mutes it when a start of its
+    // gets interrupted, as a fallback for browsers that block sound.
+    if (v.muted) { try { v.muted = false; } catch (err) {} }
     maybeAutoFullscreen(v);
     osdPlayStateChanged();
   }, true);

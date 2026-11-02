@@ -622,6 +622,18 @@ class MainActivity : Activity() {
         }
 
         webView.addJavascriptInterface(object {
+            /** Fire TV's own navigation sounds (the system ones: they follow its
+             *  Navigation sounds setting), for the cursor moving and Select. */
+            @JavascriptInterface
+            fun navSound(kind: String) = runOnUiThread {
+                webView.playSoundEffect(when (kind) {
+                    "up" -> android.view.SoundEffectConstants.NAVIGATION_UP
+                    "down" -> android.view.SoundEffectConstants.NAVIGATION_DOWN
+                    "left" -> android.view.SoundEffectConstants.NAVIGATION_LEFT
+                    "right" -> android.view.SoundEffectConstants.NAVIGATION_RIGHT
+                    else -> android.view.SoundEffectConstants.CLICK
+                })
+            }
             @JavascriptInterface
             fun upNext(from: String, next: String) = runOnUiThread {
                 upNext = Triple(from, next, SystemClock.elapsedRealtime())

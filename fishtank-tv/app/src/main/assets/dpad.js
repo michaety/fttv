@@ -2947,8 +2947,11 @@
       var d = pendingDir;
       pendingDir = null;
       if (!d) return;
-      var t0 = performance.now();
+      var t0 = performance.now(), was = cur;
       doNavigate(d);
+      // Fire TV's own navigation tick when the cursor moved (the system
+      // sound, so it follows Settings > Display & Sounds > Navigation sounds).
+      if (cur && cur !== was && window.FtvApp && window.FtvApp.navSound) { try { window.FtvApp.navSound(d); } catch (e) {} }
       // How long each press took, for measuring (window.__ftvNavStats).
       navStats.push(Math.round(performance.now() - t0));
       if (navStats.length > 50) navStats.shift();
@@ -3321,6 +3324,7 @@
     if (silentCur) { revealStart(); return; }    // first press just reveals it
     if (!cur) { window.__ftvReset(); return; }
     syncSpotlight();
+    if (window.FtvApp && window.FtvApp.navSound) { try { window.FtvApp.navSound('select'); } catch (e) {} }
     var tag = cur.tagName.toLowerCase();
     if (tag === 'input' || tag === 'textarea') {
       // focus() alone never brings up the Fire TV keyboard: a field

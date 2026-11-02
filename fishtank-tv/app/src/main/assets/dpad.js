@@ -1436,7 +1436,8 @@
     spotOn = !!v;
     if (v && v.paused) { v.muted = true; try { var p = v.play(); if (p && p.catch) p.catch(function(){}); } catch (e) {} }
     if (!v) pauseHomeVideos();
-    spotFull(v);
+    // (It used to grow, but a Firestick can't animate a playing video's
+    // size smoothly: it plays in the banner as it is, as on the site.)
   }
   // While the Spotlight has the cursor and its clip is playing, the banner
   // grows downward to ~58% of the screen *over* the rows below (they don't

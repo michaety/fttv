@@ -204,7 +204,9 @@
       // an old episode's <video> survived into the next one (renderer
       // crashes happen exactly when switching episodes).
       if (cache && cache.length && !document.contains(cache[0])) { cache = null; coveredMemo = new Map(); }
-      if (trackedVideo && !document.contains(trackedVideo)) trackedVideo = null;
+      // The player's gone (left the episode in-page: the page isn't reloaded
+      // any more, so the controls would otherwise stay up over the next page).
+      if (trackedVideo && !document.contains(trackedVideo)) { trackedVideo = null; leftPlayer(); }
       if (window.__ftvSiteCleanup) {
         try { window.__ftvSiteCleanup(); } catch (e) {}
       }
@@ -2024,6 +2026,13 @@
     if (scrubTime !== null || !window.__ftvIsPlaying()) return;
     seekOverlayHideTimer = setTimeout(hideSeekOverlay, 4000);
   }
+  // Off an episode: its controls, pause info, scrub preview and any
+  // play/pause flash go too.
+  function leftPlayer(){
+    if (typeof scrubTime !== 'undefined' && scrubTime !== null) scrubTime = null;
+    hideSeekOverlay();
+    if (osdFlashEl) osdFlashEl.classList.remove('__ftv_go');
+  }
   function hideSeekOverlay(){
     if (!seekOverlayEl) return;
     seekOverlayEl.classList.remove('__ftv_show');
@@ -2955,10 +2964,10 @@
       if (location.pathname !== from) prevPath = from;
       noteBrowsePage();
       window.__ftvQueue('remove', location.pathname);   // a queued episode opened on the TV
-      if (!isEpisodePath(location.pathname)) hideLoader();
+      if (!isEpisodePath(location.pathname)) { hideLoader(); leftPlayer(); }
       return r;
     };
-    window.addEventListener('popstate', function(){ prevPath = null; noteBrowsePage(); if (!isEpisodePath(location.pathname)) hideLoader(); });
+    window.addEventListener('popstate', function(){ prevPath = null; noteBrowsePage(); if (!isEpisodePath(location.pathname)) { hideLoader(); leftPlayer(); } });
   })();
 
   // ---- BACK from an episode (both sites) -------------------------------

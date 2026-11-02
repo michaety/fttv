@@ -693,11 +693,15 @@
     }).catch(function(){});
   }
   // mde: a show's own artwork (public, no sign-in), for its Up next card.
-  var seriesArtCache = {};
+  var seriesArtCache = {}, seriesNames = {};
   function seriesArt(tag){
     if (!seriesArtCache[tag]) seriesArtCache[tag] = fetch('https://api.mde.tv/v1/series/' + encodeURIComponent(tag))
       .then(function(r){ return r.json(); })
-      .then(function(j){ var x = j && j.series; return (x && (x.medium_thumbnail || x.small_thumbnail || x.thumbnail)) || ''; })
+      .then(function(j){
+        var x = j && j.series;
+        if (x && x.name) seriesNames[tag] = cleanTitle(x.name);
+        return (x && (x.medium_thumbnail || x.small_thumbnail || x.thumbnail)) || '';
+      })
       .catch(function(){ return ''; });
     return seriesArtCache[tag];
   }
@@ -813,6 +817,10 @@
       var c = card.cloneNode(true);
       c.href = x.path;
       c.removeAttribute('data-ftv');
+      c.addEventListener('click', function(e){
+        e.preventDefault();
+        window.__ftvGo(x.path, { title: x.title, series: x.series, thumb: x.thumb });
+      });
       var img = c.querySelector('img');
       if (img) { img.src = x.thumb || ''; img.removeAttribute('srcset'); img.loading = 'eager'; }
       var series = c.querySelector('[class*="_seriesName"]');
@@ -921,6 +929,10 @@
     a.classList.remove('__ftv_focus');
     a.removeAttribute('data-ftv');
     a.setAttribute('aria-label', 'Up next: ' + (x.series ? x.series + ', ' : '') + (x.title || ''));
+    a.addEventListener('click', function(e){
+      e.preventDefault();
+      window.__ftvGo(x.path, { title: x.title, series: x.series, thumb: x.seriesThumb || x.thumb });
+    });
     var img = li.querySelector('img');
     if (img) { img.src = x.seriesThumb || x.thumb || ''; img.removeAttribute('srcset'); img.loading = 'eager'; }
     li.querySelectorAll('progress').forEach(function(p){ p.remove(); });
@@ -1071,6 +1083,20 @@
     }
     return null;
   }
+  if (location.host.indexOf('mde.tv') >= 0 && window.fetch && !window.__ftvFetchWrapped) {
+    window.__ftvFetchWrapped = true;
+    var fetch0 = window.fetch;
+    window.fetch = function(input, init){
+      try {
+        var u = String(typeof input === 'string' ? input : (input && input.url) || '').split('?')[0];
+        if (location.pathname === '/' && /\/v1\/playback-progress\/video\//.test(u)) {
+          if (/\/session$/.test(u)) return Promise.resolve(new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } }));
+          return Promise.resolve(new Response(null, { status: 409 }));
+        }
+      } catch (e) {}
+      return fetch0.apply(this, arguments);
+    };
+  }
   if (location.host.indexOf('mde.tv') >= 0) {
     if (location.pathname.indexOf(PSC_PATH + '/') === 0) loadPsc();
     var xhrOpen = XMLHttpRequest.prototype.open, xhrSend = XMLHttpRequest.prototype.send;
@@ -1086,7 +1112,7 @@
       return q && q.video && q.path !== location.pathname ? q.video : null;
     };
     XMLHttpRequest.prototype.send = function(){
-      var xhr = this, next = xhr.__ftvNextOf && (queuedNext() || pscNext(xhr.__ftvNextOf));
+      var xhr = this, next = xhr.__ftvNextOf && (queuedNext() || shuffleNext() || pscNext(xhr.__ftvNextOf));
       if (next) {
         var body = JSON.stringify({ video: next });
         Object.defineProperty(xhr, 'responseText', { get: function(){ return body; } });
@@ -1106,6 +1132,80 @@
       return xhrSend.apply(this, arguments);
     };
   }
+
+  // ---- Shuffle (mde) --------------------------------------------------
+  // From the TV's Menu on a show's page or one of its episodes: a random
+  // episode of that show, and when it ends, another (the site's /videos/next
+  // answer is swapped, as for the queue). It carries on only while autoplay
+  // keeps going from the shuffled episode -- opening anything else stops it.
+  var SHUFFLE_KEY = '__ftv_shuffle', shuffleEps = {};
+  function showTag(){
+    var m = location.host.indexOf('mde.tv') >= 0 && /^\/series\/([^/]+)/.exec(location.pathname);
+    return m && m[1] !== 'films' ? m[1] : '';
+  }
+  function showEpisodes(tag){
+    if (!shuffleEps[tag]) {
+      var got = [];
+      var page = function(p){
+        return fetch('https://api.mde.tv/v1/series/' + encodeURIComponent(tag) + '/videos?page=' + p + '&pageSize=200', { credentials: 'include' })
+          .then(function(r){ return r.json(); }).then(function(j){
+            got = got.concat(j.videos || []);
+            if (j.videos && j.videos.length && got.length < j.total && p < 10) return page(p + 1);
+          });
+      };
+      shuffleEps[tag] = page(0).then(function(){
+        var l = got.filter(function(v){ return !v.hidden && v.tag && v.series_tag; });
+        shuffleEps[tag].list = l;
+        return l;
+      }).catch(function(){ delete shuffleEps[tag]; return []; });
+    }
+    return shuffleEps[tag];
+  }
+  function randomEpisode(list){
+    var here = location.pathname, pool = list.filter(function(v){ return '/series/' + v.series_tag + '/' + v.tag !== here; });
+    return pool.length ? pool[Math.floor(Math.random() * pool.length)] : null;
+  }
+  function shuffleState(){
+    try { return JSON.parse(sessionStorage.getItem(SHUFFLE_KEY) || 'null'); } catch (e) { return null; }
+  }
+  // The show's name, for the Menu ("Shuffle HydeWars"), or '' off a show.
+  window.__ftvShuffleName = function(){
+    var tag = showTag();
+    if (!tag) return '';
+    if (seriesNames[tag]) return seriesNames[tag];
+    seriesArt(tag);   // its full name, for next time (the page shows "HW")
+    var crumb = document.querySelector('a[href="/series/' + tag + '"]');
+    var name = crumb && cleanTitle(crumb.textContent);
+    if (!name && location.pathname === '/series/' + tag) { var h = document.querySelector('h1'); name = h && cleanTitle(h.textContent); }
+    return name || tag;
+  };
+  window.__ftvShuffle = function(){
+    var tag = showTag();
+    if (!tag) return 'none';
+    showEpisodes(tag).then(function(list){
+      var v = randomEpisode(list);
+      if (!v) return;
+      var path = '/series/' + v.series_tag + '/' + v.tag;
+      try { sessionStorage.setItem(SHUFFLE_KEY, JSON.stringify({ tag: tag, path: path })); } catch (e) {}
+      window.__ftvGo(path, { title: cleanTitle(v.title), series: v.series_name || '', thumb: v.small_thumbnail || v.thumbnail || '' });
+    });
+    return 'ok';
+  };
+  // Autoplay's pick while shuffling (null: not shuffling, or not loaded yet).
+  function shuffleNext(){
+    var st = shuffleState(), tag = showTag();
+    if (!st || st.path !== location.pathname || st.tag !== tag) return null;
+    var list = shuffleEps[tag] && shuffleEps[tag].list;
+    var v = list && randomEpisode(list);
+    if (!v) return null;
+    try { sessionStorage.setItem(SHUFFLE_KEY, JSON.stringify({ tag: tag, path: '/series/' + v.series_tag + '/' + v.tag })); } catch (e) {}
+    return v;
+  }
+  (function(){
+    var st = shuffleState();
+    if (st && st.tag === showTag()) showEpisodes(st.tag);   // ready for when this one ends
+    if (showTag()) seriesArt(showTag());                    // the show's full name, for the Menu
+  })();
 
   function renderPscRows(){
     var box = document.getElementById('__ftv_psc');
@@ -1275,6 +1375,22 @@
   // releases the hardware decoder. Without one: pause once a frame is on
   // screen -- pausing on the 'play' event itself left an empty black box,
   // and the Spotlight clips open on black frames anyway.
+  // The Spotlight's clip plays while the cursor is on the Spotlight, and is
+  // stopped again as soon as it leaves (see updateSpotlightVideo).
+  var spotOn = false;
+  function spotVideo(){
+    var car = cur && !silentCur && spotlightOf(cur);
+    var box = car && (car.closest('[class*="_spotlight"]') || car);
+    return box ? box.querySelector('video') : null;
+  }
+  function isSpotPlaying(v){ return spotOn && v && v === spotVideo(); }
+  function updateSpotlightVideo(){
+    if (!PAUSE_HOME_VIDEOS || location.pathname !== '/') { spotOn = false; return; }
+    var v = spotVideo();
+    spotOn = !!v;
+    if (v && v.paused) { v.muted = true; try { var p = v.play(); if (p && p.catch) p.catch(function(){}); } catch (e) {} }
+    if (!v) pauseHomeVideos();
+  }
   function stopAfterFirstFrame(v){
     if (v.poster) {
       v.autoplay = false;
@@ -1286,13 +1402,13 @@
     v.__ftvStopping = true;
     v.addEventListener('timeupdate', function(){
       v.__ftvStopping = false;
-      if (location.pathname === '/') { try { v.pause(); } catch (e) {} }
+      if (location.pathname === '/' && !isSpotPlaying(v)) { try { v.pause(); } catch (e) {} }
     }, { once: true });
   }
   function pauseHomeVideos(){
     if (!PAUSE_HOME_VIDEOS || location.pathname !== '/') return;
     var vs = document.querySelectorAll('video');
-    for (var i = 0; i < vs.length; i++) { if (!vs[i].paused) stopAfterFirstFrame(vs[i]); }
+    for (var i = 0; i < vs.length; i++) { if (!vs[i].paused && !isSpotPlaying(vs[i])) stopAfterFirstFrame(vs[i]); }
   }
 
   document.addEventListener('play', function(e){
@@ -1302,8 +1418,8 @@
     // Homepage previews (see pauseHomeVideos in MainActivity): stopped as
     // they start, including each new clip the Spotlight carousel rotates to.
     if (PAUSE_HOME_VIDEOS && location.pathname === '/') {
-      stopAfterFirstFrame(v);
-      return;
+      if (!isSpotPlaying(v)) stopAfterFirstFrame(v);
+      return;   // never the player, even while it plays
     }
     var r = v.getBoundingClientRect();
     // Only a real, mostly-viewport-filling video is worth tracking -- a
@@ -1469,6 +1585,10 @@
         'text-shadow:#000 -1px -1px 0,#000 -2px -2px 0,#000 1px -1px 0,#000 -2px 2px 0,#000 2px -2px 0,#000 -1px 1px 0,#000 2px 2px 0,#000 4px 4px 0;}' +
       '#__ftv_seek .__ftv_stats{margin-top:8px;font-size:12px;color:#aaa;text-transform:uppercase;text-shadow:2px 2px 0 #000;}' +
       '#__ftv_seek .__ftv_stats b{color:#25ff06;font-weight:400;}' +
+      '#__ftv_seek .__ftv_desc{display:none;max-width:58%;margin-top:14px;font:15px/1.4 "Share Tech Mono",monospace;color:#ddd;' +
+        'text-shadow:2px 2px 0 #000;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden;}' +
+      '#__ftv_seek:not(.__ftv_paused) .__ftv_desc,#__ftv_seek .__ftv_desc:empty{display:none;}' +
+      '#__ftv_seek .__ftv_desc i{display:block;font-style:normal;color:#25ff06;margin-bottom:4px;text-transform:uppercase;}' +
       '#__ftv_seek .__ftv_note{margin-top:6px;min-height:16px;font:16px "FFGothic OneTwo Condensed",sans-serif;color:#25ff06;' +
         'text-transform:uppercase;text-shadow:2px 2px 0 #000;}' +
       '#__ftv_seek .__ftv_tab,#__ftv_seek .__ftv_head{display:none;}' +
@@ -1534,6 +1654,7 @@
     seekOverlayEl.id = '__ftv_seek';
     var top = div('__ftv_top');
     osdSeriesEl = div('__ftv_series'); osdTitleEl = div('__ftv_title'); osdStatsEl = div('__ftv_stats'); osdNoteEl = div('__ftv_note');
+    osdDescEl = div('__ftv_desc');
     top.appendChild(osdSeriesEl); top.appendChild(osdTitleEl); top.appendChild(osdStatsEl);
     osdFlashEl = div('__ftv_flash');
     var bottom = div('__ftv_bottom');
@@ -1545,6 +1666,7 @@
     head.appendChild(osdTitle2El);
     // The note sits under the title on mde, beside it on fishtank.
     (OSD_MDE ? top : head).appendChild(osdNoteEl);
+    top.appendChild(osdDescEl);
     osdScrubEl = div('__ftv_scrub');
     seekThumbEl = div(); seekThumbEl.id = '__ftv_seek_thumb';
     osdStimeEl = div('__ftv_stime'); seekThumbEl.appendChild(osdStimeEl);
@@ -1571,7 +1693,7 @@
     seekOverlayEl.appendChild(top); seekOverlayEl.appendChild(osdFlashEl); seekOverlayEl.appendChild(bottom);
     (document.body || document.documentElement).appendChild(seekOverlayEl);
   }
-  var osdStatsEl = null, osdTabEl = null, osdTitle2El = null;
+  var osdStatsEl = null, osdTabEl = null, osdTitle2El = null, osdDescEl = null;
 
   // Title and show of what's playing, as the phone remote shows them.
   function playbackMeta(){
@@ -1822,7 +1944,8 @@
       if (!osdLikes || osdLikes.path !== path) return;
       var d = j.details || {};
       osdLikes = { path: path, id: j.video && j.video.id, likes: d.likes || 0, dislikes: d.dislikes || 0,
-                   myLike: d.myLike === true ? true : d.myLike === false ? false : null, views: d.views || 0, comments: d.totalComments || 0 };
+                   myLike: d.myLike === true ? true : d.myLike === false ? false : null, views: d.views || 0, comments: d.totalComments || 0,
+                   desc: (j.video && j.video.description) || '', date: (j.video && j.video.created_at) || '' };
       if (seekOverlayVisible) renderSeekOverlay();
     }).catch(function(){});
   }
@@ -1831,6 +1954,23 @@
     var on = !!(OSD_MDE && osdLikes && osdLikes.id && osdLikes.path === location.pathname);
     osdBtnEls[OSD_LIKE].hidden = osdBtnEls[OSD_DISLIKE].hidden = !on;
     if (osdStatsEl) osdStatsEl.textContent = '';
+    if (osdDescEl) {
+      // Shown while paused: when it came out, and what it's about.
+      var dsig = on ? osdLikes.path : '';
+      if (osdDescEl.__sig !== dsig) {
+        osdDescEl.__sig = dsig;
+        osdDescEl.textContent = '';
+        if (on && (osdLikes.desc || osdLikes.date)) {
+          var dt = osdLikes.date && new Date(osdLikes.date);
+          if (dt && !isNaN(dt)) {
+            var when = document.createElement('i');
+            when.textContent = dt.toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' });
+            osdDescEl.appendChild(when);
+          }
+          osdDescEl.appendChild(document.createTextNode(String(osdLikes.desc).replace(/\s+/g, ' ').trim()));
+        }
+      }
+    }
     if (!on) return;
     osdBtnEls[OSD_LIKE].lastChild.textContent = osdCount(osdLikes.likes);
     osdBtnEls[OSD_DISLIKE].lastChild.textContent = osdCount(osdLikes.dislikes);
@@ -2334,6 +2474,7 @@
 
   function mark(el, silent){
     if (cur) { zoomOff(cur); }
+    if (cur !== el) stopPreview();
     cur = el || null;
     curRect = curRef = null;
     lostHref = cur && cur.getAttribute && cur.getAttribute('href');
@@ -2369,6 +2510,50 @@
     zoomOn(cur);
     placeVeil(false);
     watchSpotlight();
+    updateSpotlightVideo();
+    updatePreview();
+  }
+
+  // mde: rest the cursor on an episode card and, after a moment, its
+  // thumbnail becomes the episode's animated preview (the site's own
+  // 320x180 preview.webp -- an image, not a video, so no video decoder).
+  // Back to the still as soon as the cursor moves on.
+  var prevTimer = null, prevImg = null, videoInfoCache = {};
+  function videoInfo(tag){
+    if (!videoInfoCache[tag]) videoInfoCache[tag] = fetch('https://api.mde.tv/v1/videos/' + encodeURIComponent(tag), { credentials: 'include' })
+      .then(function(r){ return r.json(); }).then(function(j){ return j.video || null; })
+      .catch(function(){ delete videoInfoCache[tag]; return null; });
+    return videoInfoCache[tag];
+  }
+  function stopPreview(){
+    if (prevTimer) { clearTimeout(prevTimer); prevTimer = null; }
+    if (prevImg) {
+      if (prevImg.__ftvOrig) { prevImg.src = prevImg.__ftvOrig; if (prevImg.__ftvOrigSet) prevImg.setAttribute('srcset', prevImg.__ftvOrigSet); }
+      prevImg.__ftvOrig = prevImg.__ftvOrigSet = null;
+      prevImg = null;
+    }
+  }
+  function updatePreview(){
+    stopPreview();
+    if (location.host.indexOf('mde.tv') < 0 || !cur || silentCur || playingVideo() || spotlightOf(cur)) return;
+    var a = cur.closest && cur.closest('a[href]');
+    var m = a && /^\/series\/[^/]+\/([^/?#]+)$/.exec(a.getAttribute('href') || '');
+    if (!m || a.closest('li[data-ftv-upnext]')) return;   // Up next keeps the show's artwork
+    var img = a.querySelector('img');
+    if (!img) return;
+    var el = cur;
+    prevTimer = setTimeout(function(){
+      prevTimer = null;
+      videoInfo(m[1]).then(function(v){
+        if (!v || !v.preview || cur !== el || !document.contains(img)) return;
+        stopPreview();
+        prevImg = img;
+        img.__ftvOrig = img.currentSrc || img.src;
+        img.__ftvOrigSet = img.getAttribute('srcset');
+        img.removeAttribute('srcset');
+        img.src = v.preview;
+      });
+    }, 900);
   }
 
   window.__ftvReset = function(){
@@ -2723,9 +2908,16 @@
     try { sessionStorage.setItem(LOADING_KEY, JSON.stringify({ path: path, meta: meta || {}, at: Date.now() })); } catch (e) {}
   }
   // Start an episode: the loading screen first, then go. meta: { title, series, thumb }
+  // mde: through the site's own router, as its links and autoplay do, so the
+  // page isn't reloaded -- measured on a Fire TV Stick 4K, ~6s to playing
+  // instead of ~18s, almost all of it the site's scripts starting up again.
   window.__ftvGo = function(path, meta){
     showLoader(meta);
     rememberLoading(path, meta);
+    var r = location.host.indexOf('mde.tv') >= 0 && window.next && window.next.router;
+    if (r && typeof r.push === 'function') {
+      try { r.push(path); return; } catch (e) {}
+    }
     location.assign(path);
   };
   // What a card on the page says about its episode, for the loading screen.

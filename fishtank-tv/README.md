@@ -392,6 +392,36 @@ For the phone's Continue watching, `syncAccount` copies the list into
 - The resume itself is the site's own; the app's `__ftv_pos_` resume is
   fishtank-only.
 
+**Previews, Spotlight, starts, pause info, shuffle (mde).**
+- Starting an episode from the phone, the Up next card or Shuffle (`__ftvGo`) goes
+  through the site's own router (`next.router.push`), as its links and autoplay
+  do, not a page load. On a Fire TV Stick 4K: about 6s to playing instead of
+  about 18s, almost all of it the site's scripts starting up again (49 scripts,
+  all from cache).
+- Rest the cursor on an episode card for 0.9s and its image becomes the
+  episode's animated `preview.webp` (320x180, from `GET /videos/<tag>`). It's an
+  image, so no video decoder is used, and it goes back to the still when the
+  cursor moves.
+- The Spotlight's clip plays only while the cursor is on the Spotlight
+  (`updateSpotlightVideo`, from `mark`); everything else on the homepage is
+  still stopped (`PAUSE_HOME_VIDEOS`).
+- mde saves progress for those clips too, so on the homepage `fetch` answers
+  `/playback-progress/video/...` itself: `{}` for `/session` (no session, so
+  nothing is ever saved) and 409 otherwise.
+- Paused: the controls show the episode's date and the first four lines of its
+  description (`.__ftv_desc`, from the same `/videos/<tag>` request as the likes).
+- Shuffle: the TV Menu on a show's page or episode offers "Shuffle <show>"
+  (name from `/series/<tag>`). It plays a random episode of that show from
+  `/series/<tag>/videos`. Autoplay keeps shuffling, because the `/videos/next`
+  answer is swapped, as the queue does. It stops as soon as anything else is
+  opened (`__ftv_shuffle` holds the episode it expects).
+- Resume is mde's own. Its player waits only 800ms for the account position
+  (`POST .../session`) before starting from what it has locally, which is
+  nothing on a TV. Once (out of five tries) that started an episode at 0:24 and
+  saved over the account's place; not reproduced since. If it comes back,
+  seeking to the position in `GET /playback-progress` early in playback would
+  fix it.
+
 **One copy of the app.** MainActivity is `singleTask`. It used to be the
 default launch mode, so opening the app while it was already open (Fire TV
 home, the installer's OPEN, `am start`) stacked another copy on top; four

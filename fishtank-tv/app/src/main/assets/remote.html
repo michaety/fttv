@@ -1033,6 +1033,7 @@
     var startY = 0, rows = null, from = 0, to = 0, h = 0;
     grip.addEventListener('touchstart', function(e){
       e.preventDefault();
+      e.stopPropagation();
       qDragging = true;
       startY = e.touches[0].clientY;
       rows = [].slice.call(list.children);
@@ -1044,7 +1045,9 @@
     grip.addEventListener('touchmove', function(e){
       if (!qDragging || !rows) return;
       e.preventDefault();
-      var dy = e.touches[0].clientY - startY;
+      e.stopPropagation();
+      // Kept within the queue: first place to last.
+      var dy = Math.max(-from * h, Math.min((rows.length - 1 - from) * h, e.touches[0].clientY - startY));
       row.style.transform = 'translateY(' + dy + 'px)';
       to = Math.max(0, Math.min(rows.length - 1, from + Math.round(dy / h)));
       rows.forEach(function(r, i){
@@ -1071,8 +1074,8 @@
       }
       rows = null;
     };
-    grip.addEventListener('touchend', end);
-    grip.addEventListener('touchcancel', end);
+    grip.addEventListener('touchend', function(e){ e.stopPropagation(); end(); });
+    grip.addEventListener('touchcancel', function(e){ e.stopPropagation(); end(); });
   }
   function queueOp(op, v){
     api('/api/queue/' + op, { path: v.path }).then(renderQueue).catch(offline);

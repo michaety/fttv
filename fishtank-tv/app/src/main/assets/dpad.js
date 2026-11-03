@@ -3119,6 +3119,7 @@
       else osdMove(dir);
       return;
     }
+    if (lp) { lpMove(dir); return; }
     if (silentCur) { revealStart(); return; }    // first press just reveals it
     pendingDir = dir;
     if (rafScheduled) return;
@@ -3448,7 +3449,160 @@
     var r = e.getBoundingClientRect(), s = getComputedStyle(e);
     return r.width > 40 && r.height > 40 && s.visibility !== 'hidden' && s.display !== 'none' && parseFloat(s.opacity) > 0.1;
   }
+  // ---- Long-press menu (mde) -------------------------------------------
+  // Holding Select on a card opens a small menu beside it: Play, Play next,
+  // Add to queue, Go to show, Shuffle the show, and Remove for Continue
+  // watching. MainActivity calls __ftvLongPress once Select has been held;
+  // while open, the arrows, Select and Back drive the menu.
+  var lp = null;   // { el, bg, items: [{label, icon, run}], i }
+  var LP_ICONS = {
+    play: 'M144 96v320l256-160z',
+    next: 'M112 96v320l224-160zM352 96h48v320h-48z',
+    add: 'M232 96h48v136h136v48H280v136h-48V280H96v-48h136z',
+    show: 'M96 96h136v136H96zM280 96h136v136H280zM96 280h136v136H96zM280 280h136v136H280z',
+    shuffle: 'M96 152h80l160 208h48v-48l80 72-80 72v-48h-72L152 200H96zM96 360h56l40-52 30 40-46 60H96zM336 152h48v-48l80 72-80 72v-48h-24l-40 52-30-40 46-60z',
+    remove: 'M150 116l106 106 106-106 34 34-106 106 106 106-34 34-106-106-106 106-34-34 106-106-106-106z'
+  };
+  function lpStyle(){
+    if (document.getElementById('__ftv_lp_css')) return;
+    var s = document.createElement('style');
+    s.id = '__ftv_lp_css';
+    s.textContent =
+      '#__ftv_lp_bg{position:fixed;inset:0;z-index:2147483600;background:rgba(0,0,0,.45);opacity:0;transition:opacity .2s ease-out}' +
+      '#__ftv_lp_bg.in{opacity:1}' +
+      '#__ftv_lp{position:fixed;z-index:2147483601;min-width:250px;max-width:340px;padding:6px;box-sizing:border-box;' +
+        'background:rgba(10,12,10,.97);border:1px solid rgba(__FTV_ACCENT_RGB__,.45);border-radius:6px;' +
+        'box-shadow:0 14px 44px rgba(0,0,0,.7),0 0 24px rgba(__FTV_ACCENT_RGB__,.12);' +
+        'opacity:0;transform:scale(.88);transition:opacity .16s ease-out,transform .24s cubic-bezier(.2,.9,.3,1.25)}' +
+      '#__ftv_lp.in{opacity:1;transform:none}' +
+      '#__ftv_lp.out{opacity:0;transform:scale(.94);transition:opacity .12s ease-in,transform .12s ease-in}' +
+      '#__ftv_lp .hd{padding:6px 12px 8px;margin-bottom:4px;border-bottom:1px solid rgba(255,255,255,.08);color:#8a8a8a;' +
+        'font:13px/1.2 sans-serif;letter-spacing:1px;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
+      '#__ftv_lp .it{display:flex;align-items:center;gap:12px;padding:9px 12px;border-radius:4px;color:#e6e6e6;' +
+        'font:400 21px/1 "FFGothic OneTwo Condensed",sans-serif;text-transform:uppercase;letter-spacing:.5px;' +
+        'opacity:0;transform:translateX(-14px);transition:opacity .2s ease-out,transform .26s cubic-bezier(.2,.9,.3,1.2),background .12s,color .12s,box-shadow .12s}' +
+      '#__ftv_lp.in .it{opacity:1;transform:none}' +
+      '#__ftv_lp .it svg{width:16px;height:16px;flex:0 0 16px;fill:currentColor;opacity:.85}' +
+      '#__ftv_lp .it.on{background:rgba(__FTV_ACCENT_RGB__,.2);color:__FTV_ACCENT_HEX__;box-shadow:inset 3px 0 0 __FTV_ACCENT_HEX__}' +
+      '#__ftv_lp_toast{position:fixed;left:50%;bottom:48px;z-index:2147483602;padding:10px 18px;border-radius:4px;' +
+        'background:rgba(10,12,10,.95);border:1px solid rgba(__FTV_ACCENT_RGB__,.5);color:__FTV_ACCENT_HEX__;' +
+        'font:400 20px "FFGothic OneTwo Condensed",sans-serif;text-transform:uppercase;letter-spacing:.5px;' +
+        'opacity:0;transform:translate(-50%,12px);transition:opacity .2s,transform .25s ease-out;pointer-events:none}' +
+      '#__ftv_lp_toast.in{opacity:1;transform:translate(-50%,0)}';
+    (document.head || document.documentElement).appendChild(s);
+  }
+  var lpToastTimer = null;
+  function lpToast(text){
+    lpStyle();
+    var t = document.getElementById('__ftv_lp_toast');
+    if (!t) { t = document.createElement('div'); t.id = '__ftv_lp_toast'; document.body.appendChild(t); }
+    t.textContent = text;
+    requestAnimationFrame(function(){ t.classList.add('in'); });
+    if (lpToastTimer) clearTimeout(lpToastTimer);
+    lpToastTimer = setTimeout(function(){ t.classList.remove('in'); }, 2200);
+  }
+  function lpQueue(href, op){
+    var tag = (/^\/series\/[^/]+\/([^/?#]+)/.exec(href) || [])[1];
+    if (!tag) return;
+    videoInfo(tag).then(function(v){
+      if (!v) { lpToast('Couldn’t queue that'); return; }
+      window.__ftvQueue(op, { path: href, title: cleanTitle(v.title), series: v.series_name || '',
+        thumb: v.small_thumbnail || v.thumbnail || '', dur: v.duration || 0, video: v });
+      lpToast(op === 'next' ? 'Plays next' : 'Added to queue');
+    });
+  }
+  function lpItemsFor(a){
+    var href = (a.getAttribute('href') || '').split(/[?#]/)[0];
+    var m = /^\/series\/([^/]+)(?:\/([^/]+))?$/.exec(href);
+    if (!m) return null;
+    var tag = m[1], meta = cardMeta(a);
+    var show = seriesNames[tag] || meta.series || 'the show';
+    if (!m[2]) {
+      return { head: show, items: [
+        { label: 'Open show', icon: 'show', run: function(){ window.__ftvGo(href); } },
+        { label: 'Shuffle', icon: 'shuffle', run: function(){ window.__ftvShuffle(tag); } }
+      ] };
+    }
+    var up = a.closest('li[data-ftv-upnext]');
+    var row = mdeSiteRow();
+    var inCw = !!up || !!(row && row.contains(a));
+    var items = [
+      { label: up ? 'Play next episode' : 'Play', icon: 'play', run: function(){ window.__ftvGo(href, meta); } },
+      { label: 'Play next', icon: 'next', run: function(){ lpQueue(href, 'next'); } },
+      { label: 'Add to queue', icon: 'add', run: function(){ lpQueue(href, 'add'); } },
+      { label: 'Go to ' + show, icon: 'show', run: function(){ window.__ftvGo('/series/' + tag); } },
+      { label: 'Shuffle ' + show, icon: 'shuffle', run: function(){ window.__ftvShuffle(tag); } }
+    ];
+    if (inCw) items.push({ label: 'Remove from Continue watching', icon: 'remove', run: function(){
+      window.__ftvRecentRemove(href); lpToast('Removed'); } });
+    return { head: (meta.title || show), items: items };
+  }
+  function lpPaint(){
+    if (!lp) return;
+    [].forEach.call(lp.el.querySelectorAll('.it'), function(e, k){ e.classList.toggle('on', k === lp.i); });
+  }
+  function lpClose(then){
+    if (!lp) return;
+    var m = lp; lp = null;
+    m.el.classList.remove('in'); m.el.classList.add('out'); m.bg.classList.remove('in');
+    setTimeout(function(){ m.el.remove(); m.bg.remove(); }, 160);
+    if (cur) { try { mark(cur); } catch (e) {} }
+    if (then) then();
+  }
+  window.__ftvLongPress = function(){
+    if (lp || location.host.indexOf('mde.tv') < 0 || playingVideo() || !cur || silentCur) return 'no';
+    var a = cur.closest && cur.closest('a[href]');
+    // On a card's x: the card it belongs to.
+    if (!a && cur.closest) { var li = cur.closest('li'); a = li && li.querySelector('a[href]'); }
+    if (!a) return 'no';
+    var spec = lpItemsFor(a);
+    if (!spec) return 'no';
+    lpStyle();
+    var bg = document.createElement('div'); bg.id = '__ftv_lp_bg';
+    var el = document.createElement('div'); el.id = '__ftv_lp';
+    var hd = document.createElement('div'); hd.className = 'hd'; hd.textContent = spec.head;
+    el.appendChild(hd);
+    spec.items.forEach(function(it, k){
+      var row = document.createElement('div');
+      row.className = 'it';
+      row.innerHTML = '<svg viewBox="0 0 512 512"><path d="' + LP_ICONS[it.icon] + '"/></svg>';
+      row.appendChild(document.createTextNode(it.label));
+      // One after another as it opens (the highlight itself stays instant).
+      var d = (60 + k * 40) + 'ms';
+      row.style.transitionDelay = d + ',' + d + ',0s,0s,0s';
+      el.appendChild(row);
+    });
+    document.body.appendChild(bg);
+    document.body.appendChild(el);
+    // Beside the card: to its right if it fits, else its left; kept on screen.
+    var r = a.getBoundingClientRect(), w = el.offsetWidth, h = el.offsetHeight, vw = window.innerWidth, vh = window.innerHeight;
+    var left = r.right + 14 + w <= vw - 12 ? r.right + 14 : Math.max(12, r.left - 14 - w);
+    var top = Math.max(12, Math.min(r.top, vh - h - 12));
+    el.style.left = left + 'px';
+    el.style.top = top + 'px';
+    el.style.transformOrigin = (left > r.left ? 'left ' : 'right ') + Math.max(0, Math.min(h, r.top + r.height / 2 - top)) + 'px';
+    lp = { el: el, bg: bg, items: spec.items, i: 0 };
+    lpPaint();
+    requestAnimationFrame(function(){ requestAnimationFrame(function(){ el.classList.add('in'); bg.classList.add('in'); }); });
+    if (window.FtvApp && window.FtvApp.navSound) { try { window.FtvApp.navSound('select'); } catch (e) {} }
+    return 'menu';
+  };
+  function lpMove(dir){
+    if (dir === 'left' || dir === 'right') return;
+    var n = lp.i + (dir === 'down' ? 1 : -1);
+    if (n < 0 || n >= lp.items.length) return;
+    lp.i = n;
+    lpPaint();
+    if (window.FtvApp && window.FtvApp.navSound) { try { window.FtvApp.navSound(dir); } catch (e) {} }
+  }
+  function lpRun(){
+    var it = lp.items[lp.i];
+    if (window.FtvApp && window.FtvApp.navSound) { try { window.FtvApp.navSound('select'); } catch (e) {} }
+    lpClose(function(){ try { it.run(); } catch (e) {} });
+  }
+
   window.__ftvDismiss = function(){
+    if (lp) { lpClose(); return true; }
     var i, j, list;
     // fishtank's pop-ups aren't marked as dialogs. A drop-down (the profile
     // menu): a small fixed panel of buttons, closed by the button that
@@ -3492,6 +3646,7 @@
   };
 
   window.__ftvActivate = function(){
+    if (lp) { lpRun(); return; }
     if (playingVideo()) {
       // Select brings the controls up (on Pause) rather than pausing
       // straight away; then it presses whatever's highlighted. A scrub in

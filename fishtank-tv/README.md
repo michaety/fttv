@@ -155,6 +155,10 @@ again.
   On fishtank it's the next episode in the row it was opened from.
 - On launch the cursor starts on the first Continue watching card, or on
   fishtank's Episodes button.
+- Select acts on release. Held for 450ms (`LONG_PRESS_MS`) it calls
+  `__ftvLongPress()`, which on mde opens a card's menu (Play, Play next, Add
+  to queue, Go to show, Shuffle, Remove from Continue watching); where there
+  is none, the hold acts as a normal Select.
 - The screen is kept on only while `__ftvIsPlaying()` is true, polled every
   15s, so the Fire TV's screensaver works.
 - The Menu offers a subtitles toggle when the page's `<video>` has a

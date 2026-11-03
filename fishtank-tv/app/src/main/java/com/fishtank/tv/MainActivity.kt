@@ -100,6 +100,8 @@ class MainActivity : Activity() {
 
         /** Gap between releasing Select and opening the keyboard. */
         private const val TAP_DELAY_MS = 250L
+        /** How long Select is held for a long press (a card's menu). */
+        private const val LONG_PRESS_MS = 450L
     }
 
     private lateinit var root: FrameLayout
@@ -1063,6 +1065,32 @@ class MainActivity : Activity() {
     private var selectHeld = false
     private var pendingTap: Pair<Float, Float>? = null
 
+    // Select: a tap acts on release; held for LONG_PRESS_MS it asks the page
+    // for a long-press menu instead (and, where there's none, acts then).
+    private var selectPending = false
+    private var longFired = false
+    private val longPressRun = Runnable {
+        if (!selectPending) return@Runnable
+        longFired = true
+        webView.evaluateJavascript("window.__ftvLongPress ? window.__ftvLongPress() : 'no'") { r ->
+            if (r?.contains("menu") != true) activateSelect()
+        }
+    }
+
+    private fun activateSelect() {
+        webView.evaluateJavascript("window.__ftvActivate && window.__ftvActivate()") { result ->
+            Regex("""tap:(\d+),(\d+)""").find(result ?: "")?.let {
+                val x = it.groupValues[1].toFloat()
+                val y = it.groupValues[2].toFloat()
+                // Open the keyboard only once Select is released:
+                // otherwise the key-up lands on the just-opened
+                // keyboard, which "presses" its highlighted key and
+                // types a stray "a" into every field.
+                if (selectHeld) pendingTap = x to y else webView.postDelayed({ tap(x, y) }, TAP_DELAY_MS)
+            }
+        }
+    }
+
     private fun isSelectKey(keyCode: Int) = keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
         keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_BUTTON_A
 
@@ -1072,6 +1100,11 @@ class MainActivity : Activity() {
             if (event.action == KeyEvent.ACTION_UP) {
                 pendingTap?.let { (x, y) -> webView.postDelayed({ tap(x, y) }, TAP_DELAY_MS) }
                 pendingTap = null
+                if (selectPending) {
+                    selectPending = false
+                    webView.removeCallbacks(longPressRun)
+                    if (!longFired) activateSelect()   // a tap
+                }
             }
         }
         if (isHandledKey(event.keyCode)) {
@@ -1118,17 +1151,14 @@ class MainActivity : Activity() {
             KeyEvent.KEYCODE_DPAD_CENTER,
             KeyEvent.KEYCODE_ENTER,
             KeyEvent.KEYCODE_BUTTON_A -> {
-                webView.evaluateJavascript("window.__ftvActivate && window.__ftvActivate()") { result ->
-                    Regex("""tap:(\d+),(\d+)""").find(result ?: "")?.let {
-                        val x = it.groupValues[1].toFloat()
-                        val y = it.groupValues[2].toFloat()
-                        // Open the keyboard only once Select is released:
-                        // otherwise the key-up lands on the just-opened
-                        // keyboard, which "presses" its highlighted key and
-                        // types a stray "a" into every field.
-                        if (selectHeld) pendingTap = x to y else webView.postDelayed({ tap(x, y) }, TAP_DELAY_MS)
-                    }
-                }
+                // Acted on at release (a tap), or once held (a long press:
+                // the card's menu, when it has one). Repeats while held are
+                // ignored.
+                if ((event?.repeatCount ?: 0) > 0) return true
+                longFired = false
+                selectPending = true
+                webView.removeCallbacks(longPressRun)
+                webView.postDelayed(longPressRun, LONG_PRESS_MS)
                 return true
             }
 

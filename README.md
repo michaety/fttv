@@ -31,6 +31,8 @@ Unofficial. Not affiliated with, endorsed by, or supported by either site.
 - **Autoplay:** the next episode starts when one finishes. Back cancels.
 - **Continue watching:** pick up where you left off, or start the next episode.
   On MDE it follows your account, so it matches your phone and PC.
+- **Hold Select on a card (MDE):** a menu to play it, queue it, go to its show,
+  shuffle the show, or remove it from Continue watching.
 - **Auto-updates:** the app offers new versions when it opens. On Fire TV's
   confirm screen, move right to **INSTALL** (it starts on Cancel).
 

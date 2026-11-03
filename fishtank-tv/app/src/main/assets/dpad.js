@@ -153,6 +153,9 @@
     // (mde's Spotlight 1-7 buttons: LEFT/RIGHT on the slide work them instead, see stepSpotlight)
     // (fishtank's "Latest Episode" banner, hidden by the app's CSS -- before
     // that applies it was the start spot, leaving the lift round nothing)
+    // (fishtank's Fishbucks counter in the account badge: an animated number
+    // that does nothing, between the top row and the account picture)
+    if (el.tagName === 'BUTTON' && /^\s*₣/.test(el.textContent || '') && location.host.indexOf('fishtank') >= 0) return true;
     return !!(el.matches && el.matches('a[class*="_logo"], [class*="_spotlight"] [class*="_selector"] button, ' +
       'div.flex.flex-col.gap-5.mb-5 > a.flex.flex-col[href^="/episodes/"]'));
   }
@@ -3124,7 +3127,10 @@
   }
   // mde's "View All" link under a row: Up/Down go past it, row to row.
   function isViewAll(el){
-    return !!el && el.tagName === 'A' && /_view\b/.test(el.className || '') && /^view all$/i.test((el.textContent || '').trim());
+    // (fishtank's, beside each row's tabs, too: a plain link or button)
+    if (!el || !/^view all$/i.test((el.textContent || '').trim())) return false;
+    if (el.tagName === 'A' && /_view\b/.test(el.className || '')) return true;
+    return location.host.indexOf('fishtank') >= 0 && (el.tagName === 'A' || el.tagName === 'BUTTON');
   }
   function doNavigate(dir){
     var list = items();

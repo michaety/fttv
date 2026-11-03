@@ -62,6 +62,7 @@ private val BLOCKED_URL_SUBSTRINGS = listOf(
     "mixpanel.com",
     "hotjar.com",
     "posthog.com",           // fishtank: product analytics / session capture
+    "churnkey.co",           // fishtank: subscription-cancel flow, ~1.6s of script at startup
     "cloudflareinsights.com", // both: Cloudflare Web Analytics beacon
     "fullstory.com",
     // ads
@@ -120,6 +121,7 @@ class MainActivity : Activity() {
     private lateinit var errorView: TextView
     private lateinit var homeUrl: String
     private val thumbCache by lazy { ThumbCache(cacheDir) }
+    private val listCache by lazy { ListCache(cacheDir) }
     /** Browse and control from a phone (see PhoneRemote). */
     private var phoneRemote: PhoneRemote? = null
     /** The QR code dialog while it's showing; closed once a phone connects. */
@@ -203,6 +205,10 @@ class MainActivity : Activity() {
                    pushed the title down past the row's clipped bottom edge
                    on the selected card; the app's zoom marks it instead */
                 a[href^="/episodes/"].group img { padding: 0 !important; }
+                /* the rows' carousel fades its list to opacity 0 while it
+                   pages, and after the app scrolled a row it never faded
+                   back: the whole row went blank. The app moves the rows. */
+                ul:has(> li.ticker-item) { opacity: 1 !important; }
                 /* titles' line box was no taller than the text, so g/p/y hung
                    below the card and the selected card's ring cut them off */
                 a[href^="/episodes/"].group div.whitespace-nowrap { line-height: 1.4 !important; padding-bottom: 2px !important; }
@@ -782,6 +788,7 @@ class MainActivity : Activity() {
                     return WebResourceResponse("text/plain", "utf-8", null)
                 }
                 request?.let { thumbCache.intercept(it) }?.let { return it }
+                request?.let { listCache.intercept(it) }?.let { return it }
                 return super.shouldInterceptRequest(view, request)
             }
 

@@ -199,6 +199,13 @@ class MainActivity : Activity() {
                 a[href^="/episodes/"][class*="md:w-[400px]"] { width: 180px !important; height: auto !important; }
                 a[href^="/episodes/"][class*="md:w-[400px]"] > img { width: 180px !important; height: 135px !important; }
                 div.flex.flex-col.gap-5.mb-5:has(a[href^="/episodes/"]) { zoom: 0.8; }
+                /* the cards' own focus style pads the picture (p-1), which
+                   pushed the title down past the row's clipped bottom edge
+                   on the selected card; the app's zoom marks it instead */
+                a[href^="/episodes/"].group img { padding: 0 !important; }
+                /* titles' line box was no taller than the text, so g/p/y hung
+                   below the card and the selected card's ring cut them off */
+                a[href^="/episodes/"].group div.whitespace-nowrap { line-height: 1.4 !important; padding-bottom: 2px !important; }
                 /* achievement / mission toasts (Sonner): over the fullscreen
                    video (which sits just below the top layer for this), at
                    the bottom of the screen */

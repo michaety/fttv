@@ -131,13 +131,18 @@
   var PROBES = [[.5,.5],[.25,.25],[.75,.25],[.25,.75],[.75,.75]];
   function covered(el){
     var r = el.getBoundingClientRect();
-    var tested = false;
+    var tested = false, trackOfEl;
     for (var i = 0; i < PROBES.length; i++) {
       var x = r.left + r.width * PROBES[i][0], y = r.top + r.height * PROBES[i][1];
       if (x < 0 || y < 0 || x >= window.innerWidth || y >= window.innerHeight) continue;
       tested = true;
       var hit = document.elementFromPoint(x, y);
       if (!hit || el === hit || el.contains(hit)) return false;
+      // Another card of the same scrolling row: not something over this one.
+      // Inside fishtank's zoomed (0.8) Episodes area, a scrolled row's rects
+      // and hit-testing disagree, so the probe lands on a neighbour.
+      if (trackOfEl === undefined) trackOfEl = scrollableAncestor(el, 'x');
+      if (trackOfEl && trackOfEl.contains(hit)) return false;
     }
     return tested;
   }
@@ -2829,11 +2834,36 @@
     var r = cur.getBoundingClientRect();
     var needY = r.top < 60 || r.bottom > window.innerHeight - 60;
     var needX = r.left < 0 || r.right > window.innerWidth;
+    // Along a scrolling row: just far enough that the card is fully inside
+    // the row with a bit of the next one showing, a card at a time --
+    // centring it jumped the row half a screen on some presses and not at
+    // all on others, and measured against the screen (not the row's own
+    // edges) a card half under fishtank's panel edge never scrolled in.
+    var trk = location.host.indexOf('fishtank') >= 0 ? curTrack() : null;
+    if (trk) {
+      var tb = trk.getBoundingClientRect(), pad = Math.min(60, r.width * 0.35);
+      var want = r.left < tb.left + pad ? r.left - (tb.left + pad) : r.right > tb.right - pad ? r.right - (tb.right - pad) : 0;
+      if (want) {
+        var x0 = r.left;
+        trk.scrollLeft += want;
+        var moved = x0 - cur.getBoundingClientRect().left;
+        // Inside a CSS zoom the scroll and the rects can use different
+        // units: correct once by the ratio actually seen.
+        if (moved && Math.abs(moved - want) > 2) trk.scrollLeft += (want - moved) * (want / moved);
+        r = cur.getBoundingClientRect();
+      }
+      needX = false;
+    }
     if (needY || needX) {
       try {
         cur.scrollIntoView({ block: needY ? 'center' : 'nearest', inline: needX ? 'center' : 'nearest', behavior: 'auto' });
       } catch (e) { cur.scrollIntoView(); }
     }
+    // Whether it was covered was decided (and remembered) while it was a
+    // candidate -- maybe half past a row's edge, before the scroll above
+    // brought it in -- and the next press then saw it as "covered" and
+    // reset the cursor to the start of the page. Ask again when needed.
+    coveredMemo.delete(cur);
     // Measure (unzoomed) after any scroll, then zoom and move the lift.
     curRect = cur.getBoundingClientRect();
     var pr = cur.parentElement && cur.parentElement.getBoundingClientRect();
@@ -2933,6 +2963,9 @@
   // The last press's best few candidates, for checking navigation over
   // devtools (window.__ftvLastScores()).
   var lastScored = [];
+  // The cursor's element, for checking navigation over devtools.
+  window.__ftvCur = function(){ return cur; };
+
   window.__ftvLastScores = function(){
     return lastScored.map(function(s){
       var e = s.el, r = e.getBoundingClientRect();
@@ -2963,6 +2996,7 @@
     // grid went from 2 columns to 4 -- more rows means more diagonal
     // neighbours close enough to out-score a genuinely-empty "next" slot).
     var track = (dir === 'left' || dir === 'right') ? curTrack() : null;
+    var ftLine = (dir === 'left' || dir === 'right') && location.host.indexOf('fishtank') >= 0;
     var wideW = window.innerWidth * 0.6;
     var curInTopBar = dir === 'up' && inTopBar(cur, a);
     var se = document.scrollingElement || document.documentElement;
@@ -3000,7 +3034,12 @@
       // as Android's own focus search does. Without this, RIGHT from a
       // section's tabs went down into the nearby cards and that section's
       // far-right "View All" link could never be reached.
-      if (!inBeam(a, b, dir)) score += 1e6;
+      if (!inBeam(a, b, dir)) {
+        // fishtank: Left/Right never leave the line the cursor is on (from a
+        // row's last tab or View All they dropped into the cards below).
+        if (ftLine) continue;
+        score += 1e6;
+      }
       // UP through the page doesn't stop at the top bar (it stays on screen,
       // so it was nearly always "closest" and every other press landed on
       // the search box). It's reached only from the very top of the page:
@@ -3033,7 +3072,10 @@
     scored.sort(function(a, b){ return a.score - b.score; });
     lastScored = scored.slice(0, 6);
     for (var j = 0; j < scored.length; j++) {
-      if (!isCovered(scored[j].el)) return scored[j].el;
+      // A card half under the edge of the row being moved along is only
+      // clipped by that row (mark scrolls it in), not hidden by something
+      // else: counting it as covered skipped every other card at the edge.
+      if (!isCovered(scored[j].el) || (track && track.contains(scored[j].el))) return scored[j].el;
     }
     return null;
   }

@@ -21,7 +21,8 @@ app/src/main/java/com/fishtank/tv/
   MainActivity.kt   WebView shell, key handling, site CSS/cleanup
   FtvWebView.kt     WebView whose keyboard action key submits the field
   UpdateChecker.kt  self-update from GitHub releases
-  ThumbCache.kt     480px copies of fishtank's episode thumbnails
+  ThumbCache.kt     480px copies of fishtank's episode thumbnails, and
+                    ListCache: its episode list (/v1/videos) served from disk
   PhoneRemote.kt    web server for the phone remote page
 app/src/main/assets/
   remote.html       the phone remote page (served by PhoneRemote)
@@ -152,12 +153,19 @@ again.
   of a progress bar. On mde the next episode comes from `GET /videos/next/<id>`
   (or `pscNext` for PSC), only if it's in the same series, and never for the
   series in `NO_NEXT_UP` (Stand-Up, FILMS, The Vault and other collections).
-  On fishtank it's the next episode in the row it was opened from.
+  On fishtank it's the next episode in its season (`ftOrderSeasons` sorts
+  the public episode list: by number with Extras after, else natural order).
 - On launch the cursor starts on the first Continue watching card, or on
-  fishtank's Episodes button.
+  fishtank's top-left episode. Fishtank opens on /episodes unless a listed
+  camera is online (`PhoneRemote.fishtankLive`), then on the live page.
+- Not signed in: the TV opens on "Sign in to …" with the phone QR; the phone
+  page opens on an email/password form, POSTed (never in a URL) to
+  /api/signin, and `__ftvSignIn` fills the site's own login form with it.
+  Nothing is stored. Fishtank comments on the phone use the site's own calls;
+  writes send the session's access token, read from /auth per request.
 - Select acts on release. Held for 450ms (`LONG_PRESS_MS`) it calls
-  `__ftvLongPress()`, which on mde opens a card's menu (Play, Play next, Add
-  to queue, Go to show, Shuffle, Remove from Continue watching); where there
+  `__ftvLongPress()`, which opens a card's menu (Play, Play next, Add to
+  queue, Remove from Continue watching; on mde also Go to show, Shuffle); where there
   is none, the hold acts as a normal Select.
 - The screen is kept on only while `__ftvIsPlaying()` is true, polled every
   15s, so the Fire TV's screensaver works.

@@ -22,8 +22,10 @@ Unofficial. Not affiliated with, endorsed by, or supported by either site.
 
 - **TV layout:** clutter removed and easy navigation for your TV.
 - **Remote control:** browse the site with the arrows and Select.
+- **Sign in with your phone:** when the TV isn't signed in, scan the code and
+  type your email and password on your phone instead of with the remote.
 - **Link your phone:** browse, search and play on the TV from your phone, plus
-  themes, and comments and likes on MDE.
+  themes, comments, and likes on MDE.
   See [Link your phone](#link-your-phone).
 - **Search:** MDE's search box is in the header.
 - **63% less CPU:** compared with v1.0, measured on MDE's homepage.
@@ -31,8 +33,8 @@ Unofficial. Not affiliated with, endorsed by, or supported by either site.
 - **Autoplay:** the next episode starts when one finishes. Back cancels.
 - **Continue watching:** pick up where you left off, or start the next episode.
   On MDE it follows your account, so it matches your phone and PC.
-- **Hold Select on a card (MDE):** a menu to play it, queue it, go to its show,
-  shuffle the show, or remove it from Continue watching.
+- **Hold Select on a card:** a menu to play it, queue it, or remove it from
+  Continue watching (on MDE also go to its show or shuffle it).
 - **Auto-updates:** the app offers new versions when it opens. On Fire TV's
   confirm screen, move right to **INSTALL** (it starts on Cancel).
 
@@ -40,8 +42,8 @@ Unofficial. Not affiliated with, endorsed by, or supported by either site.
 
 Press Menu (☰) on the TV, choose **Link your phone** and scan the QR code (same
 Wi-Fi as the TV). Pick something on your phone and it plays on the TV, with
-full controls and a queue. You can also change the app's theme from your phone, and on MDE read and post
-comments and like episodes. Add the page to your home screen to skip the QR
+full controls and a queue. You can also change the app's theme from your phone, read and post
+comments, and on MDE like episodes. Add the page to your home screen to skip the QR
 code next time.
 
 <img src="assets/screenshots/link-phone-tv.jpg" alt="Link your phone screen on the TV" width="720">
@@ -103,8 +105,8 @@ pushes an APK from your Android phone over wifi. Install Apps2Fire, then the apk
 
 **4. Launch and sign in**
 
-The app appears in your apps row. Open it, sign in with email and password,
-and you're done.
+The app appears in your apps row. Open it and scan the code with your phone to
+sign in there, or choose "Use the remote instead" and sign in on the TV.
 
 ## Notes
 

@@ -702,6 +702,9 @@
     fetch(url, { method: 'DELETE', credentials: 'include' })
       .then(function(r){
         if (r.ok) return;
+        // 409: mde refuses for a while after the episode was playing (the
+        // site's own x then fails too). Keep trying in the background.
+        if (r.status === 409) { pendingRemoval(id); return; }
         if (r.status !== 404 && r.status !== 405) throw new Error(r.status);
         return fetch(url + '/session', { method: 'POST', credentials: 'include', headers: json, body: '{}' })
           .then(function(r2){ if (!r2.ok) throw new Error(r2.status); return r2.json(); })
@@ -713,6 +716,34 @@
           });
       }).then(function(){ accountSynced = 0; }).catch(function(){});
   }
+  // Removals the account refused for now: retried every minute while the
+  // entry is still there, for up to an hour (kept across app restarts).
+  var RM_KEY = '__ftv_rm_pending';
+  function loadRm(){ try { return JSON.parse(localStorage.getItem(RM_KEY)) || {}; } catch (e) { return {}; } }
+  function saveRm(o){ try { localStorage.setItem(RM_KEY, JSON.stringify(o)); } catch (e) {} }
+  function pendingRemoval(id){ var o = loadRm(); if (!o[id]) o[id] = Date.now(); saveRm(o); }
+  function flushRemovals(){
+    var o = loadRm(), ids = Object.keys(o);
+    if (!ids.length || location.host.indexOf('mde.tv') < 0) return;
+    fetch('https://api.mde.tv/v1/playback-progress', { credentials: 'include' })
+      .then(function(r){ if (!r.ok) throw new Error(r.status); return r.json(); })
+      .then(function(j){
+        var there = {};
+        (j && j.items || []).forEach(function(i){ there[i.itemId] = 1; });
+        ids.forEach(function(id){
+          if (!there[id] || Date.now() - o[id] > 3600000) { delete o[id]; return; }   // gone, or give up
+          fetch('https://api.mde.tv/v1/playback-progress/video/' + encodeURIComponent(id), { method: 'DELETE', credentials: 'include' })
+            .then(function(r){
+              if (!r.ok) return;
+              var p = loadRm(); delete p[id]; saveRm(p);
+              accountSynced = 0;
+              try { window.dispatchEvent(new Event('focus')); } catch (e) {}   // site refetches its row
+            }).catch(function(){});
+        });
+        saveRm(o);
+      }).catch(function(){});
+  }
+  if (location.host.indexOf('mde.tv') >= 0) { setTimeout(flushRemovals, 5000); setInterval(flushRemovals, 60000); }
   var accountSynced = 0;
   function syncAccount(){
     if (location.host.indexOf('mde.tv') < 0 || Date.now() - accountSynced < 60000) return;

@@ -97,6 +97,21 @@
     </div>
   </div>
 </div>
+<!-- The TV isn't signed in: the first thing the page shows. The TV fills
+     in the site's own login form with these (PhoneRemote /api/signin). -->
+<div id="signin" hidden>
+  <form id="siForm" autocomplete="on">
+    <div class="si-brand"><b id="siBrand"></b><span>TV REMOTE</span></div>
+    <h2 id="siTitle"></h2>
+    <p class="si-note si-safe" id="siSafe"></p>
+    <label>Email<input type="email" id="siEmail" name="email" autocomplete="username" autocapitalize="off" spellcheck="false" required></label>
+    <label>Password<input type="password" id="siPw" name="password" autocomplete="current-password" required></label>
+    <p class="si-msg" id="siMsg" role="alert"></p>
+    <button class="si-go" id="siGo">Sign in on the TV</button>
+    <p class="si-note" id="siSocial"></p>
+    <button type="button" class="si-skip" id="siSkip">Not now</button>
+  </form>
+</div>
 <div id="toast"></div>
 <div id="now">
   <div class="np-prog"><i id="npProg"></i></div>
@@ -1140,9 +1155,55 @@
     ['spacing', 'Spacing', [['Tight', 'sm'], ['Normal', 'md'], ['Roomy', 'lg']], 'md'],
     ['animations', 'Animations', [['On', 'true'], ['Off', 'false']], 'true']];
 
+  // ---- Signing the TV in ----
+  // Shown first when the TV isn't signed in (and from the account page).
+  var signinSkipped = false;
+  $('#siBrand').textContent = fishtank ? 'fishtank' : 'MDE';
+  $('#siTitle').textContent = 'Sign in to ' + (fishtank ? 'Fishtank' : 'MDE') + ' on your TV';
+  $('#siSafe').textContent = '🔒 Your email and password go straight from this phone to your TV over your home Wi-Fi, and the TV signs in on ' +
+    (fishtank ? 'fishtank.live' : 'mde.tv') + ' itself, just as if you typed them there. They aren’t sent anywhere else, and nothing is saved.';
+  $('#siSocial').textContent = 'Use ' + (fishtank ? 'Google' : 'Discord, Google, Rumble, Twitch or Apple') +
+    ' to sign in? Those can’t be done from here: choose “Use the remote instead” on the TV.';
+  function showSignin(){
+    $('#signin').hidden = false;
+    document.body.classList.add('sheet-open');
+    $('#siMsg').textContent = '';
+  }
+  function hideSignin(){
+    $('#signin').hidden = true;
+    if (!sheetOpen && !playerOpen && !acctOpen) document.body.classList.remove('sheet-open');
+  }
+  $('#siSkip').onclick = function(){ signinSkipped = true; hideSignin(); };
+  $('#siForm').onsubmit = function(e){
+    e.preventDefault();
+    var email = $('#siEmail').value.trim(), pw = $('#siPw').value;
+    if (!email || !pw) { $('#siMsg').textContent = 'Enter your email and password.'; return; }
+    var go = $('#siGo');
+    go.disabled = true;
+    go.textContent = 'Signing in on the TV…';
+    $('#siMsg').textContent = '';
+    fetch('/api/signin?k=' + encodeURIComponent(key), {
+      method: 'POST', cache: 'no-store',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: email, password: pw })
+    }).then(function(r){ if (!r.ok) throw new Error(r.status); return r.json(); })
+      .then(function(d){
+        if (!d.ok) { $('#siMsg').textContent = d.error || 'That didn’t work.'; return; }
+        $('#siPw').value = '';
+        hideSignin();
+        toast('Signed in on the TV');
+        // The TV reloads its homepage; give it a moment before the rows.
+        setTimeout(function(){ loadAccount().catch(function(){}); load(); }, 4000);
+      })
+      .catch(function(){ $('#siMsg').textContent = 'Couldn’t reach the TV. Check it’s on and on the same Wi-Fi.'; })
+      .then(function(){ go.disabled = false; go.textContent = 'Sign in on the TV'; });
+  };
+
   function loadAccount(){
     return api('/api/account').then(function(a){
       acct = a;
+      if (!a.signedIn && !signinSkipped && $('#signin').hidden) showSignin();
+      if (a.signedIn && !$('#signin').hidden) hideSignin();
       var b = $('#acctBtn');
       b.hidden = !a.signedIn;
       b.innerHTML = '';
@@ -1179,7 +1240,13 @@
     var box = $('#acBody');
     box.innerHTML = '';
     if (!acct) { box.appendChild(el('p', 'empty', 'Loading…')); return; }
-    if (!acct.signedIn) { box.appendChild(el('p', 'empty', 'The TV isn’t signed in to ' + (fishtank ? 'Fishtank' : 'MDE') + '. Sign in on the TV first.')); return; }
+    if (!acct.signedIn) {
+      box.appendChild(el('p', 'empty', 'The TV isn’t signed in to ' + (fishtank ? 'Fishtank' : 'MDE') + '.'));
+      var si = el('button', 'ac-link', 'Sign in');
+      si.onclick = function(){ signinSkipped = false; showSignin(); };
+      box.appendChild(si);
+      return;
+    }
     ({ profile: renderProfile, cards: renderCards, history: renderHistory, theme: renderTheme })[acctTab](box);
   }
 

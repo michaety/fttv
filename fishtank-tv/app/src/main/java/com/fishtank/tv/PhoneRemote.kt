@@ -50,6 +50,8 @@ class PhoneRemote(private val context: Context, private val host: Host) {
         fun onPhoneConnected()
         /** Stop watching: back to the page the episode was opened from. */
         fun leave()
+        /** The phone signed the TV in. */
+        fun onSignedIn()
     }
 
     val key: String = context.getSharedPreferences("phone_remote", Context.MODE_PRIVATE).let { prefs ->
@@ -121,14 +123,23 @@ class PhoneRemote(private val context: Context, private val host: Host) {
                 s.soTimeout = 10_000
                 val reader = BufferedReader(InputStreamReader(s.getInputStream(), Charsets.UTF_8))
                 val requestLine = reader.readLine() ?: return
-                while (true) { val line = reader.readLine(); if (line.isNullOrEmpty()) break }
+                var length = 0
+                while (true) {
+                    val line = reader.readLine()
+                    if (line.isNullOrEmpty()) break
+                    if (line.startsWith("Content-Length:", ignoreCase = true))
+                        length = line.substringAfter(':').trim().toIntOrNull() ?: 0
+                }
+                val method = requestLine.substringBefore(' ')
                 val target = requestLine.split(" ").getOrNull(1) ?: "/"
                 val path = target.substringBefore('?')
                 val query = parseQuery(target.substringAfter('?', ""))
+                // Only the sign-in form sends a body (so the password never sits in a URL).
+                val body = if (method == "POST" && length in 1..MAX_BODY) readBody(reader, length) else ""
                 // The home-screen icon is the one thing served without the key.
                 val (status, type, bytes) = if (path == "/icon.png") Triple("200 OK", "image/png",
                     context.assets.open(if (fishtank) "remote-icon-fishtank.png" else "remote-icon-mde.png").use { it.readBytes() })
-                else route(path, query).let { (st, ty, body) -> Triple(st, ty, body.toByteArray(Charsets.UTF_8)) }
+                else route(path, query, method, body).let { (st, ty, body) -> Triple(st, ty, body.toByteArray(Charsets.UTF_8)) }
                 val out = s.getOutputStream()
                 out.write(("HTTP/1.1 $status\r\nContent-Type: $type\r\nContent-Length: ${bytes.size}\r\n" +
                     "Cache-Control: no-store\r\nConnection: close\r\n\r\n").toByteArray())
@@ -140,9 +151,12 @@ class PhoneRemote(private val context: Context, private val host: Host) {
         }
     }
 
-    private fun route(path: String, q: Map<String, String>): Triple<String, String, String> {
+    private fun route(path: String, q: Map<String, String>, method: String, body: String): Triple<String, String, String> {
         if (q["k"] != key) return Triple("403 Forbidden", "text/plain", "Scan the QR code in the TV app's menu again.")
         return when (path) {
+            // Signing the TV in from the phone: email and password in the body.
+            "/api/signin" -> if (method != "POST") Triple("405 Method Not Allowed", "text/plain", "POST only")
+                else json(signIn(body))
             "/" -> {
                 main.post { host.onPhoneConnected() }
                 Triple("200 OK", "text/html; charset=utf-8",
@@ -450,6 +464,16 @@ class PhoneRemote(private val context: Context, private val host: Host) {
         val game = pscGame(video.optString("title")) ?: return name to emptyList()
         return game to ordered.filter { pscGame(it.optString("title")) == game }
             .sortedWith(compareBy<JSONObject> { pscEp(it.optString("title")) }.thenBy { it.optInt("episode") })
+    }
+
+    /** fishtank: whether any camera is live right now (null: couldn't tell). Off the main thread. */
+    fun fishtankLive(): Boolean? {
+        val streams = ftApi("/live-streams") ?: return null
+        val status = streams.optJSONObject("liveStreamStatus") ?: return null
+        // Only the listed cameras: off-season an unlisted "grid" stream still shows as online.
+        val list = streams.optJSONArray("liveStreams") ?: return false
+        return (0 until list.length()).mapNotNull { list.optJSONObject(it) }
+            .any { !it.optBoolean("hidden") && status.optString(it.optString("id")) == "online" }
     }
 
     /** fishtank: live cameras (online first), then episodes by collection. */
@@ -890,7 +914,119 @@ class PhoneRemote(private val context: Context, private val host: Host) {
         }
     }
 
+    // ---- Signing in from the phone ---------------------------------------
+
+    /**
+     * Whether the TV is signed in to its site: true, false, or null when the
+     * site couldn't be reached (so the app doesn't ask to sign in offline).
+     * Runs off the main thread.
+     */
+    fun signedIn(): Boolean? {
+        val (url, origin) = if (fishtank) "https://api.fishtank.live/v1/auth" to "https://www.fishtank.live"
+            else "https://api.mde.tv/v1/auth" to "https://www.mde.tv"
+        val conn = URL(url).openConnection() as HttpURLConnection
+        return try {
+            conn.connectTimeout = 8_000
+            conn.readTimeout = 10_000
+            conn.setRequestProperty("Origin", origin)
+            conn.setRequestProperty("Referer", "$origin/")
+            CookieManager.getInstance().getCookie(url)?.let { conn.setRequestProperty("Cookie", it) }
+            val code = conn.responseCode
+            when {
+                code == 401 || code == 403 -> false
+                code != 200 -> null
+                else -> {
+                    // fishtank's /auth also carries the session's tokens: only whether there's a user is used.
+                    val o = JSONObject(conn.inputStream.bufferedReader().use { it.readText() })
+                    val user = if (fishtank) o.optJSONObject("session")?.optJSONObject("user") else o.optJSONObject("user")
+                    user != null
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "auth check: $e")
+            null
+        } finally {
+            conn.disconnect()
+        }
+    }
+
+    @Volatile private var signingIn = false
+
+    /**
+     * The phone's sign-in form: the TV's page fills in the site's own login
+     * form with [body]'s email and password and submits it (__ftvSignIn in
+     * dpad.js), then this waits for the account to show as signed in. The
+     * password is only passed through, never kept or logged.
+     */
+    private fun signIn(body: String): JSONObject {
+        val fail = { msg: String -> JSONObject().put("ok", false).put("error", msg) }
+        val o = try { JSONObject(body) } catch (e: Exception) { return fail("Enter your email and password.") }
+        val email = o.optString("email").trim()
+        val pw = o.optString("password")
+        if (email.isEmpty() || pw.isEmpty() || email.length > 254 || pw.length > 256) return fail("Enter your email and password.")
+        if (signedIn() == true) { main.post { host.onSignedIn() }; return JSONObject().put("ok", true) }
+        synchronized(this) {
+            if (signingIn) return fail("Already signing in. Give it a moment.")
+            signingIn = true
+        }
+        try {
+            val start = "window.__ftvSignIn ? window.__ftvSignIn(" + JSONObject.quote(email) + "," + JSONObject.quote(pw) + ") : 'noform'"
+            var started = evalOnMain(start)?.let { unquote(it) }
+            if (started == "started") { Thread.sleep(600); if (state()?.optString("state") == "noform") started = "noform" }
+            // Not on a page with the site's Log In button (or the page script
+            // isn't in yet): the homepage has one.
+            if (started != "started") {
+                main.post { host.openPath("/") }
+                Thread.sleep(7_000)
+                started = evalOnMain(start)?.let { unquote(it) }
+            }
+            if (started != "started") return fail("The TV isn't ready. Try again in a moment.")
+            val until = System.currentTimeMillis() + 25_000
+            var checked = 0L
+            while (System.currentTimeMillis() < until) {
+                Thread.sleep(500)
+                val st = state()
+                when (st?.optString("state")) {
+                    "error" -> return fail(st.optString("msg").ifBlank { "That didn't work. Check your email and password." })
+                    "noform" -> return fail("Couldn't find the sign-in form on the TV. Sign in with the remote instead.")
+                }
+                // The site may reload its page once signed in, taking the state
+                // with it, so check the account itself every few seconds too.
+                val submitted = st?.optString("state") == "submitted"
+                if (submitted || System.currentTimeMillis() - checked > 3_000) {
+                    checked = System.currentTimeMillis()
+                    if (signedIn() == true) { main.post { host.onSignedIn() }; return JSONObject().put("ok", true) }
+                }
+            }
+            return fail("That didn't work. Check your email and password.")
+        } finally {
+            signingIn = false
+        }
+    }
+
+    private fun state(): JSONObject? = evalOnMain("JSON.stringify(window.__ftvSignInState || null)")
+        ?.let { unquote(it) }?.let { try { JSONObject(it) } catch (e: Exception) { null } }
+
     // ---- Helpers ----------------------------------------------------------
+
+    /** [bytes] bytes of UTF-8 body from [reader], which has already read the headers. */
+    private fun readBody(reader: BufferedReader, bytes: Int): String {
+        val sb = StringBuilder()
+        var n = 0
+        while (n < bytes) {
+            val c = reader.read()
+            if (c < 0) break
+            sb.append(c.toChar())
+            n += when {
+                c < 0x80 -> 1
+                c < 0x800 -> 2
+                c in 0xD800..0xDBFF -> 4   // a surrogate pair: 4 bytes for both halves
+                c in 0xDC00..0xDFFF -> 0
+                else -> 3
+            }
+        }
+        return sb.toString()
+    }
 
     /** Runs [code] in the WebView and waits (up to 3s) for its result. */
     private fun evalOnMain(code: String): String? {
@@ -928,6 +1064,7 @@ class PhoneRemote(private val context: Context, private val host: Host) {
     companion object {
         private const val TAG = "PhoneRemote"
         const val PORT = 8765
+        private const val MAX_BODY = 8 * 1024
         private val EPISODE_PATH = Regex("^/series/[A-Za-z0-9_-]+/[A-Za-z0-9_-]+$")
         private val FT_EPISODE_PATH = Regex("^/episodes/[0-9a-f-]{36}$")
         private val NUMBERED = Regex("^\\s*(?:S\\d+E)?(\\d+)\\b", RegexOption.IGNORE_CASE)

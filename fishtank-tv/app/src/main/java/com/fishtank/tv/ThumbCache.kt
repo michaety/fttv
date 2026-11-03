@@ -30,12 +30,15 @@ class ThumbCache(cacheRoot: File) {
     fun intercept(request: WebResourceRequest): WebResourceResponse? {
         val url = request.url
         if (request.method != "GET" || url.host?.endsWith(".b-cdn.net") != true) return null
-        val id = Regex("^/([0-9a-f-]{36})/thumbnail\\.jpg$").find(url.path ?: "")?.groupValues?.get(1) ?: return null
+        // Also the bare `<id>/thumbnail` the site's cards ask for first: Bunny
+        // 404s that and the card falls back to thumbnail.jpg, so every redraw
+        // of a card blanked its picture for a moment (the flashing).
+        val id = Regex("^/([0-9a-f-]{36})/thumbnail(\\.jpg)?$").find(url.path ?: "")?.groupValues?.get(1) ?: return null
         if (request.requestHeaders["Referer"]?.contains("mediadelivery.net") == true) return null
         return try {
             val file = File(dir, "$id.jpg")
             if (!file.exists() || System.currentTimeMillis() - file.lastModified() > MAX_AGE_MS) {
-                if (!shrink(url.toString(), request.requestHeaders, file)) return null
+                if (!shrink("https://${url.host}/$id/thumbnail.jpg", request.requestHeaders, file)) return null
             }
             WebResourceResponse("image/jpeg", null, 200, "OK",
                 mapOf("Cache-Control" to "max-age=86400", "Access-Control-Allow-Origin" to "*"),

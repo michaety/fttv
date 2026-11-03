@@ -102,6 +102,11 @@ class MainActivity : Activity() {
         private const val TAP_DELAY_MS = 250L
         /** How long Select is held for a long press (a card's menu). */
         private const val LONG_PRESS_MS = 450L
+        /** Opens the site's own login form (its header's Log In button), unless it's already up. */
+        private const val OPEN_LOGIN_JS = "(function(){function v(e){return e.getClientRects().length>0}" +
+            "if([].some.call(document.querySelectorAll('input[type=password]'),v))return;" +
+            "var b=[].filter.call(document.querySelectorAll('button,a'),function(e){return v(e)&&/^log ?in$/i.test(e.textContent.trim())})[0];" +
+            "if(b)b.click();})()"
     }
 
     private lateinit var root: FrameLayout
@@ -119,6 +124,10 @@ class MainActivity : Activity() {
     private var phoneRemote: PhoneRemote? = null
     /** The QR code dialog while it's showing; closed once a phone connects. */
     private var phoneRemoteDialog: AlertDialog? = null
+    /** The "Sign in with your phone" dialog (the same QR code), shown first
+     *  when the TV isn't signed in; it stays up until the phone signs in. */
+    private var signInDialog: AlertDialog? = null
+    private var signInCaption: TextView? = null
     private var lastHomeBackPress = 0L
     /** mde's up-next card: the episode it was shown on, what it plays next,
      *  and when. A renderer crash during the switch reloads the next one
@@ -553,6 +562,18 @@ class MainActivity : Activity() {
             override fun onPhoneConnected() {
                 phoneRemoteDialog?.dismiss()
                 phoneRemoteDialog = null
+                signInCaption?.text = "Now sign in on your phone."
+            }
+            override fun onSignedIn() {
+                val wasAsking = signInDialog != null
+                signInDialog?.dismiss()
+                signInDialog = null
+                Toast.makeText(this@MainActivity, "Signed in", Toast.LENGTH_SHORT).show()
+                // A fresh homepage, signed in (its rows and account button).
+                if (wasAsking || webView.url?.let { Uri.parse(it).path.orEmpty().trimEnd('/').isEmpty() } != false) {
+                    showError(false)
+                    webView.loadUrl(homeUrl)
+                }
             }
         })
 
@@ -591,7 +612,8 @@ class MainActivity : Activity() {
 
         setContentView(root)
         hideSystemUi()
-        webView.loadUrl(homeUrl)
+        loadStartPage()
+        askToSignIn()
 
         updateChecker = UpdateChecker(this)
         // Not during startup: the homepage load already has the Firestick's
@@ -898,17 +920,54 @@ class MainActivity : Activity() {
     }
 
     /**
+     * The first page: mde's homepage; fishtank's Episodes page, or its
+     * homepage (the live cameras) while any camera is live. The check gets
+     * ~2.5s, then it's Episodes.
+     */
+    private fun loadStartPage() {
+        val remote = phoneRemote
+        if (!homeUrl.contains("fishtank") || remote == null) { webView.loadUrl(homeUrl); return }
+        var loaded = false
+        val go = { live: Boolean ->
+            if (!loaded && !isFinishing) {
+                loaded = true
+                webView.loadUrl(if (live) homeUrl else homeUrl.trimEnd('/') + "/episodes")
+            }
+        }
+        Thread {
+            val live = remote.fishtankLive() == true
+            runOnUiThread { go(live) }
+        }.start()
+        root.postDelayed({ go(false) }, 2_500)
+    }
+
+    /**
+     * Not signed in: the first thing on screen is "Sign in with your phone"
+     * (the phone remote's QR code; its page opens on a sign-in form). Checked
+     * once per launch, off the main thread; not when the site can't be
+     * reached or there's no Wi-Fi address for the phone.
+     */
+    private fun askToSignIn() {
+        val remote = phoneRemote ?: return
+        Thread {
+            if (remote.signedIn() != false || remote.url() == null) return@Thread
+            runOnUiThread { if (!isFinishing && signInDialog == null) showPhoneRemote(signIn = true) }
+        }.start()
+    }
+
+    /**
      * The QR code for the phone remote page: a picture of the TV and the phone
      * remote playing the same episode, so it's clear what it's for, then the
-     * code and the address.
+     * code and the address. With [signIn], it's the sign-in screen instead.
      */
-    private fun showPhoneRemote() {
+    private fun showPhoneRemote(signIn: Boolean = false) {
         val remote = phoneRemote ?: return
         val url = remote.url()
         if (url == null) {
             Toast.makeText(this, "Not connected to Wi-Fi", Toast.LENGTH_LONG).show()
             return
         }
+        val site = if (homeUrl.contains("fishtank")) "Fishtank" else "MDE"
         val qr = QrCode.encodeText(url, QrCode.Ecc.MEDIUM)
         val scale = 10
         val border = 2
@@ -933,11 +992,22 @@ class MainActivity : Activity() {
                 adjustViewBounds = true
             }, LinearLayout.LayoutParams(picW, wrap))
             addView(TextView(this@MainActivity).apply {
-                text = "Control the TV from your phone"
+                text = if (signIn) "Sign in with your phone: it's much quicker to type there.\n" +
+                    "Then use it as a remote too." else "Control the TV from your phone"
                 textSize = 17f
                 setTextColor(Color.WHITE)
                 gravity = Gravity.CENTER
                 setPadding(0, 24, 0, 0)
+                if (signIn) signInCaption = this
+            })
+            if (signIn) addView(TextView(this@MainActivity).apply {
+                text = "Your details go only from your phone to this TV, over your Wi-Fi, " +
+                    "and the TV signs in on ${if (homeUrl.contains("fishtank")) "fishtank.live" else "mde.tv"} itself. " +
+                    "Nothing is sent anywhere else or saved."
+                textSize = 13f
+                setTextColor(Color.parseColor("#B3FFFFFF"))
+                gravity = Gravity.CENTER
+                setPadding(0, 18, 0, 0)
             })
         }
         val info = LinearLayout(this).apply {
@@ -960,15 +1030,23 @@ class MainActivity : Activity() {
             addView(picture, LinearLayout.LayoutParams(picW, wrap).apply { rightMargin = 40 })
             addView(info, LinearLayout.LayoutParams(infoW, wrap))
         }
-        phoneRemoteDialog = AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
+        val dialog = if (signIn) AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
+            .setTitle("Sign in to $site")
+            .setView(box)
+            // The site's own form, with the remote (and Discord, Google... sign-in).
+            .setPositiveButton("Use the remote instead") { _, _ -> js(OPEN_LOGIN_JS) }
+            .setNegativeButton("Not now", null)
+            .setOnDismissListener { signInDialog = null; signInCaption = null }
+            .show().also { signInDialog = it }
+        else AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
             .setTitle("Link your phone")
             .setView(box)
             .setPositiveButton("Done", null)
             .setOnDismissListener { phoneRemoteDialog = null }
-            .show()
+            .show().also { phoneRemoteDialog = it }
         // Wide enough for the picture beside the code (the alert keeps ~360px of
         // the window for its own margins).
-        phoneRemoteDialog?.window?.setLayout(1280, ViewGroup.LayoutParams.WRAP_CONTENT)
+        dialog.window?.setLayout(1280, ViewGroup.LayoutParams.WRAP_CONTENT)
     }
 
     private fun showError(show: Boolean) {

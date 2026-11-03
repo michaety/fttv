@@ -2863,6 +2863,11 @@
       var s = getComputedStyle(node);
       if (axis === 'x') {
         if ((s.overflowX === 'auto' || s.overflowX === 'scroll') && node.scrollWidth > node.clientWidth + 4) return node;
+        // fishtank's episode rows: every card is in a long list clipped by
+        // an overflow:hidden panel (paged by its own hidden buttons), which
+        // scrollIntoView still scrolls. Only well over its width, so a
+        // clipped title or badge doesn't count as a row.
+        if (s.overflowX === 'hidden' && node.clientWidth > 300 && node.scrollWidth > node.clientWidth * 1.25) return node;
       } else {
         if ((s.overflowY === 'auto' || s.overflowY === 'scroll') && node.scrollHeight > node.clientHeight + 4) return node;
       }
@@ -3600,6 +3605,69 @@
     if (window.FtvApp && window.FtvApp.navSound) { try { window.FtvApp.navSound('select'); } catch (e) {} }
     lpClose(function(){ try { it.run(); } catch (e) {} });
   }
+
+  // Signing in from the phone (PhoneRemote's /api/signin): fills in the
+  // site's own email and password form and presses its Log In button, so
+  // nothing but the site's normal login is used. Opens the form first if it
+  // isn't up. Progress goes in __ftvSignInState for the app to poll:
+  // 'working', then 'submitted' (the form went away; the app checks the
+  // account), 'error' (with the form's message, if it showed one) or
+  // 'noform' (no Log In button on this page). The password isn't kept: the
+  // field is cleared again on failure.
+  window.__ftvSignIn = function(email, pw){
+    var st = window.__ftvSignInState = { state: 'working', msg: '' };
+    function vis(e){ return !!(e && e.getClientRects().length && getComputedStyle(e).visibility !== 'hidden'); }
+    function form(){
+      var p = [].filter.call(document.querySelectorAll('input[type=password]'), vis)[0];
+      var f = p && p.closest('form');
+      var e = f && [].filter.call(f.querySelectorAll('input[type=email], input[name=email], input[type=text]'), vis)[0];
+      return e ? { f: f, e: e, p: p } : null;
+    }
+    function opener(){
+      return [].filter.call(document.querySelectorAll('button, a'), vis)
+        .filter(function(b){ return /^log ?in$/i.test(b.textContent.trim()); })[0];
+    }
+    function set(i, v){
+      // React keeps its own copy of the value: go through the native setter.
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(i, v);
+      i.dispatchEvent(new Event('input', { bubbles: true }));
+      i.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    var tries = 0;
+    (function open(){
+      var x = form();
+      if (!x) {
+        if (tries === 0) { var b = opener(); if (!b) { st.state = 'noform'; return; } b.click(); }
+        if (++tries > 25) { st.state = 'noform'; return; }
+        return setTimeout(open, 200);
+      }
+      set(x.e, email);
+      set(x.p, pw);
+      pw = null;
+      var before = x.f.innerText;
+      setTimeout(function(){
+        var btn = x.f.querySelector('button[type=submit]');
+        if (btn) btn.click(); else if (x.f.requestSubmit) x.f.requestSubmit(); else x.f.submit();
+        var t0 = Date.now();
+        (function watch(){
+          if (!vis(x.p) || !document.contains(x.p)) { st.state = 'submitted'; return; }
+          // A message the form didn't have before ("Invalid email or password").
+          var now = x.f.innerText, seen = {};
+          before.split('\n').forEach(function(l){ seen[l.trim()] = 1; });
+          var added = now.split('\n').map(function(l){ return l.trim(); })
+            .filter(function(l){ return l && !seen[l] && l.length < 200 && !/\.\.\.|…|loading|logging in|signing in/i.test(l); });
+          if (added.length || Date.now() - t0 > 15000) {
+            st.state = 'error';
+            st.msg = added.join(' ');
+            set(x.p, '');
+            return;
+          }
+          setTimeout(watch, 300);
+        })();
+      }, 150);
+    })();
+    return 'started';
+  };
 
   window.__ftvDismiss = function(){
     if (lp) { lpClose(); return true; }

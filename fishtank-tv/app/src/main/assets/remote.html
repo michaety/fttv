@@ -848,7 +848,7 @@
   var cmSort = 'newest', cmPage = 0, cmItems = [], cmPinned = [], cmTotal = 0, cmFor = null, cmBusy = false, cmReplyTo = null;
   function resetComments(){
     cmFor = null; cmItems = []; cmPinned = []; cmPage = 0; cmTotal = 0; cmReplyTo = null;
-    if (plEp && plEp.id && !fishtank) loadComments();
+    if (plEp && plEp.id) loadComments();
     else renderComments();
   }
   function loadComments(more){
@@ -882,7 +882,7 @@
   function composer(placeholder, onSend, focus){
     var f = el('div', 'cm-new'), t = document.createElement('textarea'), b = el('button', '', 'Post');
     t.placeholder = placeholder;
-    t.maxLength = 2000;
+    t.maxLength = fishtank ? 500 : 2000;   // each site's own limit
     t.rows = 1;
     b.disabled = true;
     t.oninput = function(){ b.disabled = !t.value.trim(); t.style.height = 'auto'; t.style.height = t.scrollHeight + 'px'; };
@@ -919,7 +919,7 @@
           if (typeof d.likes === 'number') c.likes = d.likes;
           if (typeof d.dislikes === 'number') c.dislikes = d.dislikes;
           renderComments();
-        }).catch(function(){ toast('Couldn’t reach MDE'); });
+        }).catch(function(){ toast('Couldn’t reach ' + (fishtank ? 'Fishtank' : 'MDE')); });
       };
       acts.appendChild(b);
     });
@@ -938,7 +938,7 @@
   function renderComments(){
     var box = $('#plComments'), main = $('#plMain'), y = main.scrollTop;
     box.innerHTML = '';
-    var on = !fishtank && !!(plEp && plEp.id);
+    var on = !!(plEp && plEp.id);
     $('#player').classList.toggle('has-comments', on);
     if (!on) return;
     var ep = plEp, sorts = el('div', 'cm-sorts');
@@ -968,7 +968,7 @@
       (c.replies || []).forEach(function(r){ box.appendChild(commentRow(r, { reply: true })); });
       if (cmReplyTo !== c.id) return;
       var f = composer('Reply to ' + (c.name || 'this comment') + '…', function(msg){
-        return api('/api/comment/post', { id: c.id, reply: 1, message: msg }).then(function(){
+        return api('/api/comment/post', { id: c.id, reply: 1, ep: ep.id, message: msg }).then(function(){
           toast('Reply posted');
           cmReplyTo = null;
           loadComments();

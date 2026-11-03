@@ -228,8 +228,9 @@ class PhoneRemote(private val context: Context, private val host: Host) {
             // mde's like / dislike, comments and replies, as the TV's account.
             "/api/comments" -> {
                 val id = q["id"].orEmpty()
-                if (fishtank || !SAFE_ID.matches(id)) Triple("400 Bad Request", "text/plain", "bad id")
-                else json(comments(id, q["page"]?.toIntOrNull()?.coerceIn(0, 1000) ?: 0, q["sort"].orEmpty()))
+                val page = q["page"]?.toIntOrNull()?.coerceIn(0, 1000) ?: 0
+                if (!SAFE_ID.matches(id)) Triple("400 Bad Request", "text/plain", "bad id")
+                else json(if (fishtank) ftComments(id, page, q["sort"].orEmpty()) else comments(id, page, q["sort"].orEmpty()))
             }
             "/api/like" -> {
                 val id = q["id"].orEmpty()
@@ -241,13 +242,26 @@ class PhoneRemote(private val context: Context, private val host: Host) {
                 val id = q["id"].orEmpty()
                 val reply = q["reply"] == "1"
                 val msg = q["message"].orEmpty().trim()
-                if (fishtank || !SAFE_ID.matches(id) || msg.isEmpty() || msg.length > 2000) return Triple("400 Bad Request", "text/plain", "bad comment")
+                if (fishtank) {
+                    // fishtank: the episode it's on, and (a reply) the comment it answers.
+                    val ep = if (reply) q["ep"].orEmpty() else id
+                    if (!SAFE_ID.matches(id) || !SAFE_ID.matches(ep) || msg.length < 2 || msg.length > 500)
+                        return Triple("400 Bad Request", "text/plain", "bad comment")
+                    val body = JSONObject().put("message", msg).put("relatedId", ep).put("type", "episode")
+                        .put("reply", if (reply) id else JSONObject.NULL)
+                    return ftSend("POST", "/comments", body)?.let { json(JSONObject().put("ok", true)) }
+                        ?: Triple("502 Bad Gateway", "text/plain", "fishtank said no")
+                }
+                if (!SAFE_ID.matches(id) || msg.isEmpty() || msg.length > 2000) return Triple("400 Bad Request", "text/plain", "bad comment")
                 val r = apiSend("POST", if (reply) "/videos/comments/$id/reply" else "/videos/$id/comments", JSONObject().put("message", msg))
                 r?.let { json(JSONObject().put("ok", true)) } ?: Triple("502 Bad Gateway", "text/plain", "mde said no")
             }
             "/api/comment/vote" -> {
                 val id = q["id"].orEmpty()
-                if (fishtank || !SAFE_ID.matches(id)) return Triple("400 Bad Request", "text/plain", "bad id")
+                if (!SAFE_ID.matches(id)) return Triple("400 Bad Request", "text/plain", "bad id")
+                // fishtank: one endpoint for comments and replies, as its site uses.
+                if (fishtank) return ftSend("POST", "/comments/$id/" + if (q["v"] == "dislike") "dislike" else "like")
+                    ?.let { json(it) } ?: Triple("502 Bad Gateway", "text/plain", "fishtank said no")
                 val kind = if (q["reply"] == "1") "replies" else "comments"
                 apiSend("PUT", "/videos/$kind/$id/" + if (q["v"] == "dislike") "dislike" else "like")
                     ?.let { json(it) } ?: Triple("502 Bad Gateway", "text/plain", "mde said no")
@@ -658,6 +672,7 @@ class PhoneRemote(private val context: Context, private val host: Host) {
     }
 
     private fun ftItem(v: JSONObject, collection: String): JSONObject = JSONObject()
+        .put("id", v.optString("id"))
         .put("path", "/episodes/${v.optString("id")}")
         .put("title", v.optString("title").replace(VIDEO_EXT, "").trim())
         .put("series", collection)
@@ -895,6 +910,70 @@ class PhoneRemote(private val context: Context, private val host: Host) {
     }
 
     private fun ftApi(path: String): JSONObject? = get("https://api.fishtank.live/v1$path", "https://www.fishtank.live")
+
+    /**
+     * fishtank: an episode's comments, as the site lists them under the
+     * player (GET /comments/<episode>, 10 a page from 0), in the same shape
+     * as mde's for the phone.
+     */
+    private fun ftComments(id: String, page: Int, sort: String): JSONObject {
+        val s = if (sort in listOf("newest", "oldest", "best", "worst")) sort else "newest"
+        val r = ftApi("/comments/$id?page=$page&sort=$s") ?: return JSONObject().put("error", true)
+        val iso = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US)
+            .apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }
+        val one = { c: JSONObject -> JSONObject()
+            .put("id", c.optString("id"))
+            .put("name", c.optJSONObject("profile")?.optString("displayName").orEmpty())
+            .put("photo", c.optJSONObject("profile")?.optString("photo").orEmpty())
+            .put("message", c.optString("message"))
+            .put("at", iso.format(java.util.Date(c.optLong("createdAt"))))
+            .put("likes", c.optInt("likes"))
+            .put("dislikes", c.optInt("dislikes"))
+            .put("iLike", c.optBoolean("iLike"))
+            .put("iDislike", c.optBoolean("iDislike")) }
+        val list = r.optJSONArray("comments")
+        return JSONObject()
+            .put("comments", JSONArray((0 until (list?.length() ?: 0)).mapNotNull { list!!.optJSONObject(it) }.map { c ->
+                one(c).also { o -> c.optJSONArray("replies")?.let { rs ->
+                    o.put("replies", JSONArray((0 until rs.length()).mapNotNull { rs.optJSONObject(it) }
+                        .sortedBy { it.optLong("createdAt") }.map(one)))
+                } }
+            }))
+            .put("pinned", JSONArray())
+            .put("total", r.optInt("total"))
+    }
+
+    /**
+     * fishtank: a change on the TV's account (a comment, a vote). Its site's
+     * API client sends the session's access token as well as the cookies, so
+     * this asks /auth for it at the time and uses it for this one request;
+     * it's never kept or logged.
+     */
+    private fun ftSend(method: String, path: String, body: JSONObject? = null): JSONObject? {
+        val token = ftApi("/auth")?.optJSONObject("session")?.optString("access_token").orEmpty()
+        val url = "https://api.fishtank.live/v1$path"
+        val conn = URL(url).openConnection() as HttpURLConnection
+        return try {
+            conn.requestMethod = method
+            conn.connectTimeout = 8_000
+            conn.readTimeout = 10_000
+            conn.setRequestProperty("Origin", "https://www.fishtank.live")
+            conn.setRequestProperty("Referer", "https://www.fishtank.live/")
+            CookieManager.getInstance().getCookie(url)?.let { conn.setRequestProperty("Cookie", it) }
+            if (token.isNotEmpty()) conn.setRequestProperty("Authorization", "Bearer $token")
+            conn.doOutput = true
+            conn.setRequestProperty("Content-Type", "application/json")
+            conn.outputStream.use { it.write((body ?: JSONObject()).toString().toByteArray(Charsets.UTF_8)) }
+            val code = conn.responseCode
+            if (code !in 200..299) { Log.w(TAG, "$method $path: $code"); null }
+            else conn.inputStream.bufferedReader().use { it.readText() }.let { if (it.isBlank()) JSONObject() else JSONObject(it) }
+        } catch (e: Exception) {
+            Log.w(TAG, "$method $path: ${e.javaClass.simpleName}")
+            null
+        } finally {
+            conn.disconnect()
+        }
+    }
 
     private fun get(url: String, origin: String): JSONObject? {
         val conn = URL(url).openConnection() as HttpURLConnection

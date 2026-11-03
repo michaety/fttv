@@ -895,7 +895,7 @@
   function cardStrip(x){
     if (!x.next) return progressBar(x.t / x.dur);
     var tag = document.createElement('div');
-    tag.textContent = 'NEXT EPISODE';
+    tag.textContent = 'UP NEXT';
     tag.style.cssText = 'position:relative;z-index:2;height:22px;margin-top:-22px;width:100%;box-sizing:border-box;' +
       'padding:0 8px;background:rgba(0,0,0,.75);color:__FTV_ACCENT_HEX__;font:700 13px/22px sans-serif;' +
       'letter-spacing:1px;border-radius:0 0 6px 6px;';
@@ -1040,10 +1040,20 @@
     a.href = x.path;
     a.classList.remove('__ftv_focus');
     a.removeAttribute('data-ftv');
-    a.setAttribute('aria-label', 'Next episode: ' + (x.series ? x.series + ', ' : '') + (x.title || ''));
+    a.setAttribute('aria-label', 'Up next: ' + (x.series ? x.series + ', ' : '') + (x.title || ''));
     a.addEventListener('click', function(e){
       e.preventDefault();
       window.__ftvGo(x.path, { title: x.title, series: x.series, thumb: x.seriesThumb || x.thumb });
+    });
+    // The copied "x" (the site's has no handler on a copy): drops this card.
+    li.querySelectorAll('button').forEach(function(b){
+      if (!/^Remove /i.test(b.getAttribute('aria-label') || '')) return;
+      b.setAttribute('aria-label', 'Remove ' + (x.title || 'next episode') + ' from Continue Watching');
+      b.disabled = false;
+      b.addEventListener('click', function(e){
+        e.preventDefault(); e.stopPropagation();
+        window.__ftvRecentRemove(x.path);
+      });
     });
     var img = li.querySelector('img');
     if (img) { img.src = x.seriesThumb || x.thumb || ''; img.removeAttribute('srcset'); img.loading = 'eager'; }
@@ -1052,14 +1062,18 @@
     set('[class*="_series"]', x.series || '');
     set('[class*="_title"]', x.title || 'Next episode');
     var rem = li.querySelector('[class*="_remaining"]');
-    if (rem) { rem.textContent = 'Next episode'; rem.style.color = '__FTV_ACCENT_HEX__'; }
+    if (rem) { rem.textContent = 'Up next'; rem.style.color = '__FTV_ACCENT_HEX__'; }
     var th = li.querySelector('[class*="_thumbnail"]') || (img && img.parentElement);
     if (th) {
       if (getComputedStyle(th).position === 'static') th.style.position = 'relative';
+      // An "UP NEXT" badge styled as the site's own WATCHED badge (copied:
+      // its class only applies inside the site's own cards), top-left since
+      // the x sits top-right.
       var tag = document.createElement('div');
-      tag.textContent = 'NEXT EPISODE';
-      tag.style.cssText = 'position:absolute;left:0;right:0;bottom:0;z-index:2;height:22px;padding:0 8px;' +
-        'background:rgba(0,0,0,.75);color:__FTV_ACCENT_HEX__;font:700 13px/22px sans-serif;letter-spacing:1px;';
+      tag.style.cssText = 'position:absolute;top:0;left:0;z-index:2;margin:4px;height:19px;display:flex;align-items:center;gap:2px;' +
+        'padding:0 4px 0 2px;border-radius:2px;background:rgba(37,255,6,.25);border:1px solid rgba(37,255,6,.5);color:#25FF06;' +
+        'font:400 14px "FFGothic OneTwo Condensed",sans-serif;text-transform:uppercase;';
+      tag.innerHTML = '<svg viewBox="0 0 512 512" width="12" height="12" fill="currentColor"><path d="M144 96v320l256-160z"/></svg>Up next';
       th.appendChild(tag);
     }
     return li;
@@ -3012,6 +3026,9 @@
     return true;
   }
 
+  function isCwRemove(el){
+    return !!el && el.tagName === 'BUTTON' && /^Remove .* from Continue Watching$/i.test(el.getAttribute('aria-label') || '');
+  }
   function doNavigate(dir){
     var list = items();
     if (!list.length) return;
@@ -3035,7 +3052,15 @@
     }
     if (list.indexOf(cur) < 0 || isCovered(cur)) { mark(pickDefault(list)); return; }
 
-    var best = nearest(list, dir);
+    // mde's Continue watching "x" buttons: only reached by pressing Up on
+    // their own card, so Left/Right along the row stays on the cards.
+    var curLi = cur.closest && cur.closest('li');
+    if (dir === 'up' && curLi && !isCwRemove(cur)) {
+      var rb = [].filter.call(curLi.querySelectorAll('button'), isCwRemove)[0];
+      if (rb && list.indexOf(rb) >= 0) { mark(rb); return; }
+    }
+    var navList = list.filter(function(e){ return !isCwRemove(e); });
+    var best = nearest(navList, dir);
 
     // A cached list that's gone stale (a row hydrated but no mutation/
     // scroll happened to invalidate it yet) is a far more common reason to
@@ -3046,7 +3071,7 @@
     if (!best && !dirty && changeCount !== builtAt) {
       dirty = true;
       list = items();
-      best = nearest(list, dir);
+      best = nearest(list.filter(function(e){ return !isCwRemove(e); }), dir);
     }
 
     if (best) {

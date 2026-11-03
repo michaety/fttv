@@ -218,6 +218,10 @@ class MainActivity : Activity() {
                    both formats share, and never on the hash. */
                 /* bottom nav bar (Videos/Audio/Screeds/Chat/Producer/Shop) */
                 div[class*="mobileNavigation"] { display: none !important; }
+                /* Continue watching cards: the New row's size (200 wide,
+                   2:1 thumbnail) instead of the site's smaller 150. */
+                section[aria-labelledby="continue-playback-title"] ul > li { flex: 0 0 200px !important; width: 200px !important; }
+                section[aria-labelledby="continue-playback-title"] ul > li [class*="_thumbnail"] { width: 100% !important; height: auto !important; aspect-ratio: 2 / 1 !important; }
                 /* docked audio player (has a visualizer that repaints) */
                 div[class*="_musicPanel"], div[class*="_music "], div[class$="_music"] { display: none !important; }
                 /* live chat bar -- a real performance cost, not just clutter:

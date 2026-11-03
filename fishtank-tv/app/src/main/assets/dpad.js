@@ -438,6 +438,10 @@
     var id = episodeId(), q = [];
     try { q = JSON.parse(sessionStorage.getItem('__ftv_queue') || '[]'); } catch (e) {}
     for (var i = 0; i < q.length - 1; i++) if (q[i].id === id) return q[i + 1];
+    // Opened some other way (Continue watching, the phone, after a restart):
+    // the next one in its season, from the episode list.
+    var s = id && ftSeasons && ftSeasons[id];
+    if (s && s.i < s.list.length - 1) return { id: s.list[s.i + 1].id, title: s.list[s.i + 1].title, row: s.list };
     return null;
   }
   // Continue watching's "Up next": the next episode in the same row.
@@ -2070,6 +2074,31 @@
   // are thumbnail_<hash>.jpg), so the real ones come from the public episode
   // list, fetched once per page; the guess is only for before that arrives.
   var ftThumbs = null, ftColls = {};
+  // Each collection in watching order, as PhoneRemote's ftCollections: a
+  // numbered season ("01 - ...", "S3E1 - ...") by number with an episode's
+  // "(Extras)" after it, anything else oldest first. id -> { list, i }.
+  var ftSeasons = null;
+  function ftOrderSeasons(videos){
+    var by = {}, out = {};
+    videos.forEach(function(v){ if (v.id) (by[v.collection || 'Other'] = by[v.collection || 'Other'] || []).push(v); });
+    Object.keys(by).forEach(function(name){
+      var vs = by[name];
+      var num = function(v){ var m = /^\s*(?:S\d+E)?(\d+)\b/i.exec(v.title || ''); return m ? +m[1] : null; };
+      var numbered = vs.filter(function(v){ return num(v) !== null; }).length > vs.length / 2;
+      var counted = vs.filter(function(v){ return /\d/.test(v.title || ''); }).length > vs.length / 2;
+      vs.sort(numbered ? function(a, b){
+        var x = num(a), y = num(b);
+        if (x === null) x = 1e9; if (y === null) y = 1e9;
+        return x - y || (/\(extras\)/i.test(a.title) ? 1 : 0) - (/\(extras\)/i.test(b.title) ? 1 : 0);
+      } : counted ? function(a, b){
+        // "Season 5, Day 2" before "Day 10"; "Crazy Gang #9" before "#10".
+        return String(a.title).localeCompare(String(b.title), 'en', { numeric: true, sensitivity: 'base' });
+      } : function(a, b){ return new Date(a.createdAt) - new Date(b.createdAt); });
+      var list = vs.map(function(v){ return { id: v.id, title: v.title || 'Episode' }; });
+      list.forEach(function(x, i){ out[x.id] = { list: list, i: i, name: name }; });
+    });
+    return out;
+  }
   function ftThumb(id){
     return (ftThumbs && ftThumbs[id]) || 'https://' + bunnyHost() + '/' + id + '/thumbnail.jpg';
   }
@@ -2078,6 +2107,7 @@
       var map = {};
       (j.videos || []).forEach(function(v){ if (v.id && v.thumbnail) map[v.id] = v.thumbnail; if (v.id && v.collection) ftColls[v.id] = v.collection; });
       ftThumbs = map;
+      ftSeasons = ftOrderSeasons(j.videos || []);
       recentSig = '';   // redraw Continue watching with them
       scheduleInvalidate();
     }).catch(function(){});
@@ -3509,7 +3539,16 @@
         'background:rgba(10,12,10,.95);border:1px solid rgba(__FTV_ACCENT_RGB__,.5);color:__FTV_ACCENT_HEX__;' +
         'font:400 20px "FFGothic OneTwo Condensed",sans-serif;text-transform:uppercase;letter-spacing:.5px;' +
         'opacity:0;transform:translate(-50%,12px);transition:opacity .2s,transform .25s ease-out;pointer-events:none}' +
-      '#__ftv_lp_toast.in{opacity:1;transform:translate(-50%,0)}';
+      '#__ftv_lp_toast.in{opacity:1;transform:translate(-50%,0)}' +
+      // fishtank: its cream textured panels, dark text, orange selection and font.
+      (location.host.indexOf('fishtank') < 0 ? '' :
+      '#__ftv_lp{background:#dddec4 url(https://cdn.fishtank.live/images/patterns/otis-redding.png);border:0;border-top:2px solid rgba(255,255,255,.6);' +
+        'border-radius:10px;box-shadow:0 14px 44px rgba(0,0,0,.55),2px 2px 0 rgba(0,0,0,.3)}' +
+      '#__ftv_lp .hd{color:rgba(25,28,32,.6);border-bottom-color:rgba(25,28,32,.15);font:700 13px/1.2 sofia-pro-variable,sans-serif;letter-spacing:.5px}' +
+      '#__ftv_lp .it{color:#191c20;border-radius:7px;font:600 20px/1 sofia-pro-variable,sans-serif;text-transform:none;letter-spacing:0}' +
+      '#__ftv_lp .it.on{background:linear-gradient(to top,#e8703f,#df4e1e);color:#fff;box-shadow:none;text-shadow:rgba(0,0,0,.3) 1px 1px 2px}' +
+      '#__ftv_lp_toast{background:#dddec4;border:0;border-radius:8px;color:#191c20;font:700 18px sofia-pro-variable,sans-serif;' +
+        'text-transform:none;letter-spacing:0;box-shadow:0 6px 18px rgba(0,0,0,.4)}');
     (document.head || document.documentElement).appendChild(s);
   }
   var lpToastTimer = null;
@@ -3532,8 +3571,34 @@
       lpToast(op === 'next' ? 'Plays next' : 'Added to queue');
     });
   }
+  // fishtank: an episode card's menu (no shows to go to or shuffle there).
+  function lpFishtankItems(a, href){
+    var id = (/^\/episodes\/([0-9a-f-]{36})$/.exec(href) || [])[1];
+    if (!id) return null;
+    var s = ftSeasons && ftSeasons[id];
+    var title = cleanTitle((s && s.list[s.i].title) || a.textContent);
+    var meta = { title: title, thumb: ftThumb(id) };
+    var entry = function(){
+      try { localStorage.setItem('__ftv_title_' + id, title); } catch (e) {}
+      return { path: href, title: title, thumb: ftThumb(id), row: s ? s.list : undefined };
+    };
+    var inCw = !!a.closest('#__ftv_recent_row');
+    var isNext = inCw && loadRecent().some(function(x){ return x.path === href && x.next; });
+    var items = [
+      { label: isNext ? 'Play next episode' : 'Play', icon: 'play', run: function(){
+        if (s) { try { sessionStorage.setItem('__ftv_queue', JSON.stringify(s.list)); } catch (e) {} }
+        try { localStorage.setItem('__ftv_title_' + id, title); } catch (e) {}
+        window.__ftvGo(href, meta); } },
+      { label: 'Play next', icon: 'next', run: function(){ window.__ftvQueue('next', entry()); lpToast('Plays next'); } },
+      { label: 'Add to queue', icon: 'add', run: function(){ window.__ftvQueue('add', entry()); lpToast('Added to queue'); } }
+    ];
+    if (inCw) items.push({ label: 'Remove from Continue Watching', icon: 'remove', run: function(){
+      window.__ftvRecentRemove(href); lpToast('Removed'); } });
+    return { head: s ? (s.name === 'Digest' ? 'Season 4 Digest' : s.name) + ' · ' + title : title, items: items };
+  }
   function lpItemsFor(a){
     var href = (a.getAttribute('href') || '').split(/[?#]/)[0];
+    if (location.host.indexOf('fishtank') >= 0) return lpFishtankItems(a, href);
     var m = /^\/series\/([^/]+)(?:\/([^/]+))?$/.exec(href);
     if (!m) return null;
     var tag = m[1], meta = cardMeta(a);
@@ -3571,7 +3636,7 @@
     if (then) then();
   }
   window.__ftvLongPress = function(){
-    if (lp || location.host.indexOf('mde.tv') < 0 || playingVideo() || !cur || silentCur) return 'no';
+    if (lp || playingVideo() || !cur || silentCur) return 'no';
     var a = cur.closest && cur.closest('a[href]');
     // On a card's x: the card it belongs to.
     if (!a && cur.closest) { var li = cur.closest('li'); a = li && li.querySelector('a[href]'); }

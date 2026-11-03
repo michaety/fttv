@@ -172,6 +172,14 @@ class MainActivity : Activity() {
                 /* the 3 circular quick-action buttons docked bottom-right
                    (inventory/anchor/chat) */
                 div[class*="ease-spring"][class*="translate-y-[-2px]"] { display: none !important; }
+                /* ...their container since the site's 2026-11 redesign: just
+                   below the screen, where DOWN from the last row landed on
+                   them unseen */
+                div.fixed.right-0[class*="bottom-[calc(env(safe-area-inset-bottom)"] { display: none !important; }
+                /* the account badge (name, level, Fishbucks, avatar) top
+                   right: scrolls away with the page instead of floating over
+                   the rows */
+                div.fixed.right-0[class*="top-[calc(env(safe-area-inset-top)"] { position: absolute !important; }
                 /* bottom-right docked panel (logged-in only). Hidden, not
                    removed: this used to be node.remove()d, but it belongs
                    to React, and pulling it out from under React made its
@@ -348,6 +356,13 @@ class MainActivity : Activity() {
                   document.querySelectorAll('button').forEach(function(b){
                     var t = b.textContent.trim();
                     if ((t === 'Merch' || t === 'Archives' || t === 'Clips') && b.style.display !== 'none') b.style.display = 'none';
+                  });
+                  // Episode titles that are upload file names ("Season 5,
+                  // Day 28.mp4"): without the extension. The text node only,
+                  // which React simply overwrites if it re-renders it.
+                  document.querySelectorAll('a[href^="/episodes/"] div.whitespace-nowrap').forEach(function(d){
+                    var n = d.firstChild;
+                    if (n && n.nodeType === 3 && /\.(mp4|mov|mkv|webm)\s*$/i.test(n.nodeValue)) n.nodeValue = n.nodeValue.replace(/\.(mp4|mov|mkv|webm)\s*$/i, '');
                   });
                   // Episodes page: numbered episodes ("10 - Finale" ...
                   // "01 - ...", or "S3E22 - ..." with unnumbered BTS

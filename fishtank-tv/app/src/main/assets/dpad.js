@@ -146,7 +146,10 @@
   // all, not just skipped as a default landing spot.
   function isExcluded(el){
     // (mde's Spotlight 1-7 buttons: LEFT/RIGHT on the slide work them instead, see stepSpotlight)
-    return !!(el.matches && el.matches('a[class*="_logo"], [class*="_spotlight"] [class*="_selector"] button'));
+    // (fishtank's "Latest Episode" banner, hidden by the app's CSS -- before
+    // that applies it was the start spot, leaving the lift round nothing)
+    return !!(el.matches && el.matches('a[class*="_logo"], [class*="_spotlight"] [class*="_selector"] button, ' +
+      'div.flex.flex-col.gap-5.mb-5 > a.flex.flex-col[href^="/episodes/"]'));
   }
 
   // covered(), remembered until the list is next rebuilt.
@@ -2568,6 +2571,19 @@
     }
     if (rc && list.indexOf(rc) >= 0 && !isCovered(rc)) return rc;
     if (location.host.indexOf('fishtank') >= 0) {
+      // Episodes page: the top-left episode on screen (the rows are shown in
+      // reverse of their DOM order, so "first in the list" is off to the right).
+      if (location.pathname === '/episodes') {
+        var best = null, bt = 0, bl = 0;
+        for (var k = 0; k < list.length; k++) {
+          var e = list[k];
+          if (!/^\/episodes\/./.test(e.getAttribute('href') || '') || !inViewport(e) || isCovered(e)) continue;
+          var r = e.getBoundingClientRect();
+          if (r.width < 40) continue;
+          if (!best || r.top < bt - 20 || (Math.abs(r.top - bt) <= 20 && r.left < bl)) { best = e; bt = r.top; bl = r.left; }
+        }
+        if (best) return best;
+      }
       for (var i = 0; i < list.length; i++) {
         if (list[i].tagName === 'BUTTON' && list[i].textContent.trim() === 'Episodes' && inViewport(list[i]) && !isCovered(list[i])) return list[i];
       }

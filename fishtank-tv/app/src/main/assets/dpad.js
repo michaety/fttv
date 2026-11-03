@@ -3029,6 +3029,10 @@
   function isCwRemove(el){
     return !!el && el.tagName === 'BUTTON' && /^Remove .* from Continue Watching$/i.test(el.getAttribute('aria-label') || '');
   }
+  // mde's "View All" link under a row: Up/Down go past it, row to row.
+  function isViewAll(el){
+    return !!el && el.tagName === 'A' && /_view\b/.test(el.className || '') && /^view all$/i.test((el.textContent || '').trim());
+  }
   function doNavigate(dir){
     var list = items();
     if (!list.length) return;
@@ -3059,7 +3063,9 @@
       var rb = [].filter.call(curLi.querySelectorAll('button'), isCwRemove)[0];
       if (rb && list.indexOf(rb) >= 0) { mark(rb); return; }
     }
-    var navList = list.filter(function(e){ return !isCwRemove(e); });
+    var vert = dir === 'up' || dir === 'down';
+    var skip = function(e){ return isCwRemove(e) || (vert && isViewAll(e)); };
+    var navList = list.filter(function(e){ return !skip(e); });
     var best = nearest(navList, dir);
 
     // A cached list that's gone stale (a row hydrated but no mutation/
@@ -3071,7 +3077,7 @@
     if (!best && !dirty && changeCount !== builtAt) {
       dirty = true;
       list = items();
-      best = nearest(list.filter(function(e){ return !isCwRemove(e); }), dir);
+      best = nearest(list.filter(function(e){ return !skip(e); }), dir);
     }
 
     if (best) {

@@ -507,20 +507,20 @@ body.live-open #now { display: none !important; }
 .lv-cpic img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .lv-cpic b { position: absolute; left: 0; bottom: 0; min-width: 24px; padding: 1px 6px; background: rgba(0,0,0,.8);
   color: var(--accent); font: 20px/1.1 var(--head); text-align: center; }
-/* The TV guide: channels down the side, a timeline across (scrolls sideways). */
+/* The TV guide: channels down the side, a timeline across; the channel pictures scroll away with it. */
 .tg-more { color: var(--gray-light); font-size: 12px; }
 .tg { margin: 0 8px; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; border: 1px solid var(--gray);
   border-radius: 4px; background: var(--darkest); box-shadow: var(--shadow); }
 .tg::-webkit-scrollbar { display: none; }
 .tg-in { position: relative; }
 .tg-times { position: relative; height: 26px; border-bottom: 1px solid var(--gray-dark); }
-.tg-corner { position: sticky; left: 0; z-index: 3; width: 150px; height: 26px; background: var(--darkest);
+.tg-corner { position: relative; left: 0; z-index: 3; width: 150px; height: 26px; background: var(--darkest);
   border-right: 1px solid var(--gray-dark); }
 .tg-tick { position: absolute; top: 0; height: 26px; padding-left: 4px; border-left: 1px solid var(--gray-dark);
   color: var(--gray-light); font-size: 12px; line-height: 26px; white-space: nowrap; }
 .tg-row { position: relative; height: 86px; border-bottom: 1px solid var(--gray-dark); }
 .tg-row:last-child { border-bottom: 0; }
-.tg-ch { position: sticky; left: 0; z-index: 3; display: block; width: 150px; height: 100%; padding: 0; overflow: hidden;
+.tg-ch { position: relative; left: 0; z-index: 3; display: block; width: 150px; height: 100%; padding: 0; overflow: hidden;
   border: 0; border-right: 1px solid var(--gray-dark); background: #000; color: #fff; text-align: left; }
 .tg-ch img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: .85; }
 .tg-cap { position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: baseline; gap: 5px; padding: 12px 6px 3px;

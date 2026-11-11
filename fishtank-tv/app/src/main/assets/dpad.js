@@ -237,7 +237,7 @@
       try { syncAccount(); } catch (e) {}
       try { renderPscRows(); } catch (e) {}
       try { renderShuffleButton(); } catch (e) {}
-      try { mdeNav(); mdeModal(); liveTick(); mdeSeries(); spotWatchTick(); } catch (e) {}
+      try { mdeNav(); mdeModal(); liveTick(); mdeSeries(); spotWatchTick(); hideRemovedCards(); } catch (e) {}
       restoreReturnFocus();
     }, 250);
   }
@@ -618,16 +618,41 @@
   }
   // Removing an entry by hand: from the TV's Menu (the card the cursor is
   // on, see __ftvFocusedRecent) or from the phone remote.
+  // The card next to the one being removed, in its own row (else the one
+  // before it): where the cursor goes, instead of whatever ends up under
+  // the removed card's old place (often the row below).
+  function rowNeighbour(path){
+    var a = cur && cur.closest && cur.closest('a[href]');
+    if (!a && cur && cur.closest) { var w0 = cur.closest('li, [class*="_continue"]'); a = w0 && w0.querySelector('a[href]'); }
+    if (!a || a.getAttribute('href') !== path) return null;
+    var w = a.closest('li, [class*="_continue"]') || a;
+    var pick = function(from, dir){
+      for (var s = from[dir]; s; s = s[dir]) {
+        var l = s.matches && s.matches('a[href]') ? s : s.querySelector && s.querySelector('a[href]');
+        if (l && l.getAttribute('href') !== path && s.style.display !== 'none' && l.getClientRects().length) return l;
+      }
+      return null;
+    };
+    return pick(w, 'nextElementSibling') || pick(w, 'previousElementSibling');
+  }
   window.__ftvRecentRemove = function(path){
+    var nb = rowNeighbour(path);
+    setTimeout(function(){
+      if (!nb || !document.contains(nb) || !nb.getClientRects().length) return;
+      if (cur && cur !== nb && document.contains(cur) && cur.getClientRects().length && !(cur.closest && cur.closest('a[href="' + path + '"]'))) return;
+      dirty = true;
+      mark(nb);
+    }, 60);
     var gone = loadRecent().filter(function(x){ return x.path === path; })[0];
     removeRecent(path);
     dismiss(path);   // and never offer it as "On another device"
     if (location.host.indexOf('mde.tv') >= 0 && !(gone && gone.next)) {
-      if (gone && gone.id) resetAccountProgress(gone.id, gone.dur);
+      if (siteRemove(path)) { /* the site's own x and confirmation do it */ }
+      else if (gone && gone.id) resetAccountProgress(gone.id, gone.dur, path);
       else {
         // Not in the app's copy yet (a card of the site's own row): look it up.
         var tag = (/^\/series\/[^/]+\/([^/?#]+)/.exec(path) || [])[1];
-        if (tag) videoInfo(tag).then(function(v){ if (v && v.id) resetAccountProgress(v.id, v.duration); });
+        if (tag) videoInfo(tag).then(function(v){ if (v && v.id) resetAccountProgress(v.id, v.duration, path); });
       }
       // The site's own card goes from its row straight away (hidden, not
       // removed: React owns that list), and the site is nudged to refetch it.
@@ -717,16 +742,50 @@
   // which also drops the entry without marking it watched. Either way the
   // resume point is lost. Best effort: if both fail, the dismissal above
   // still hides it here.
-  function resetAccountProgress(id, dur){
+  // The DELETE exactly as the site's own client sends it (an XHR with its
+  // Accept header): fetch()'s DELETE got 409 for every entry on 2026-11-11
+  // while the site's own x got 204 for the same ones.
+  function siteDelete(url){
+    return new Promise(function(res){
+      var x = new XMLHttpRequest();
+      x.open('DELETE', url);
+      x.withCredentials = true;
+      x.setRequestHeader('Accept', 'application/json, text/plain, */*');
+      x.onloadend = function(){ res({ ok: x.status >= 200 && x.status < 300, status: x.status }); };
+      x.send();
+    });
+  }
+  // The site's own way, when its card is on the page: its x (hidden on the
+  // TV) and the Remove in its confirmation, the dialog kept out of sight.
+  var quietRemove = false;
+  function siteRemove(path){
+    var row = location.pathname === '/' && mdeSiteRow();
+    var a = row && row.querySelector('a[href="' + path + '"]');
+    var x = a && a.closest('[class*="_continue"]') && a.closest('[class*="_continue"]').querySelector('button[class*="_remove"]');
+    if (!x) return false;
+    quietRemove = true;
+    document.documentElement.classList.add('__ftv_quietrm');
+    x.click();
+    var tries = 0;
+    (function confirm(){
+      var m = document.querySelector('[class*="_modalContainer"], [role="dialog"]');
+      var yes = m && [].filter.call(m.querySelectorAll('button'), function(b){ return /^remove$/i.test(b.textContent.trim()); })[0];
+      if (yes) yes.click();
+      if (!yes && ++tries < 20) { setTimeout(confirm, 100); return; }
+      setTimeout(function(){ quietRemove = false; document.documentElement.classList.remove('__ftv_quietrm'); }, 400);
+    })();
+    return true;
+  }
+  function resetAccountProgress(id, dur, path){
     if (location.host.indexOf('mde.tv') < 0 || !id) return;
     var url = 'https://api.mde.tv/v1/playback-progress/video/' + encodeURIComponent(id);
     var json = { 'Content-Type': 'application/json' };
-    fetch(url, { method: 'DELETE', credentials: 'include' })
+    siteDelete(url)
       .then(function(r){
         if (r.ok) return;
-        // 409: mde refuses for a while after the episode was playing (the
-        // site's own x then fails too). Keep trying in the background.
-        if (r.status === 409) { pendingRemoval(id); return; }
+        // 409: mde refuses for now. Keep trying in the background (and
+        // through the site's own x, next time its card is on the page).
+        if (r.status === 409) { pendingRemoval(id, path); return; }
         if (r.status !== 404 && r.status !== 405) throw new Error(r.status);
         return fetch(url + '/session', { method: 'POST', credentials: 'include', headers: json, body: '{}' })
           .then(function(r2){ if (!r2.ok) throw new Error(r2.status); return r2.json(); })
@@ -743,7 +802,8 @@
   var RM_KEY = '__ftv_rm_pending';
   function loadRm(){ try { return JSON.parse(localStorage.getItem(RM_KEY)) || {}; } catch (e) { return {}; } }
   function saveRm(o){ try { localStorage.setItem(RM_KEY, JSON.stringify(o)); } catch (e) {} }
-  function pendingRemoval(id){ var o = loadRm(); if (!o[id]) o[id] = Date.now(); saveRm(o); }
+  function pendingRemoval(id, path){ var o = loadRm(); if (!o[id]) o[id] = path ? { at: Date.now(), path: path } : Date.now(); saveRm(o); }
+  function rmAt(v){ return typeof v === 'object' && v ? v.at : v; }
   function flushRemovals(){
     var o = loadRm(), ids = Object.keys(o);
     if (!ids.length || location.host.indexOf('mde.tv') < 0) return;
@@ -753,8 +813,9 @@
         var there = {};
         (j && j.items || []).forEach(function(i){ there[i.itemId] = 1; });
         ids.forEach(function(id){
-          if (!there[id] || Date.now() - o[id] > 3600000) { delete o[id]; return; }   // gone, or give up
-          fetch('https://api.mde.tv/v1/playback-progress/video/' + encodeURIComponent(id), { method: 'DELETE', credentials: 'include' })
+          if (!there[id] || Date.now() - rmAt(o[id]) > 3600000) { delete o[id]; return; }   // gone, or give up
+          if (o[id] && o[id].path && siteRemove(o[id].path)) return;   // the site's own x (it refetches its row)
+          siteDelete('https://api.mde.tv/v1/playback-progress/video/' + encodeURIComponent(id))
             .then(function(r){
               if (!r.ok) return;
               var p = loadRm(); delete p[id]; saveRm(p);
@@ -766,7 +827,26 @@
       }).catch(function(){});
   }
   if (location.host.indexOf('mde.tv') >= 0) { setTimeout(flushRemovals, 5000); setInterval(flushRemovals, 60000); }
-  var accountSynced = 0;
+  var accountSynced = 0, accountTs = {};
+  // Removed here, but the account refuses to drop it (DELETE answers 409 --
+  // seen 2026-11-11 for every entry, the site's own x included): the site's
+  // row keeps drawing it from the account. Its card stays hidden here until
+  // the account lets go of it, or it's watched again (updated since).
+  function hideRemovedCards(){
+    if (location.host.indexOf('mde.tv') < 0 || location.pathname !== '/') return;
+    var row = mdeSiteRow();
+    if (!row) return;
+    var gone = dismissedAt();
+    [].forEach.call(row.children, function(c){
+      if (c.hasAttribute('data-ftv-upnext')) return;
+      var a = c.querySelector('a[href]');
+      if (!a) return;
+      var at = gone[a.getAttribute('href')];
+      var hide = !!at && !(accountTs[a.getAttribute('href')] > at);
+      if (hide && c.style.display !== 'none') { c.style.display = 'none'; c.setAttribute('data-ftv-hid', '1'); dirty = true; }
+      else if (!hide && c.hasAttribute('data-ftv-hid')) { c.style.display = ''; c.removeAttribute('data-ftv-hid'); dirty = true; }
+    });
+  }
   function syncAccount(){
     if (location.host.indexOf('mde.tv') < 0 || Date.now() - accountSynced < 60000) return;
     accountSynced = Date.now();
@@ -774,6 +854,11 @@
       .then(function(r){ if (!r.ok) throw new Error(r.status); return r.json(); })
       .then(function(j){
         if (!j || !Array.isArray(j.items)) return;
+        accountTs = {};
+        j.items.forEach(function(i){
+          var m = i && i.media;
+          if (m && m.series_tag && m.tag) accountTs['/series/' + m.series_tag + '/' + m.tag] = Date.parse(i.updatedAt) || 0;
+        });
         var gone = dismissedAt();
         var acct = j.items.filter(function(i){
           var m = i && i.media;
@@ -2630,7 +2715,10 @@
       // mde's own row: the section headed "Continue watching (and listening)".
       var hs = document.querySelectorAll('section h2');
       for (var h = 0; h < hs.length && !rc; h++) {
-        if (/continue watching/i.test(hs[h].textContent)) rc = hs[h].parentElement.querySelector('a[href]');
+        if (/continue watching/i.test(hs[h].textContent)) {
+          // (its first card that's showing: removed ones are hidden)
+          rc = [].filter.call(hs[h].parentElement.querySelectorAll('a[href]'), function(a){ return a.getClientRects().length; })[0] || null;
+        }
       }
     }
     if (rc && list.indexOf(rc) >= 0 && !isCovered(rc)) return rc;
@@ -3671,7 +3759,7 @@
     if (location.host.indexOf('mde.tv') < 0) return;
     var m = document.querySelector('[class*="_modalContainer"]');
     if (!m || !shown(m)) { modalSeen = null; return; }
-    if (m === modalSeen || playingVideo() || (cur && m.contains(cur))) return;
+    if (quietRemove || m === modalSeen || playingVideo() || (cur && m.contains(cur))) return;
     var b = m.querySelector('button:not([class*="_close"])');
     if (!b) return;
     modalSeen = m;

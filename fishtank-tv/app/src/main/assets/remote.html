@@ -1583,7 +1583,7 @@
   // The schedule as a TV guide: a row per channel, its programmes laid
   // out along a timeline (3px a minute) that scrolls sideways, with a line
   // at the time now. Keeps where it was scrolled to.
-  var TG_PX = 3, TG_LABEL = 112, tgScroll = null;
+  var TG_PX = 3.6, TG_LABEL = 150, tgScroll = null;
   function tgClock(t, after){
     var m = /(\d+):(\d+)\s*([AP])M/i.exec(t || '');
     if (!m) return null;

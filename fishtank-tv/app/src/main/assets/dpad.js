@@ -3246,6 +3246,14 @@
   window.__ftvLiveSchedule = function(){
     var fresh = liveSched && Date.now() - liveSchedAt < 10 * 60 * 1000;
     if (!fresh && !liveSchedFrame) buildLiveSchedule();
+    // Each programme's picture and description, from the Live page's videos.
+    var th = null;
+    try { th = isLive() && liveThumbs(); } catch (e) {}
+    if (th && liveSched) liveSched.forEach(function(c){ c.programs.forEach(function(p){
+      if (p.thumb !== undefined) return;
+      var m = th.meta(p.title, p.sub);
+      p.thumb = m.thumb; p.desc = m.desc;
+    }); });
     return JSON.stringify({ ready: !!fresh, channels: liveSched || [] });
   };
   function buildLiveSchedule(){
@@ -3432,14 +3440,20 @@
     var norm = function(t){ return String(t || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim(); };
     var byTitle = {}, byShow = {};
     vids.forEach(function(v){
-      if (!v.thumbnail) return;
-      byTitle[norm(v.seriesName) + '|' + norm(v.title)] = v.thumbnail;
-      if (!byTitle['|' + norm(v.title)]) byTitle['|' + norm(v.title)] = v.thumbnail;
-      if (!byShow[norm(v.seriesName)]) byShow[norm(v.seriesName)] = v.thumbnail;
+      var e = { thumb: v.thumbnail || '', desc: String(v.description || '').replace(/\s+/g, ' ').trim() };
+      byTitle[norm(v.seriesName) + '|' + norm(v.title)] = e;
+      if (!byTitle['|' + norm(v.title)]) byTitle['|' + norm(v.title)] = e;
+      if (v.thumbnail && !byShow[norm(v.seriesName)]) byShow[norm(v.seriesName)] = { thumb: v.thumbnail, desc: '' };
     });
-    liveThumbIdx = function(show, title){
-      return byTitle[norm(show) + '|' + norm(title)] || byTitle['|' + norm(title)] || byShow[norm(show)] || '';
+    // th(show, title): the thumbnail; th.meta(show, title): {thumb, desc}
+    // (desc only for the episode itself, not a stand-in from its show).
+    var meta = function(show, title){
+      var e = byTitle[norm(show) + '|' + norm(title)] || byTitle['|' + norm(title)];
+      var s = byShow[norm(show)];
+      return { thumb: (e && e.thumb) || (s && s.thumb) || '', desc: (e && e.desc) || '' };
     };
+    liveThumbIdx = function(show, title){ return meta(show, title).thumb; };
+    liveThumbIdx.meta = meta;
     return liveThumbIdx;
   }
   window.__ftvLiveInfo = function(){
@@ -3488,6 +3502,7 @@
       name: ch.replace(/^\s*\d+\s*/, ''),
       block: info.block, series: info.series, title: info.title, time: info.time, next: info.next,
       thumb: th ? th(info.series, info.title) : '',
+      desc: q(d, '[class*="_infoDescription"]') || (th ? th.meta(info.series, info.title).desc : ''),
       channels: chans });
   };
   // Channel n (or the one the site last had, n = 0), full screen. From

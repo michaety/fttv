@@ -1554,6 +1554,7 @@
       if (f >= 0) { var bar = el('span', 'lv-bar'), fill = el('i'); fill.style.width = (f * 100).toFixed(1) + '%'; bar.appendChild(fill); tm.appendChild(bar); }
       nowBox.appendChild(tm);
     }
+    if (l.desc) nowBox.appendChild(el('div', 'lv-desc', l.desc));
     if (l.next) nowBox.appendChild(el('div', 'lv-next', l.next));
     box.appendChild(nowBox);
     if (l.warning) {
@@ -1602,6 +1603,41 @@
     d.setHours(+m[1] % 12 + (/p/i.test(m[3]) ? 12 : 0), +m[2], 0, 0);
     if (after) { while (d < after) d = new Date(+d + 864e5); }
     return d;
+  }
+  function tgDate(d){
+    return d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
+  }
+  // A programme's details, as the site's own guide shows them: its picture,
+  // channel, day and time, show, episode and description; Watch if it's on.
+  function progDetail(c, q, on){
+    var box = $('#lvDetail');
+    if (!box) { box = el('div', ''); box.id = 'lvDetail'; $('#live').appendChild(box); }
+    box.innerHTML = '';
+    box.onclick = function(e){ if (e.target === box) box.classList.remove('on'); };
+    var card = el('div', 'lvd');
+    if (q.p.thumb) { var pic = el('div', 'lvd-pic'); img(pic, q.p.thumb, true); card.appendChild(pic); }
+    card.appendChild(el('div', 'lvd-when', c.num + ' ' + c.name + ' · ' + tgDate(q.a) + ', ' + tgTime(q.a) + ' – ' + tgTime(q.e)));
+    card.appendChild(el('div', 'lvd-show', q.p.title));
+    if (q.p.sub) card.appendChild(el('div', 'lvd-title', q.p.sub));
+    if (q.p.desc) card.appendChild(el('div', 'lvd-desc', q.p.desc));
+    var now = new Date();
+    card.appendChild(el('div', 'lvd-state', on ? 'On now' : q.e <= now ? 'Finished' : 'Starts in ' + tgIn(q.a - now)));
+    var btns = el('div', 'lvd-btns');
+    if (on) {
+      var w = el('button', 'go', 'Watch on the TV');
+      w.onclick = function(){ box.classList.remove('on'); liveCmd('/api/live/tune', { n: c.num }); toast('Channel ' + c.num + ' on the TV'); };
+      btns.appendChild(w);
+    }
+    var x = el('button', '', 'Close');
+    x.onclick = function(){ box.classList.remove('on'); };
+    btns.appendChild(x);
+    card.appendChild(btns);
+    box.appendChild(card);
+    box.classList.add('on');
+  }
+  function tgIn(ms){
+    var m = Math.max(1, Math.round(ms / 60000)), h = Math.floor(m / 60);
+    return (h ? h + 'h ' : '') + (m % 60) + 'm';
   }
   function tgTime(d){
     var h = d.getHours(), m = d.getMinutes();
@@ -1653,6 +1689,15 @@
       tk.style.left = x(t) + 'px';
       times.appendChild(tk);
     }
+    // the date: in the corner, and again at each midnight
+    times.firstChild.appendChild(el('span', 'tg-date', tgDate(start)));
+    for (var md = new Date(start); ; ) {
+      md = new Date(md.getFullYear(), md.getMonth(), md.getDate() + 1);
+      if (md >= t1) break;
+      var dm = el('div', 'tg-day', tgDate(md));
+      dm.style.left = x(md) + 'px';
+      times.appendChild(dm);
+    }
     inner.appendChild(times);
     rows.forEach(function(r){
       var row = el('div', 'tg-row' + (liveData && r.c.num === liveData.channel ? ' tuned' : ''));
@@ -1673,10 +1718,7 @@
         b.style.width = Math.max(18, x(q.e) - x(a) - 3) + 'px';
         b.appendChild(el('b', '', q.p.title));
         b.appendChild(el('span', '', (q.p.sub ? q.p.sub + ' · ' : '') + tgTime(q.a)));
-        b.onclick = function(){
-          if (on) { liveCmd('/api/live/tune', { n: r.c.num }); toast('Channel ' + r.c.num + ' on the TV'); }
-          else toast(q.p.title + (q.e <= now ? ' has finished' : ' starts at ' + tgTime(q.a)));
-        };
+        b.onclick = function(){ progDetail(r.c, q, on); };
         row.appendChild(b);
       });
       inner.appendChild(row);

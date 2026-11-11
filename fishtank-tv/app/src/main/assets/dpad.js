@@ -832,6 +832,7 @@
       .then(function(j){
         var x = j && j.series;
         if (x && x.name) seriesNames[tag] = cleanTitle(x.name);
+        if (x) noteShowArt(tag, x.small_thumbnail || x.medium_thumbnail || x.thumbnail);
         return (x && (x.medium_thumbnail || x.small_thumbnail || x.thumbnail)) || '';
       })
       .catch(function(){ return ''; });
@@ -3253,7 +3254,31 @@
       var sec = hs[i].parentElement;
       if (!sec.classList.contains('__ftv_showgrid')) { sec.classList.add('__ftv_showgrid'); dirty = true; }
       if (sec.style.order !== '99') sec.style.order = '99';
+      // Each show's own (square) artwork in place of the site's animated
+      // preview of its latest episode: 33 animated pictures decoding at
+      // once loaded slowly on a Firestick and kept it busy.
+      [].forEach.call(sec.querySelectorAll('a[href^="/series/"]'), function(a){
+        var tag = (/^\/series\/([^/?#]+)$/.exec(a.getAttribute('href')) || [])[1];
+        var img = a.querySelector('img');
+        if (!tag || !img) return;
+        var art = showArt()[tag];
+        if (art) {
+          if (img.getAttribute('src') !== art) { img.removeAttribute('srcset'); img.src = art; }
+        } else seriesArt(tag);
+      });
     }
+  }
+  // tag -> the show's artwork, kept so the grid has it from the start
+  var showArtMap = null;
+  function showArt(){
+    if (!showArtMap) { try { showArtMap = JSON.parse(localStorage.getItem('__ftv_showart') || '{}') || {}; } catch (e) { showArtMap = {}; } }
+    return showArtMap;
+  }
+  function noteShowArt(tag, url){
+    if (!url || showArt()[tag] === url) return;
+    showArtMap[tag] = url;
+    try { localStorage.setItem('__ftv_showart', JSON.stringify(showArtMap)); } catch (e) {}
+    try { mdeShows(); } catch (e) {}
   }
 
   // ---- mde: Live and Series in the top bar --------------------------------

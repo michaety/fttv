@@ -3150,6 +3150,34 @@
       setTimeout(showLiveBar, 350);   // once the site has the new channel's info
     } else showLiveBar();
   }
+  // The guide shows an hour and a half: Right on a channel's last programme
+  // pages it 30 minutes later (its own Later button), and Left on the first
+  // pages back, until it's at the present (then Left goes to the channel,
+  // as before). The cursor stays on the same channel.
+  function liveGuidePage(dir){
+    if (!isLive() || (dir !== 'left' && dir !== 'right') || !cur || !cur.matches || !cur.matches('button[class*="_guideCell"]')) return false;
+    var row = cur.closest('[class*="_guideRow"]');
+    var cells = row ? row.querySelectorAll('button[class*="_guideCell"]') : [];
+    if (!cells.length || cur !== cells[dir === 'right' ? cells.length - 1 : 0]) return false;
+    if (dir === 'left') {
+      var nl = document.querySelector('[class*="_guideNowLine"]');
+      if (nl && nl.getClientRects().length) return false;   // already at the present
+    }
+    var btn = document.querySelector('button[class*="_guideArrow"][aria-label="' + (dir === 'right' ? 'Later' : 'Earlier') + '"]');
+    if (!btn || btn.disabled) return false;
+    var ri = [].indexOf.call(document.querySelectorAll('[class*="_guideRow"]'), row);
+    btn.click();
+    setTimeout(function(){
+      var rr = document.querySelectorAll('[class*="_guideRow"]')[ri];
+      var cs = rr ? rr.querySelectorAll('button[class*="_guideCell"]') : [];
+      if (!cs.length) return;
+      dirty = true;
+      mark(cs[dir === 'right' ? cs.length - 1 : 0]);
+      if (window.FtvApp && window.FtvApp.navSound) { try { window.FtvApp.navSound(dir); } catch (e) {} }
+    }, 120);
+    return true;
+  }
+
   // The content warning the site puts up before some programmes, if open.
   function liveModal(){
     var m = document.querySelector('[class*="_modalContainer"]');
@@ -3636,6 +3664,7 @@
       var rb = [].filter.call(curLi.querySelectorAll('button'), isCwRemove)[0];
       if (rb && list.indexOf(rb) >= 0) { mark(rb); return; }
     }
+    if (liveGuidePage(dir)) return;
     var vert = dir === 'up' || dir === 'down';
     var skip = function(e){ return isCwRemove(e) || (vert && isViewAll(e)); };
     var navList = list.filter(function(e){ return !skip(e); });

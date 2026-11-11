@@ -265,6 +265,12 @@ class MainActivity : Activity() {
                    own request is the one MDE accepts), with its "Remove from
                    Continue Watching?" confirmation kept out of sight */
                 html.__ftv_quietrm div[class*="_modal"], html.__ftv_quietrm [role="dialog"] { visibility: hidden !important; }
+                /* the homepage's Shows row (the only row whose cards have no
+                   show line, _meta): the Series grid at the bottom replaces
+                   it (dpad.js mdeSeries). Hidden from the start, so its ~30
+                   animated preview.webp pictures (several MB each) are never
+                   fetched or decoded -- hiding it a tick later was too late. */
+                main [class*="_rows"] > section:not(#__ftv_series):not(:has([class*="_meta"])):has(a[class*="_tile"]) { display: none !important; }
                 /* Spotlight: a banner across the top instead of a 16:9 box
                    the height of the whole screen, with 6 picks, not 4 */
                 main div[class*="_spotlight"] { aspect-ratio: auto !important; height: 270px !important; min-height: 0 !important; }
@@ -866,6 +872,9 @@ class MainActivity : Activity() {
      */
     @SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
     private fun createOverlayHolder() {
+        // (Needed on Fire OS 7 too: without it the Fire TV Stick 4K Max's
+        // overlay played episodes black with sound, 2026-11-11. It does cost:
+        // the open MediaTek decoder spins ~a whole CPU core, paused or ended.)
         holderReady = false
         val holder = WebView(this)
         holder.setBackgroundColor(Color.BLACK)

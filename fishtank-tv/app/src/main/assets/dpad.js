@@ -150,7 +150,6 @@
   // Elements that match SEL but should never be reachable by the D-pad at
   // all, not just skipped as a default landing spot.
   function isExcluded(el){
-    // (mde's Spotlight 1-7 buttons: LEFT/RIGHT on the slide work them instead, see stepSpotlight)
     // (fishtank's "Latest Episode" banner, hidden by the app's CSS -- before
     // that applies it was the start spot, leaving the lift round nothing)
     // (fishtank's Fishbucks counter in the account badge: an animated number
@@ -161,7 +160,7 @@
     if (el.tagName === 'A' && /_spotlightLink/.test(el.className) && document.querySelector('div[class*="_spotlight"] [class*="_watch"][tabindex="0"]')) return true;
     // (mde Live: the player's own buttons inside the picture)
     if (el.tagName === 'BUTTON' && el.closest('[class*="_screen"] .media-skin') && !/_tuneIn/.test(el.className)) return true;
-    return !!(el.matches && el.matches('a[class*="_logo"], [class*="_spotlight"] [class*="_selector"] button, ' +
+    return !!(el.matches && el.matches('a[class*="_logo"], ' +
       'div.flex.flex-col.gap-5.mb-5 > a.flex.flex-col[href^="/episodes/"]'));
   }
 
@@ -1685,87 +1684,13 @@
   }
   function isSpotPlaying(v){ return spotOn && v && v === spotVideo(); }
   function updateSpotlightVideo(){
-    if (!PAUSE_HOME_VIDEOS || location.pathname !== '/') { spotOn = false; spotFull(null); return; }
+    if (!PAUSE_HOME_VIDEOS || location.pathname !== '/') { spotOn = false; return; }
     var v = spotVideo();
     spotOn = !!v;
     if (v && v.paused) { v.muted = true; try { var p = v.play(); if (p && p.catch) p.catch(function(){}); } catch (e) {} }
     if (!v) pauseHomeVideos();
     // (It used to grow, but a Firestick can't animate a playing video's
     // size smoothly: it plays in the banner as it is, as on the site.)
-  }
-  // While the Spotlight has the cursor and its clip is playing, the banner
-  // grows downward to ~58% of the screen *over* the rows below (they don't
-  // move: animating the page's layout was janky on a Firestick), the clip in
-  // its own shape on black; it shrinks back when the cursor leaves. Only the
-  // thumbnail box changes size (taken out of the page's flow), and it lets
-  // the cursor's hit tests through (pointer-events:none), so DOWN still
-  // finds Continue watching underneath.
-  var spotGrowTimer = null, spotGrown = null, spotStyled = false;
-  var SPOT_H = 0.58;   // of the screen height
-  function spotStyle(){
-    if (spotStyled) return;
-    spotStyled = true;
-    var st = document.createElement('style');
-    st.textContent =
-      '[class*="_spotlight"] a.__ftv_spotgrow,[class*="_spotlight"] .__ftv_spotchain{overflow:visible!important;}' +
-      '[class*="_spotlight"] a.__ftv_spotgrow{z-index:50!important;}' +
-      '[class*="_spotlight"] .__ftv_spotbox{position:absolute!important;left:0!important;top:0!important;width:100%!important;' +
-        'z-index:50!important;pointer-events:none!important;background:#000!important;border-radius:4px;overflow:hidden!important;' +
-        'outline:2px solid __FTV_ACCENT_HEX__;box-shadow:0 10px 30px rgba(0,0,0,.8);' +
-        'transition:height .38s cubic-bezier(.2,.7,.2,1)!important;will-change:height;}' +
-      '[class*="_spotlight"] .__ftv_spotbox *{pointer-events:none!important;}' +
-      '[class*="_spotlight"] .__ftv_spotbox video{width:100%!important;height:100%!important;object-fit:contain!important;background:#000!important;}' +
-      'html.__ftv_spotgrown #__ftv_veil{opacity:0!important;}';
-    document.head.appendChild(st);
-  }
-  function setSpotGrow(v, on){
-    var a = v && v.closest('a[href]'), t = v && v.closest('[class*="_thumbnail"]');
-    if (!a || !t) return;
-    spotStyle();
-    var root = document.documentElement;
-    if (on) {
-      var h0 = t.getBoundingClientRect().height;
-      a.style.setProperty('height', a.getBoundingClientRect().height + 'px', 'important');   // its place in the page stays as it is
-      a.classList.add('__ftv_spotgrow');
-      for (var p = a.parentElement; p && !/_landing/.test(p.className || ''); p = p.parentElement) p.classList.add('__ftv_spotchain');
-      t.style.setProperty('height', h0 + 'px', 'important');
-      t.classList.add('__ftv_spotbox');
-      t.getBoundingClientRect();
-      t.style.setProperty('height', Math.round(window.innerHeight * SPOT_H) + 'px', 'important');
-      t.__ftvH = h0;
-      root.classList.add('__ftv_spotgrown');
-    } else {
-      t.style.setProperty('height', (t.__ftvH || 178) + 'px', 'important');
-      root.classList.remove('__ftv_spotgrown');
-      setTimeout(function(){
-        if (spotGrown === v) return;
-        t.classList.remove('__ftv_spotbox'); t.style.removeProperty('height');
-        a.classList.remove('__ftv_spotgrow'); a.style.removeProperty('height');
-        document.querySelectorAll('.__ftv_spotchain').forEach(function(e){ e.classList.remove('__ftv_spotchain'); });
-      }, 400);
-    }
-  }
-  function spotFull(v){
-    if (!v) {
-      if (spotGrowTimer) { clearInterval(spotGrowTimer); spotGrowTimer = null; }
-      if (spotGrown) { setSpotGrow(spotGrown, false); spotGrown = null; }
-      return;
-    }
-    // Only once the clip is really playing (no black box while it loads);
-    // the carousel swapping slides swaps the video, which grows in turn.
-    var sync = function(){
-      var vv = spotVideo();
-      if (!vv) return spotFull(null);
-      var on = !vv.paused && vv.currentTime > 0.2;
-      if (on && spotGrown !== vv) {
-        if (spotGrown) setSpotGrow(spotGrown, false);
-        spotGrown = vv; setSpotGrow(vv, true);
-      } else if (!on && spotGrown === vv && vv.paused) {
-        setSpotGrow(vv, false); spotGrown = null;
-      }
-    };
-    sync();
-    if (!spotGrowTimer) spotGrowTimer = setInterval(sync, 300);
   }
   function stopAfterFirstFrame(v){
     if (v.poster) {
@@ -1787,7 +1712,7 @@
   // before the address changes, and pausing it then made the site's player
   // fall back to playing it muted.
   function isHomeVideo(v){
-    return location.pathname === '/' && !!(v.closest && v.closest('[class*="_spotlight"], main [class*="_rows"], [class*="_landing"]'));
+    return location.pathname === '/' && !!(v.closest && v.closest('[class*="_spotlight"], main [class*="_rows"]'));
   }
   function pauseHomeVideos(){
     if (!PAUSE_HOME_VIDEOS || location.pathname !== '/') return;
@@ -3274,11 +3199,17 @@
         if (/^#EXT-X-STREAM-INF/.test(lines[i])) { vars.push([lines[i], lines[i + 1]]); i++; }
         else rest.push(lines[i]);
       }
-      var best = null, bh = 0;
-      vars.forEach(function(v){
-        var h = +((/RESOLUTION=\d+x(\d+)/.exec(v[0]) || [])[1] || 0);
-        if (/vp09/.test(v[0]) && h <= 720 && h > bh) { best = v; bh = h; }
-      });
+      // VP9 at 720p or below if there is one (the odd-width streams), else
+      // H.264 at 1080p or below (some programmes only come in H.264).
+      var pick = function(codec, maxH){
+        var best = null, bh = 0;
+        vars.forEach(function(v){
+          var h = +((/RESOLUTION=\d+x(\d+)/.exec(v[0]) || [])[1] || 0);
+          if (codec.test(v[0]) && h <= maxH && h > bh) { best = v; bh = h; }
+        });
+        return best;
+      };
+      var best = pick(/vp09/, 720) || pick(/avc1/, 1080);
       return best ? rest.concat(best).join('\n') : text;
     };
     ['responseText', 'response'].forEach(function(k){
@@ -3775,7 +3706,13 @@
   // copy put at the bottom of the homepage (kept, so it's there straight
   // away next time); the Shows row is hidden. The copy's links are the
   // site's own, opened with its router.
-  var SERIES_KEY = '__ftv_seriesgrid', SERIES_MAX_AGE = 30 * 60 * 1000, seriesFrame = null, seriesTried = 0;
+  // Refreshed after an episode has been opened (its watched count may have
+  // changed), else every 6 hours: loading the Series page out of sight is a
+  // few seconds of work for the Firestick.
+  var SERIES_KEY = '__ftv_seriesgrid', SERIES_MAX_AGE = 6 * 3600 * 1000, seriesFrame = null, seriesTried = 0;
+  if (location.host.indexOf('mde.tv') >= 0 && isEpisodePath(location.pathname)) {
+    try { localStorage.setItem('__ftv_seriesgrid_stale', '1'); } catch (e) {}
+  }
   function savedSeries(){
     try {
       var x = JSON.parse(localStorage.getItem(SERIES_KEY) || 'null');
@@ -3796,7 +3733,9 @@
     if (saved && saved.html && (!sec || sec.__ftvAt !== saved.at || sec.parentElement !== rows)) renderSeries(rows, saved);
     // (not while the homepage itself is still loading, and a failed try
     // waits 5 minutes)
-    if ((!saved || Date.now() - saved.at > SERIES_MAX_AGE) && document.readyState === 'complete' &&
+    var stale = false;
+    try { stale = !!localStorage.getItem('__ftv_seriesgrid_stale'); } catch (e) {}
+    if ((!saved || stale || Date.now() - saved.at > SERIES_MAX_AGE) && document.readyState === 'complete' &&
         performance.now() > 4000 && Date.now() - seriesTried > 5 * 60 * 1000) {
       seriesTried = Date.now();
       refreshSeries();
@@ -3863,7 +3802,7 @@
       if (html) {
         var css = [].map.call(d.querySelectorAll('link[rel="stylesheet"]'), function(l){ return l.getAttribute('href'); })
           .filter(function(h){ return h && h.indexOf('/_next/') === 0; });
-        try { localStorage.setItem(SERIES_KEY, JSON.stringify({ at: Date.now(), html: html, css: css })); } catch (e) {}
+        try { localStorage.setItem(SERIES_KEY, JSON.stringify({ at: Date.now(), html: html, css: css })); localStorage.removeItem('__ftv_seriesgrid_stale'); } catch (e) {}
       }
       f.remove();
       seriesFrame = null;

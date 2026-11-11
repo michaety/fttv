@@ -3378,7 +3378,7 @@
   // that switch it; it also rotates on its own. Landing on a pick shows it,
   // as a mouse hovering would, and Select on a pick plays it.
   function spotlightOf(el){
-    return (el && el.closest && el.closest('[class*="_spotlight"]')) || null;
+    return (el && el.closest && el.closest('div[class*="_spotlight"]')) || null;   // (not its link, _spotlightLink)
   }
   function isSpotPick(el){
     return !!(el && el.tagName === 'BUTTON' && el.closest && el.closest('[class*="_spotlight"] [class*="_picks"]'));
@@ -3639,7 +3639,7 @@
   };
   // What a card on the page says about its episode, for the loading screen.
   function cardMeta(a){
-    var spot = a.closest && a.closest('[class*="_spotlight"]');
+    var spot = a.closest && a.closest('div[class*="_spotlight"]');   // (not its link, _spotlightLink)
     if (spot) {
       var sq = function(sel){ var e = spot.querySelector(sel); return e ? cleanTitle(e.textContent) : ''; };
       var cl = spot.querySelector('[class*="_clip"]');

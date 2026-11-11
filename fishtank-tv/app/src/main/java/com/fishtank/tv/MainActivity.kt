@@ -257,6 +257,10 @@ class MainActivity : Activity() {
                 /* ...and the row headings at the site's desktop size, not
                    its tablet 13px */
                 main div[class*="_rows"] section h2[class*="_label"] { font-size: 20px !important; }
+                /* Continue watching cards' "x": hidden and out of the
+                   cursor's reach -- removing is done by holding Select on
+                   the card (its menu's "Remove from Continue watching") */
+                main [class*="_continue"] > button[class*="_remove"] { display: none !important; }
                 /* Spotlight: a banner across the top instead of a 16:9 box
                    the height of the whole screen, with 6 picks, not 4 */
                 main div[class*="_spotlight"] { aspect-ratio: auto !important; height: 270px !important; min-height: 0 !important; }

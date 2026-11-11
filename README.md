@@ -27,6 +27,9 @@ Unofficial. Not affiliated with, endorsed by, or supported by either site.
 - **Link your phone:** browse, search and play on the TV from your phone, plus
   themes, comments, and likes on MDE.
   See [Link your phone](#link-your-phone).
+- **Live TV (MDE):** the Live button in the header. Tune in full screen, Up/Down
+  change channel (with static), Back for the TV guide. On your phone: what's on,
+  channel controls and a TV guide with each programme's details.
 - **Search:** MDE's search box is in the header.
 - **63% less CPU:** compared with v1.0, measured on MDE's homepage.
 - **Subtitles:** on MDE, from the Menu (☰) button.

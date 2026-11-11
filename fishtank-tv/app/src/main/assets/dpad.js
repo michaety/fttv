@@ -208,7 +208,8 @@
       // The selected item was redrawn (a row rebuilt, React re-rendering):
       // move the cursor onto its replacement -- same link, else whatever is
       // where it was (refind) -- or let go of it if there's none.
-      if (cur && !document.contains(cur)) {
+      // (or hidden: a Continue watching card that's been removed)
+      if (cur && (!document.contains(cur) || !cur.getClientRects().length)) {
         var again = silentCur || playingVideo() ? null : refind(items());
         if (again) mark(again);
         else { hideVeil(); cur = null; trackFor = null; }
@@ -235,7 +236,7 @@
       try { syncAccount(); } catch (e) {}
       try { renderPscRows(); } catch (e) {}
       try { renderShuffleButton(); } catch (e) {}
-      try { mdeNav(); mdeModal(); liveTick(); mdeShows(); } catch (e) {}
+      try { mdeNav(); mdeModal(); liveTick(); mdeSeries(); } catch (e) {}
       restoreReturnFocus();
     }, 250);
   }
@@ -832,7 +833,6 @@
       .then(function(j){
         var x = j && j.series;
         if (x && x.name) seriesNames[tag] = cleanTitle(x.name);
-        if (x) noteShowArt(tag, x.small_thumbnail || x.medium_thumbnail || x.thumbnail);
         return (x && (x.medium_thumbnail || x.small_thumbnail || x.thumbnail)) || '';
       })
       .catch(function(){ return ''; });
@@ -3243,42 +3243,109 @@
     mark(b);
   }
 
-  // ---- mde: the homepage's Shows row as a grid of every show, at the
-  // bottom of the page (where the Series grid was before the redesign).
-  // Flex 'order' and a class only; the CSS is in MainActivity.
-  function mdeShows(){
+  // ---- mde: the Series grid at the bottom of the homepage -------------
+  // The homepage had a grid of every show (artwork, episode count, how much
+  // of it you've watched) until the site's 2026-11 redesign, which replaced
+  // it with a "Shows" row of animated previews. The grid still exists, on
+  // the Series page: it's loaded there out of sight, now and then, and a
+  // copy put at the bottom of the homepage (kept, so it's there straight
+  // away next time); the Shows row is hidden. The copy's links are the
+  // site's own, opened with its router.
+  var SERIES_KEY = '__ftv_seriesgrid', SERIES_MAX_AGE = 30 * 60 * 1000, seriesFrame = null, seriesTried = 0;
+  function savedSeries(){
+    try {
+      var x = JSON.parse(localStorage.getItem(SERIES_KEY) || 'null');
+      return x && x.html && x.html.indexOf('href="/series/') >= 0 ? x : null;
+    } catch (e) { return null; }
+  }
+  function mdeSeries(){
     if (location.host.indexOf('mde.tv') < 0 || location.pathname !== '/') return;
-    var hs = document.querySelectorAll('main [class*="_rows"] > section > h2');
+    var rows = document.querySelector('main [class*="_rows"]');
+    if (!rows) return;
+    var hs = rows.querySelectorAll(':scope > section > h2');
     for (var i = 0; i < hs.length; i++) {
-      if (!/^\s*shows\s*$/i.test(hs[i].textContent)) continue;
-      var sec = hs[i].parentElement;
-      if (!sec.classList.contains('__ftv_showgrid')) { sec.classList.add('__ftv_showgrid'); dirty = true; }
-      if (sec.style.order !== '99') sec.style.order = '99';
-      // Each show's own (square) artwork in place of the site's animated
-      // preview of its latest episode: 33 animated pictures decoding at
-      // once loaded slowly on a Firestick and kept it busy.
-      [].forEach.call(sec.querySelectorAll('a[href^="/series/"]'), function(a){
-        var tag = (/^\/series\/([^/?#]+)$/.exec(a.getAttribute('href')) || [])[1];
-        var img = a.querySelector('img');
-        if (!tag || !img) return;
-        var art = showArt()[tag];
-        if (art) {
-          if (img.getAttribute('src') !== art) { img.removeAttribute('srcset'); img.src = art; }
-        } else seriesArt(tag);
-      });
+      var sh = hs[i].parentElement;
+      if (/^\s*shows\s*$/i.test(hs[i].textContent) && sh.style.display !== 'none') { sh.style.display = 'none'; dirty = true; }
+    }
+    var saved = savedSeries();
+    var sec = document.getElementById('__ftv_series');
+    if (saved && saved.html && (!sec || sec.__ftvAt !== saved.at || sec.parentElement !== rows)) renderSeries(rows, saved);
+    // (not while the homepage itself is still loading, and a failed try
+    // waits 5 minutes)
+    if ((!saved || Date.now() - saved.at > SERIES_MAX_AGE) && document.readyState === 'complete' &&
+        performance.now() > 4000 && Date.now() - seriesTried > 5 * 60 * 1000) {
+      seriesTried = Date.now();
+      refreshSeries();
     }
   }
-  // tag -> the show's artwork, kept so the grid has it from the start
-  var showArtMap = null;
-  function showArt(){
-    if (!showArtMap) { try { showArtMap = JSON.parse(localStorage.getItem('__ftv_showart') || '{}') || {}; } catch (e) { showArtMap = {}; } }
-    return showArtMap;
+  function renderSeries(rows, saved){
+    // The Series page's styles (the homepage doesn't load them).
+    (saved.css || []).forEach(function(href){
+      if (document.querySelector('link[rel="stylesheet"][href="' + href + '"]')) return;
+      var l = document.createElement('link');
+      l.rel = 'stylesheet'; l.href = href;
+      document.head.appendChild(l);
+    });
+    var sec = document.getElementById('__ftv_series');
+    if (!sec) {
+      var like = rows.querySelector(':scope > section');
+      sec = document.createElement('section');
+      sec.id = '__ftv_series';
+      if (like) sec.className = like.className;
+      sec.style.order = '99';
+      var lh = like && like.querySelector('h2');
+      var h = lh ? lh.cloneNode(false) : document.createElement('h2');
+      var sp = document.createElement('span');
+      sp.textContent = 'Series';
+      h.appendChild(sp);
+      sec.appendChild(h);
+      sec.addEventListener('click', function(e){
+        var a = e.target.closest && e.target.closest('a[href]');
+        if (!a) return;
+        e.preventDefault();
+        window.__ftvGo(a.getAttribute('href'));
+      });
+    }
+    var box = document.createElement('div');
+    box.innerHTML = saved.html;
+    var grid = box.firstElementChild;
+    if (!grid) return;
+    var old = sec.querySelector('[class*="_seriesGrid"]');
+    if (old) old.replaceWith(grid); else sec.appendChild(grid);
+    if (sec.parentElement !== rows) rows.appendChild(sec);
+    sec.__ftvAt = saved.at;
+    dirty = true;
   }
-  function noteShowArt(tag, url){
-    if (!url || showArt()[tag] === url) return;
-    showArtMap[tag] = url;
-    try { localStorage.setItem('__ftv_showart', JSON.stringify(showArtMap)); } catch (e) {}
-    try { mdeShows(); } catch (e) {}
+  function refreshSeries(){
+    if (seriesFrame) return;
+    var f = seriesFrame = document.createElement('iframe');
+    f.setAttribute('aria-hidden', 'true');
+    f.tabIndex = -1;
+    f.style.cssText = 'position:fixed;left:-3000px;top:0;width:960px;height:540px;visibility:hidden;pointer-events:none;border:0;';
+    f.src = '/series';
+    var t0 = Date.now(), last = '', same = 0;
+    // Done once the grid has stopped changing for a second (the watched
+    // bars come in after the tiles).
+    var poll = setInterval(function(){
+      var d = null;
+      try { d = f.contentDocument; } catch (e) {}
+      var g = d && d.querySelector('[class*="_seriesGrid"]');
+      // (the shows, not the grey placeholders it shows while loading)
+      var html = g && g.querySelector('a[href^="/series/"]') && !g.querySelector('[class*="_skeleton"]') ? g.outerHTML : '';
+      same = html && html === last ? same + 1 : 0;
+      last = html;
+      if (same < 2 && Date.now() - t0 < 30000) return;
+      clearInterval(poll);
+      if (html) {
+        var css = [].map.call(d.querySelectorAll('link[rel="stylesheet"]'), function(l){ return l.getAttribute('href'); })
+          .filter(function(h){ return h && h.indexOf('/_next/') === 0; });
+        try { localStorage.setItem(SERIES_KEY, JSON.stringify({ at: Date.now(), html: html, css: css })); } catch (e) {}
+      }
+      f.remove();
+      seriesFrame = null;
+      try { mdeSeries(); } catch (e) {}
+    }, 500);
+    document.documentElement.appendChild(f);
   }
 
   // ---- mde: Live and Series in the top bar --------------------------------

@@ -257,14 +257,6 @@ class MainActivity : Activity() {
                 /* ...and the row headings at the site's desktop size, not
                    its tablet 13px */
                 main div[class*="_rows"] section h2[class*="_label"] { font-size: 20px !important; }
-                /* the Shows row, moved to the bottom by dpad.js (mdeShows):
-                   every show in a grid, 5 across, instead of a row, as
-                   square tiles for each show's square artwork (dpad.js
-                   puts it in place of the site's animated previews) */
-                main section.__ftv_showgrid div[class*="_strip"] { flex-wrap: wrap !important; overflow: visible !important; scroll-snap-type: none !important; row-gap: 16px !important; }
-                main section.__ftv_showgrid div[class*="_strip"] > * { flex: 0 0 calc((100% - 32px) / 5) !important; }
-                main section.__ftv_showgrid [class*="_frame"] { aspect-ratio: 1 / 1 !important; }
-                main section.__ftv_showgrid [class*="_slideButton"] { display: none !important; }
                 /* Spotlight: a banner across the top instead of a 16:9 box
                    the height of the whole screen, with 6 picks, not 4 */
                 main div[class*="_spotlight"] { aspect-ratio: auto !important; height: 270px !important; min-height: 0 !important; }
@@ -351,8 +343,9 @@ class MainActivity : Activity() {
                    keying it on its contents (:has(video)) made it flicker
                    in and out as the site re-rendered it. */
                 a[class*="_banner"] { display: none !important; }
-                /* the Series page's grid -- 4 columns instead of 2, so more
-                   fits on screen without scrolling as far */
+                /* the Series grid (the Series page's, and the copy dpad.js
+                   puts at the bottom of the homepage) -- 4 columns instead
+                   of 2, so more fits on screen without scrolling as far */
                 div[class*="_seriesGrid"] { grid-template-columns: repeat(4, 1fr) !important; }
             """.trimIndent()
             else -> ""

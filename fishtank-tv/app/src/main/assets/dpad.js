@@ -2455,6 +2455,7 @@
       s.live = true;
       s.title = (li.channel ? li.channel + ' ' : '') + (li.name || 'Live') + (li.series ? ' · ' + li.series : '');
       s.series = 'Live';
+      s.thumb = li.thumb || '';
       s.t = 0; s.dur = 0;
     } else if (video && location.host.indexOf('mde.tv') >= 0) {
       var og = function(k){ var m = document.querySelector('meta[property="og:' + k + '"]'); return m ? m.content : ''; };
@@ -3155,19 +3156,49 @@
   // 2924x1080). The Fire TV Stick 4K Max's HEVC decoder can't do those: it
   // puts the picture in a 1920x1088 frame and leaves the rest green. So on
   // the Live page the player is told HEVC isn't available, and picks the
-  // VP9 version, which plays correctly. (Episodes are left as they are.)
+  // VP9 version, which plays correctly. AV1 too: the stick decoded it with
+  // far more effort and the player settled for 1300x480; VP9 runs on the
+  // stick's hardware decoder at 1950x720 with ~2% dropped frames.
+  // (Episodes are left as they are.)
   (function(){
     if (location.host.indexOf('mde.tv') < 0) return;
     [window.MediaSource, window.ManagedMediaSource].forEach(function(MS){
       if (!MS || !MS.isTypeSupported || MS.isTypeSupported.__ftv) return;
       var orig = MS.isTypeSupported.bind(MS);
       var f = function(t){
-        if (location.pathname === '/live' && /\b(hvc1|hev1)\b/i.test(String(t)) &&
+        if (location.pathname === '/live' && /\b(hvc1|hev1|av01)\b/i.test(String(t)) &&
             orig('video/mp4; codecs="vp09.00.40.08.00.01.01.01.00"')) return false;
         return orig(t);
       };
       f.__ftv = true;
       MS.isTypeSupported = f;
+    });
+    // ...and a single quality. When the player stepped from one quality to
+    // another mid-stream (480p to 720p, a different picture size), the
+    // stick's hardware decoder went wrong again: the picture squashed into
+    // a band, garbage down the side. A stream that starts at one size stays
+    // clean, so the Live page's quality list (the HLS master playlist) is cut
+    // to one VP9 version: the best at 720p or below (~2% dropped frames).
+    var pickOne = function(text){
+      if (location.pathname !== '/live' || typeof text !== 'string' || text.indexOf('#EXT-X-STREAM-INF') < 0) return text;
+      var lines = text.split('\n'), rest = [], vars = [];
+      for (var i = 0; i < lines.length; i++) {
+        if (/^#EXT-X-STREAM-INF/.test(lines[i])) { vars.push([lines[i], lines[i + 1]]); i++; }
+        else rest.push(lines[i]);
+      }
+      var best = null, bh = 0;
+      vars.forEach(function(v){
+        var h = +((/RESOLUTION=\d+x(\d+)/.exec(v[0]) || [])[1] || 0);
+        if (/vp09/.test(v[0]) && h <= 720 && h > bh) { best = v; bh = h; }
+      });
+      return best ? rest.concat(best).join('\n') : text;
+    };
+    ['responseText', 'response'].forEach(function(k){
+      var d = Object.getOwnPropertyDescriptor(XMLHttpRequest.prototype, k);
+      if (!d || !d.get || d.get.__ftv) return;
+      var g = function(){ return pickOne(d.get.call(this)); };
+      g.__ftv = true;
+      Object.defineProperty(XMLHttpRequest.prototype, k, { get: g, configurable: true, enumerable: d.enumerable });
     });
   })();
   // The guide shows an hour and a half: Right on a channel's last programme

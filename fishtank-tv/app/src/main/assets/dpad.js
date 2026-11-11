@@ -2619,8 +2619,7 @@
   // on launch), else the first on-screen content item.
   function preferredStart(list){
     if (isLive()) {
-      var lt = document.querySelector('[class*="_screen"] [class*="_tuneIn"]');
-      if (!lt || list.indexOf(lt) < 0) lt = document.querySelector('[class*="_screen"] .media-skin');
+      var lt = livePicture();
       if (lt && list.indexOf(lt) >= 0 && !isCovered(lt)) return lt;
     }
     var rc = document.querySelector('#__ftv_recent_row a');
@@ -3178,6 +3177,44 @@
     return true;
   }
 
+  // The picture: "Press to tune in" before tuning in, after it the player.
+  function livePicture(){
+    var t = document.querySelector('[class*="_screen"] [class*="_tuneIn"]');
+    return t || document.querySelector('[class*="_screen"] .media-skin');
+  }
+  // Opened by a client-side route (the top bar's Live button), the cursor
+  // was left up on that button: put it on the picture once that's drawn.
+  function livePlace(){
+    var tries = 0;
+    (function go(){
+      if (!isLive() || ++tries > 20) return;
+      // (the user has already moved into the page)
+      if (cur && !silentCur && document.contains(cur) && cur.closest('main') && !isCovered(cur)) return;
+      var p = livePicture();
+      if (!p || !p.getClientRects().length) { setTimeout(go, 300); return; }
+      dirty = true;
+      mark(p);
+    })();
+  }
+  // Down from the picture goes to the guide -- the tuned channel's programme
+  // on now -- rather than the Theme or Hide guide buttons; Up from the
+  // guide's first channel comes back to the picture.
+  function liveJump(dir){
+    if (!isLive() || !cur || !cur.closest) return false;
+    var target = null;
+    if (dir === 'down' && cur.closest('[class*="_screen"]')) {
+      var row = document.querySelector('[class*="_guideRow"][class*="_tuned"]') || document.querySelector('[class*="_guideRow"]');
+      target = row && (row.querySelector('button[class*="_guideCell"][class*="_onNow"]') || row.querySelector('button[class*="_guideCell"]'));
+    } else if (dir === 'up' && cur.closest('[class*="_guideRow"]') === document.querySelector('[class*="_guideRow"]')) {
+      target = livePicture();
+    }
+    if (!target) return false;
+    dirty = true;
+    mark(target);
+    if (window.FtvApp && window.FtvApp.navSound) { try { window.FtvApp.navSound(dir); } catch (e) {} }
+    return true;
+  }
+
   // The content warning the site puts up before some programmes, if open.
   function liveModal(){
     var m = document.querySelector('[class*="_modalContainer"]');
@@ -3680,7 +3717,7 @@
       var rb = [].filter.call(curLi.querySelectorAll('button'), isCwRemove)[0];
       if (rb && list.indexOf(rb) >= 0) { mark(rb); return; }
     }
-    if (liveGuidePage(dir)) return;
+    if (liveGuidePage(dir) || liveJump(dir)) return;
     var vert = dir === 'up' || dir === 'down';
     var skip = function(e){ return isCwRemove(e) || (vert && isViewAll(e)); };
     var navList = list.filter(function(e){ return !skip(e); });
@@ -3775,6 +3812,7 @@
       var r = push.apply(this, arguments);
       if (location.pathname !== from) prevPath = from;
       noteBrowsePage();
+      if (isLive()) livePlace();
       window.__ftvQueue('remove', location.pathname);   // a queued episode opened on the TV
       if (!isEpisodePath(location.pathname)) { hideLoader(); leftPlayer(); }
       return r;

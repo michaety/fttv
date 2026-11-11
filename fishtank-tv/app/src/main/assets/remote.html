@@ -1565,22 +1565,6 @@
     stop.onclick = function(){ cmd('stop'); history.back(); };
     ctl2.appendChild(pp); ctl2.appendChild(stop);
     box.appendChild(ctl2);
-    var head = el('div', 'head'); head.appendChild(el('h2', '', 'Channels'));
-    box.appendChild(head);
-    l.channels.forEach(function(c){
-      var b = el('button', 'lv-chan' + (c.num === l.channel ? ' on' : ''));
-      var cp = el('div', 'lv-cpic');
-      img(cp, c.thumb, true);
-      cp.appendChild(el('b', '', String(c.num)));
-      b.appendChild(cp);
-      var t = el('div', 'lv-cmeta');
-      t.appendChild(el('div', 'lv-cname', c.name));
-      if (c.show) t.appendChild(el('div', 'lv-cshow', c.show + (c.sub ? ' · ' + c.sub : '')));
-      else if (c.about) t.appendChild(el('div', 'lv-cshow', c.about));
-      b.appendChild(t);
-      b.onclick = function(){ liveCmd('/api/live/tune', { n: c.num }); toast('Channel ' + c.num + ' on the TV'); };
-      box.appendChild(b);
-    });
     var sbox = el('div', '');
     sbox.id = 'lvSched';
     box.appendChild(sbox);
@@ -1599,7 +1583,7 @@
   // The schedule as a TV guide: a row per channel, its programmes laid
   // out along a timeline (3px a minute) that scrolls sideways, with a line
   // at the time now. Keeps where it was scrolled to.
-  var TG_PX = 3, TG_LABEL = 64, tgScroll = null;
+  var TG_PX = 3, TG_LABEL = 112, tgScroll = null;
   function tgClock(t, after){
     var m = /(\d+):(\d+)\s*([AP])M/i.exec(t || '');
     if (!m) return null;
@@ -1659,8 +1643,12 @@
     rows.forEach(function(r){
       var row = el('div', 'tg-row' + (liveData && r.c.num === liveData.channel ? ' tuned' : ''));
       var lab = el('button', 'tg-ch');
-      lab.appendChild(el('b', '', String(r.c.num)));
-      lab.appendChild(el('span', '', r.c.name.replace(/^MDE\s+/i, '')));
+      var lc = liveData && (liveData.channels || []).filter(function(c){ return c.num === r.c.num; })[0];
+      img(lab, lc && lc.thumb, true);
+      var cap = el('div', 'tg-cap');
+      cap.appendChild(el('b', '', String(r.c.num)));
+      cap.appendChild(el('span', '', r.c.name.replace(/^MDE\s+/i, '')));
+      lab.appendChild(cap);
       lab.onclick = function(){ liveCmd('/api/live/tune', { n: r.c.num }); toast('Channel ' + r.c.num + ' on the TV'); };
       row.appendChild(lab);
       r.progs.forEach(function(q){

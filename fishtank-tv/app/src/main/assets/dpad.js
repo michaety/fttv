@@ -3139,14 +3139,35 @@
     if (back) { try { mark(back); } catch (e) {} }
     return true;
   }
+  // The remote: Down goes down the guide's list (1 to 2), Up back up it.
   function liveKey(dir){
-    if (dir === 'up' || dir === 'down') {
-      var b = document.querySelector('button[aria-label="' + (dir === 'up' ? 'Next' : 'Previous') + ' channel"]');
-      if (b) { liveStatic(); b.click(); }
-      showLiveBar();
-      setTimeout(showLiveBar, 350);   // once the site has the new channel's info
-    } else showLiveBar();
+    if (dir === 'up' || dir === 'down') liveChannel(dir === 'down' ? 1 : -1);
+    else showLiveBar();
   }
+  // One channel on (+1, the site's Next channel) or back (-1).
+  function liveChannel(step){
+    var b = document.querySelector('button[aria-label="' + (step > 0 ? 'Next' : 'Previous') + ' channel"]');
+    if (b) { liveStatic(); b.click(); }
+    showLiveBar();
+    setTimeout(showLiveBar, 350);   // once the site has the new channel's info
+  }
+  // A channel whose picture is a different size from the last one's left the
+  // Firestick's video surface at the old size: the rest of the screen showed
+  // green (the decoder's empty buffer). When the size changes, the player is
+  // made to start its picture afresh: a seek to where it already is (which
+  // flushes the decoder) and the video redrawn.
+  document.addEventListener('resize', function(e){
+    var v = e.target;
+    if (!isLive() || !v || v.tagName !== 'VIDEO' || !v.videoWidth) return;
+    setTimeout(function(){
+      try { if (!v.paused && isFinite(v.currentTime)) v.currentTime = v.currentTime; } catch (er) {}
+      var vis = v.style.getPropertyValue('visibility'), pri = v.style.getPropertyPriority('visibility');
+      v.style.setProperty('visibility', 'hidden', 'important');
+      requestAnimationFrame(function(){ requestAnimationFrame(function(){
+        if (vis) v.style.setProperty('visibility', vis, pri); else v.style.removeProperty('visibility');
+      }); });
+    }, 60);
+  }, true);
   // The guide shows an hour and a half: Right on a channel's last programme
   // pages it 30 minutes later (its own Later button), and Left on the first
   // pages back, until it's at the present (then Left goes to the channel,
@@ -3439,7 +3460,7 @@
   window.__ftvLiveStep = function(dir){
     if (!isLive()) return 'no';
     if (!fullscreenEl) liveFull();
-    liveKey(dir === 'down' ? 'down' : 'up');
+    liveChannel(dir === 'down' ? -1 : 1);   // (the phone's buttons go by number: up is +1)
     return 'ok';
   };
   // The content warning's Continue, from the phone.
@@ -3500,7 +3521,7 @@
       (time ? '<div class="tm"><span>' + esc(time.replace(/\s+to\s+/i, ' \u2013 ')) + '</span>' +
         (pct >= 0 ? '<span class="bar"><i style="width:' + (pct * 100).toFixed(1) + '%"></i></span>' : '') + '</div>' : '') +
       (nx ? '<div class="nx">' + esc(nx) + '</div>' : '') +
-      '<div class="hint">\u25B2\u25BC Change channel \u00B7 Back for the TV guide</div>';
+      '<div class="hint">\u25BC\u25B2 Next / previous channel \u00B7 Back for the TV guide</div>';
     liveBarEl.classList.add('__ftv_show');
     if (liveBarTimer) clearTimeout(liveBarTimer);
     liveBarTimer = setTimeout(hideLiveBar, 5000);

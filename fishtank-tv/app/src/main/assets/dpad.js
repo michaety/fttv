@@ -156,6 +156,9 @@
     // (fishtank's Fishbucks counter in the account badge: an animated number
     // that does nothing, between the top row and the account picture)
     if (el.tagName === 'BUTTON' && /^\s*₣/.test(el.textContent || '') && location.host.indexOf('fishtank') >= 0) return true;
+    // (mde's Spotlight link, whose Watch button takes its place -- see
+    // spotWatchTick)
+    if (el.tagName === 'A' && /_spotlightLink/.test(el.className) && document.querySelector('div[class*="_spotlight"] [class*="_watch"][tabindex="0"]')) return true;
     // (mde Live: the player's own buttons inside the picture, and the
     // guide's and info's Hide buttons -- see liveTick)
     if (el.tagName === 'BUTTON' && el.closest('[class*="_screen"] .media-skin') && !/_tuneIn/.test(el.className)) return true;
@@ -236,7 +239,7 @@
       try { syncAccount(); } catch (e) {}
       try { renderPscRows(); } catch (e) {}
       try { renderShuffleButton(); } catch (e) {}
-      try { mdeNav(); mdeModal(); liveTick(); mdeSeries(); } catch (e) {}
+      try { mdeNav(); mdeModal(); liveTick(); mdeSeries(); spotWatchTick(); } catch (e) {}
       restoreReturnFocus();
     }, 250);
   }
@@ -3395,16 +3398,32 @@
   function playSpotPick(b){
     if (spotPickTimer) { clearTimeout(spotPickTimer); spotPickTimer = null; }
     if (!spotPickOn(b)) b.click();
-    // the Spotlight's link (all of it, or its Watch button) follows the
-    // pick once the site has re-rendered
-    setTimeout(function(){
-      var w = document.querySelector('[class*="_spotlight"] a[href^="/series/"]');
-      if (!w) return;
-      var m = cardMeta(w);
-      showLoader(m);
-      rememberLoading(w.getAttribute('href'), m);
-      w.click();
-    }, 80);
+    // the Spotlight's link follows the pick once the site has re-rendered
+    setTimeout(playSpotlight, 80);
+  }
+  function playSpotlight(){
+    var w = document.querySelector('div[class*="_spotlight"] a[href^="/series/"]');
+    if (!w) return;
+    var m = cardMeta(w);
+    showLoader(m);
+    rememberLoading(w.getAttribute('href'), m);
+    w.click();
+  }
+  // Its Watch button: since the redesign only a picture of a button (the
+  // whole Spotlight is one link underneath). Made into one the cursor can
+  // land on (re-applied each tick, in case the site redraws it), and the
+  // big link left out, so the Spotlight is Watch and the picks.
+  function spotWatchBtn(el){
+    return !!(el && el.matches && el.matches('div[class*="_spotlight"] [class*="_watch"]'));
+  }
+  function spotWatchTick(){
+    var w = document.querySelector('div[class*="_spotlight"] [class*="_watch"]:not(a)');
+    if (!w || w.getAttribute('tabindex') === '0') return;
+    w.setAttribute('tabindex', '0');
+    w.setAttribute('role', 'button');
+    w.removeAttribute('aria-hidden');
+    w.setAttribute('aria-label', 'Watch');
+    dirty = true;
   }
 
   function isCwRemove(el){
@@ -3980,6 +3999,7 @@
     var a = cur.closest && cur.closest('a[href]');
     // On a card's x: the card it belongs to.
     if (!a && cur.closest) { var li = cur.closest('li, [class*="_continue"]'); a = li && li.querySelector('a[href]'); }
+    if (!a && spotWatchBtn(cur)) a = document.querySelector('div[class*="_spotlight"] a[href^="/series/"]');
     if (!a) return 'no';
     var spec = lpItemsFor(a);
     if (!spec) return 'no';
@@ -4150,6 +4170,7 @@
     if (silentCur) { revealStart(); return; }    // first press just reveals it
     if (!cur) { window.__ftvReset(); return; }
     if (isSpotPick(cur)) { playSpotPick(cur); return; }
+    if (spotWatchBtn(cur)) { playSpotlight(); return; }
     if (window.FtvApp && window.FtvApp.navSound) { try { window.FtvApp.navSound('select'); } catch (e) {} }
     var tag = cur.tagName.toLowerCase();
     if (tag === 'input' || tag === 'textarea') {

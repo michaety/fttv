@@ -264,6 +264,10 @@ class MainActivity : Activity() {
                 /* Spotlight: a banner across the top instead of a 16:9 box
                    the height of the whole screen, with 6 picks, not 4 */
                 main div[class*="_spotlight"] { aspect-ratio: auto !important; height: 270px !important; min-height: 0 !important; }
+                /* its Watch button is a picture over the Spotlight's link
+                   (clicks fall through to the link); dpad.js makes it a
+                   button of its own, which has to be hit-testable */
+                main div[class*="_spotlight"] [class*="_watch"] { pointer-events: auto !important; }
                 main div[class*="_spotlight"] [class*="_desc"] { display: -webkit-box !important; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden !important; }
                 main div[class*="_spotlight"] [class*="_picks"] button:nth-child(n+5) { display: block !important; }
                 main div[class*="_spotlight"] [class*="_picks"] button:nth-child(n+7) { display: none !important; }

@@ -2243,6 +2243,7 @@
   // Off an episode: its controls, pause info, scrub preview and any
   // play/pause flash go too.
   function leftPlayer(){
+    holderArm();
     if (typeof scrubTime !== 'undefined' && scrubTime !== null) scrubTime = null;
     hideSeekOverlay();
     if (osdFlashEl) osdFlashEl.classList.remove('__ftv_go');
@@ -4101,7 +4102,23 @@
     el.classList.add('__ftv_out');
     setTimeout(function(){ if (el.classList.contains('__ftv_out') && el.parentNode) el.parentNode.removeChild(el); }, 450);
   }
-  function playbackStarted(){ hideLoader(); }
+  function playbackStarted(){ hideLoader(); holderReleaseSoon(); }
+  // The app's overlay holder (MainActivity): its decoder is released once
+  // the page's own video is really playing, and loaded again when it's left
+  // (and on every page load), so it's ready before the next video starts.
+  function holderArm(){ try { if (window.FtvApp && window.FtvApp.holderArm) window.FtvApp.holderArm(); } catch (e) {} }
+  var holderRelTimer = null;
+  function holderReleaseSoon(){
+    if (holderRelTimer) clearTimeout(holderRelTimer);
+    holderRelTimer = setTimeout(function(){
+      holderRelTimer = null;
+      var v = trackedVideo;
+      if (v && document.contains(v) && !v.paused && v.currentTime > 0.5 && window.FtvApp && window.FtvApp.holderRelease) {
+        try { window.FtvApp.holderRelease(); } catch (e) {}
+      }
+    }, 1500);
+  }
+  holderArm();
   function rememberLoading(path, meta){
     try { sessionStorage.setItem(LOADING_KEY, JSON.stringify({ path: path, meta: meta || {}, at: Date.now() })); } catch (e) {}
   }

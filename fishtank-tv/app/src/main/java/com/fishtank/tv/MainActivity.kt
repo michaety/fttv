@@ -731,6 +731,12 @@ class MainActivity : Activity() {
                     else -> android.view.SoundEffectConstants.CLICK
                 })
             }
+            /** The page's video has started (dpad.js): the holder's decoder can go. */
+            @JavascriptInterface
+            fun holderRelease() = runOnUiThread { releaseHolderDecoder() }
+            /** Left the video: hold the overlay again before the next one starts. */
+            @JavascriptInterface
+            fun holderArm() = runOnUiThread { armHolder() }
             @JavascriptInterface
             fun upNext(from: String, next: String) = runOnUiThread {
                 upNext = Triple(from, next, SystemClock.elapsedRealtime())
@@ -874,8 +880,10 @@ class MainActivity : Activity() {
     private fun createOverlayHolder() {
         // (Needed on Fire OS 7 too: without it the Fire TV Stick 4K Max's
         // overlay played episodes black with sound, 2026-11-11. It does cost:
-        // the open MediaTek decoder spins ~a whole CPU core, paused or ended.)
+        // the open MediaTek decoder spins ~a whole CPU core, paused or ended:
+        // see releaseHolderDecoder.)
         holderReady = false
+        holderArmed = true
         val holder = WebView(this)
         holder.setBackgroundColor(Color.BLACK)
         holder.settings.mediaPlaybackRequiresUserGesture = false
@@ -908,6 +916,29 @@ class MainActivity : Activity() {
             "style='width:100vw;height:100vh' " +
             "src='data:video/mp4;base64,$OVERLAY_HOLDER_MP4'></video></body>"
         holder.loadDataWithBaseURL(null, html, "text/html", "utf-8", null)
+    }
+
+    /**
+     * The holder only has to have its decoder open while a page video might
+     * start: a video that's already playing keeps drawing normally after
+     * it's released (checked on the 4K Max). And an open decoder isn't free
+     * on the Firesticks' MediaTek chips: it spins about a whole CPU core,
+     * paused or not, and two at once (holder + episode) went with flashing
+     * green blocks in the picture. So: released once the page's video is
+     * playing, and loaded again as soon as it's left.
+     */
+    private var holderArmed = true
+    private fun releaseHolderDecoder() {
+        val h = overlayHolder ?: return
+        if (!holderArmed) return
+        holderArmed = false
+        h.evaluateJavascript("(function(){var v=document.querySelector('video');if(v){v.removeAttribute('src');v.load();}})()", null)
+    }
+    private fun armHolder() {
+        val h = overlayHolder ?: return
+        if (holderArmed) return
+        holderArmed = true
+        h.evaluateJavascript("(function(){var v=document.querySelector('video');if(v){v.src='data:video/mp4;base64,$OVERLAY_HOLDER_MP4';var p=v.play();if(p&&p.catch)p.catch(function(){});}})()", null)
     }
 
     private fun destroyOverlayHolder() {

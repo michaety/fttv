@@ -3188,16 +3188,26 @@
   // Changing channel shows TV static (with a little of its hiss) until the
   // new channel's picture is moving: at least a moment, at most a few
   // seconds, and it stops for a content warning.
-  var staticEl = null, staticCanvas = null, staticRaf = 0, staticUntil = 0, staticMin = 0, staticAudio = null, staticDone = null;
+  var staticEl = null, staticCanvas = null, staticNoise = null, staticRaf = 0, staticUntil = 0, staticMin = 0, staticAudio = null, staticDone = null;
   function liveStatic(){
     if (!staticEl) {
       staticEl = document.createElement('div');
       staticEl.id = '__ftv_static';
-      staticEl.style.cssText = 'position:fixed;inset:0;z-index:2147483300;background:#000;pointer-events:none;opacity:0;transition:opacity .12s;';
+      staticEl.style.cssText = 'position:fixed;inset:0;z-index:2147483300;background:#000;pointer-events:none;opacity:0;transition:opacity .25s;';
+      // Soft, like an analogue set's snow rather than sharp digital noise:
+      // drawn small and scaled up smoothly, blurred, lower contrast, each
+      // frame laid over the last; scanlines and a darker edge on top.
       staticCanvas = document.createElement('canvas');
-      staticCanvas.width = 320; staticCanvas.height = 180;
-      staticCanvas.style.cssText = 'width:100%;height:100%;display:block;image-rendering:pixelated;';
+      staticCanvas.width = 192; staticCanvas.height = 108;
+      staticCanvas.style.cssText = 'width:100%;height:100%;display:block;filter:blur(1.4px) contrast(.85) brightness(.9) saturate(.6);';
       staticEl.appendChild(staticCanvas);
+      var over = document.createElement('div');
+      over.style.cssText = 'position:absolute;inset:0;' +
+        'background:repeating-linear-gradient(0deg,rgba(0,0,0,.18) 0 1px,transparent 1px 3px),' +
+        'radial-gradient(ellipse at center,transparent 55%,rgba(0,0,0,.55) 100%);';
+      staticEl.appendChild(over);
+      staticNoise = document.createElement('canvas');
+      staticNoise.width = staticCanvas.width; staticNoise.height = staticCanvas.height;
       document.documentElement.appendChild(staticEl);
     }
     var now = Date.now();
@@ -3232,18 +3242,23 @@
       staticHiss(false);
       return;
     }
-    var ctx = staticCanvas.getContext('2d'), w = staticCanvas.width, h = staticCanvas.height;
-    var im = ctx.createImageData(w, h), px = new Uint32Array(im.data.buffer);
-    // a brighter band that rolls down the screen, as on an old set
-    var band = (now / 7) % (h * 1.6) - h * 0.3;
+    var nctx = staticNoise.getContext('2d'), w = staticNoise.width, h = staticNoise.height;
+    var im = nctx.createImageData(w, h), px = new Uint32Array(im.data.buffer);
+    // a gentle brighter band that drifts down the screen, as on an old set
+    var band = (now / 12) % (h * 1.8) - h * 0.4;
     for (var y = 0, i = 0; y < h; y++) {
-      var lift = Math.abs(y - band) < 14 ? 40 : 0, dim = y % 2 ? 0.82 : 1;
+      var dy = (y - band) / 16, lift = 28 * Math.exp(-dy * dy);
       for (var x = 0; x < w; x++, i++) {
-        var g = Math.min(255, ((Math.random() * 215) | 0) + lift) * dim | 0;
-        px[i] = 0xff000000 | (g << 16) | (g << 8) | g;
+        var g = (45 + Math.random() * 130 + lift) | 0;
+        // a faint cool tint, as the phosphor had
+        px[i] = 0xff000000 | (Math.min(255, g + 8) << 16) | (g << 8) | Math.max(0, g - 6);
       }
     }
-    ctx.putImageData(im, 0, 0);
+    nctx.putImageData(im, 0, 0);
+    var ctx = staticCanvas.getContext('2d');
+    ctx.globalAlpha = 0.55;   // each frame partly over the last: softer flicker
+    ctx.drawImage(staticNoise, 0, 0);
+    ctx.globalAlpha = 1;
     staticRaf = requestAnimationFrame(staticFrame);
   }
   // White noise, quiet, faded in and out (Web Audio; nothing to download).
@@ -3258,15 +3273,16 @@
         var len = ac.sampleRate, buf = ac.createBuffer(1, len, ac.sampleRate), d = buf.getChannelData(0);
         for (var i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
         var src = ac.createBufferSource(); src.buffer = buf; src.loop = true;
-        var bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 3000; bp.Q.value = 0.6;
-        var g = ac.createGain(); g.gain.setValueAtTime(0, ac.currentTime); g.gain.linearRampToValueAtTime(0.06, ac.currentTime + 0.05);
+        // soft: the top end taken off, a little quieter, eased in
+        var bp = ac.createBiquadFilter(); bp.type = 'lowpass'; bp.frequency.value = 1800; bp.Q.value = 0.3;
+        var g = ac.createGain(); g.gain.setValueAtTime(0, ac.currentTime); g.gain.linearRampToValueAtTime(0.045, ac.currentTime + 0.15);
         src.connect(bp); bp.connect(g); g.connect(ac.destination);
         src.start();
         staticAudio = { src: src, g: g, ac: ac };
       } else if (staticAudio) {
         var a = staticAudio; staticAudio = null;
-        a.g.gain.linearRampToValueAtTime(0, a.ac.currentTime + 0.12);
-        setTimeout(function(){ try { a.src.stop(); } catch (e) {} }, 200);
+        a.g.gain.linearRampToValueAtTime(0, a.ac.currentTime + 0.25);
+        setTimeout(function(){ try { a.src.stop(); } catch (e) {} }, 320);
       }
     } catch (e) {}
   }

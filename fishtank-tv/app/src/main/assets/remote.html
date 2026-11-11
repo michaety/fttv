@@ -1463,7 +1463,7 @@
   document.addEventListener('visibilitychange', function(){ if (!document.hidden) { load(); poll(); } });
   // ---- Live (mde) --------------------------------------------------------
   var liveSig = '';
-  var liveOpen = false, liveTimer = null, liveData = null, sched = null, schedTimer = null, schedCh = 0;
+  var liveOpen = false, liveTimer = null, liveData = null, sched = null, schedTimer = null;
   if (!fishtank) $('#liveBtn').hidden = false;
   function openLive(){
     liveOpen = true;
@@ -1596,34 +1596,96 @@
       if (!d.ready && liveOpen) schedTimer = setTimeout(loadSched, 1500);
     }).catch(function(){ if (liveOpen) schedTimer = setTimeout(loadSched, 3000); });
   }
+  // The schedule as a TV guide: a row per channel, its programmes laid
+  // out along a timeline (3px a minute) that scrolls sideways, with a line
+  // at the time now. Keeps where it was scrolled to.
+  var TG_PX = 3, TG_LABEL = 64, tgScroll = null;
+  function tgClock(t, after){
+    var m = /(\d+):(\d+)\s*([AP])M/i.exec(t || '');
+    if (!m) return null;
+    var d = new Date(after || Date.now());
+    d.setHours(+m[1] % 12 + (/p/i.test(m[3]) ? 12 : 0), +m[2], 0, 0);
+    if (after) { while (d < after) d = new Date(+d + 864e5); }
+    return d;
+  }
+  function tgTime(d){
+    var h = d.getHours(), m = d.getMinutes();
+    return (h % 12 || 12) + ':' + String(m).padStart(2, '0') + (h < 12 ? 'am' : 'pm');
+  }
   function renderSched(){
     var box = $('#lvSched');
     if (!box) return;
     box.innerHTML = '';
-    var head = el('div', 'head'); head.appendChild(el('h2', '', 'Schedule'));
+    var head = el('div', 'head'); head.appendChild(el('h2', '', 'TV guide'));
+    if (sched && !sched.ready) head.appendChild(el('span', 'tg-more', 'Getting more…'));
     box.appendChild(head);
     var chans = sched && sched.channels || [];
-    if (!chans.length) { box.appendChild(el('p', 'empty', 'Getting the schedule from the TV…')); return; }
-    if (!schedCh || !chans.some(function(c){ return c.num === schedCh; })) schedCh = (liveData && liveData.channel) || chans[0].num;
-    var tabs = el('div', 'lv-tabs');
-    chans.forEach(function(c){
-      var t = el('button', c.num === schedCh ? 'on' : '', c.num + ' ' + c.name);
-      t.onclick = function(){ schedCh = c.num; renderSched(); };
-      tabs.appendChild(t);
+    if (!chans.length) { box.appendChild(el('p', 'empty', 'Getting the guide from the TV…')); return; }
+    var now = new Date(), t0 = null, t1 = null;
+    // Each channel's programmes as real times: the first started today (or
+    // last night), each later one after the one before (past midnight too).
+    var rows = chans.map(function(c){
+      var prev = null;
+      var progs = c.programs.map(function(p){
+        var a = tgClock(p.from, prev);
+        if (!prev && a && a > now) a = new Date(+a - 864e5);   // started before midnight
+        var e = a && tgClock(p.to, new Date(+a + 60000));
+        if (!a || !e) return null;
+        prev = e;
+        if (!t0 || a < t0) t0 = a;
+        if (!t1 || e > t1) t1 = e;
+        return { p: p, a: a, e: e };
+      }).filter(Boolean);
+      return { c: c, progs: progs };
     });
-    box.appendChild(tabs);
-    var ch = chans.filter(function(c){ return c.num === schedCh; })[0];
-    ch.programs.forEach(function(p){
-      var r = el('div', 'lv-prog' + (p.now ? ' now' : ''));
-      r.appendChild(el('div', 'lv-pt', p.from));
-      var m = el('div', 'lv-pm');
-      m.appendChild(el('div', 'lv-ptitle', p.title));
-      if (p.sub) m.appendChild(el('div', 'lv-psub', p.sub));
-      r.appendChild(m);
-      if (p.now) r.appendChild(el('i', 'lv-dot', 'On now'));
-      box.appendChild(r);
+    if (!t0) { box.appendChild(el('p', 'empty', 'Nothing in the guide.')); return; }
+    // From the half hour before now (earlier programmes are cut off at it).
+    var start = new Date(now); start.setMinutes(now.getMinutes() < 30 ? 0 : 30, 0, 0);
+    start = new Date(+start - 30 * 60000);
+    if (t0 > start) start = t0;
+    var x = function(d){ return TG_LABEL + Math.round((d - start) / 60000 * TG_PX); };
+    var width = x(t1) + 12;
+    var g = el('div', 'tg'), inner = el('div', 'tg-in');
+    inner.style.width = width + 'px';
+    var times = el('div', 'tg-times');
+    times.appendChild(el('div', 'tg-corner'));
+    for (var t = new Date(+start - start.getMinutes() % 30 * 60000); t < t1; t = new Date(+t + 30 * 60000)) {
+      if (t < start) continue;
+      var tk = el('div', 'tg-tick', tgTime(t));
+      tk.style.left = x(t) + 'px';
+      times.appendChild(tk);
+    }
+    inner.appendChild(times);
+    rows.forEach(function(r){
+      var row = el('div', 'tg-row' + (liveData && r.c.num === liveData.channel ? ' tuned' : ''));
+      var lab = el('button', 'tg-ch');
+      lab.appendChild(el('b', '', String(r.c.num)));
+      lab.appendChild(el('span', '', r.c.name.replace(/^MDE\s+/i, '')));
+      lab.onclick = function(){ liveCmd('/api/live/tune', { n: r.c.num }); toast('Channel ' + r.c.num + ' on the TV'); };
+      row.appendChild(lab);
+      r.progs.forEach(function(q){
+        if (q.e <= start) return;
+        var a = q.a < start ? start : q.a, on = q.a <= now && now < q.e;
+        var b = el('button', 'tg-prog' + (on ? ' now' : q.e <= now ? ' past' : ''));
+        b.style.left = x(a) + 'px';
+        b.style.width = Math.max(18, x(q.e) - x(a) - 3) + 'px';
+        b.appendChild(el('b', '', q.p.title));
+        b.appendChild(el('span', '', (q.p.sub ? q.p.sub + ' · ' : '') + tgTime(q.a)));
+        b.onclick = function(){
+          if (on) { liveCmd('/api/live/tune', { n: r.c.num }); toast('Channel ' + r.c.num + ' on the TV'); }
+          else toast(q.p.title + (q.e <= now ? ' has finished' : ' starts at ' + tgTime(q.a)));
+        };
+        row.appendChild(b);
+      });
+      inner.appendChild(row);
     });
-    if (!sched.ready) box.appendChild(el('p', 'empty', 'Getting more…'));
+    var line = el('div', 'tg-now');
+    line.style.left = x(now) + 'px';
+    inner.appendChild(line);
+    g.appendChild(inner);
+    box.appendChild(g);
+    g.addEventListener('scroll', function(){ tgScroll = g.scrollLeft; }, { passive: true });
+    if (tgScroll !== null) g.scrollLeft = tgScroll;   // (else from the start: half an hour before now, so what's on shows its title)
   }
   $('#liveBtn').onclick = function(){ openLive(); };
   $('#lvBack').onclick = function(){ if (liveOpen) history.back(); };

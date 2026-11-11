@@ -507,3 +507,30 @@ body.live-open #now { display: none !important; }
 .lv-cpic img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .lv-cpic b { position: absolute; left: 0; bottom: 0; min-width: 24px; padding: 1px 6px; background: rgba(0,0,0,.8);
   color: var(--accent); font: 20px/1.1 var(--head); text-align: center; }
+/* The TV guide: channels down the side, a timeline across (scrolls sideways). */
+.tg-more { color: var(--gray-light); font-size: 12px; }
+.tg { margin: 0 8px; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; border: 1px solid var(--gray);
+  border-radius: 4px; background: var(--darkest); box-shadow: var(--shadow); }
+.tg::-webkit-scrollbar { display: none; }
+.tg-in { position: relative; }
+.tg-times { position: relative; height: 24px; border-bottom: 1px solid var(--gray-dark); }
+.tg-corner { position: sticky; left: 0; z-index: 3; width: 64px; height: 24px; background: var(--darkest);
+  border-right: 1px solid var(--gray-dark); }
+.tg-tick { position: absolute; top: 0; height: 24px; padding-left: 4px; border-left: 1px solid var(--gray-dark);
+  color: var(--gray-light); font-size: 11px; line-height: 24px; white-space: nowrap; }
+.tg-row { position: relative; height: 46px; border-bottom: 1px solid var(--gray-dark); }
+.tg-row:last-child { border-bottom: 0; }
+.tg-ch { position: sticky; left: 0; z-index: 3; display: flex; flex-direction: column; justify-content: center; width: 64px; height: 100%;
+  padding: 0 6px; border: 0; border-right: 1px solid var(--gray-dark); background: var(--darkest); color: #fff; text-align: left; }
+.tg-ch b { color: var(--accent); font: 18px/1 var(--head); font-weight: 400; }
+.tg-ch span { margin-top: 2px; font: 11px/1.1 var(--cond); text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tg-row.tuned .tg-ch { box-shadow: inset 3px 0 0 var(--accent); }
+.tg-prog { position: absolute; top: 3px; bottom: 3px; display: flex; flex-direction: column; justify-content: center; min-width: 0;
+  padding: 0 6px; overflow: hidden; border: 1px solid var(--gray-dark); border-radius: 3px; background: var(--button); color: #fff; text-align: left; }
+.tg-prog b { font: 12px/1.15 var(--head); font-weight: 400; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tg-prog span { margin-top: 2px; color: var(--gray-light); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tg-prog.now { border-color: var(--accent); background: rgba(37,255,6,.12); }
+.tg-prog.now b { color: var(--yellow); }
+.tg-prog.past { opacity: .45; }
+.tg-now { position: absolute; top: 0; bottom: 0; z-index: 2; width: 2px; margin-left: -1px; background: #f22; box-shadow: 0 0 6px #f22;
+  pointer-events: none; }

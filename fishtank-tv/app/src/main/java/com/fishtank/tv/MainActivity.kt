@@ -257,6 +257,11 @@ class MainActivity : Activity() {
                 /* ...and the row headings at the site's desktop size, not
                    its tablet 13px */
                 main div[class*="_rows"] section h2[class*="_label"] { font-size: 20px !important; }
+                /* the Shows row, moved to the bottom by dpad.js (mdeShows):
+                   every show in a grid, 4 across, instead of a row */
+                main section.__ftv_showgrid div[class*="_strip"] { flex-wrap: wrap !important; overflow: visible !important; scroll-snap-type: none !important; row-gap: 16px !important; }
+                main section.__ftv_showgrid div[class*="_strip"] > * { flex: 0 0 calc((100% - 24px) / 4) !important; }
+                main section.__ftv_showgrid [class*="_slideButton"] { display: none !important; }
                 /* Spotlight: a banner across the top instead of a 16:9 box
                    the height of the whole screen, with 6 picks, not 4 */
                 main div[class*="_spotlight"] { aspect-ratio: auto !important; height: 270px !important; min-height: 0 !important; }

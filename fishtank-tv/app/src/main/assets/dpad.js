@@ -235,7 +235,7 @@
       try { syncAccount(); } catch (e) {}
       try { renderPscRows(); } catch (e) {}
       try { renderShuffleButton(); } catch (e) {}
-      try { mdeNav(); mdeModal(); liveTick(); } catch (e) {}
+      try { mdeNav(); mdeModal(); liveTick(); mdeShows(); } catch (e) {}
       restoreReturnFocus();
     }, 250);
   }
@@ -3240,6 +3240,20 @@
     modalSeen = m;
     dirty = true;
     mark(b);
+  }
+
+  // ---- mde: the homepage's Shows row as a grid of every show, at the
+  // bottom of the page (where the Series grid was before the redesign).
+  // Flex 'order' and a class only; the CSS is in MainActivity.
+  function mdeShows(){
+    if (location.host.indexOf('mde.tv') < 0 || location.pathname !== '/') return;
+    var hs = document.querySelectorAll('main [class*="_rows"] > section > h2');
+    for (var i = 0; i < hs.length; i++) {
+      if (!/^\s*shows\s*$/i.test(hs[i].textContent)) continue;
+      var sec = hs[i].parentElement;
+      if (!sec.classList.contains('__ftv_showgrid')) { sec.classList.add('__ftv_showgrid'); dirty = true; }
+      if (sec.style.order !== '99') sec.style.order = '99';
+    }
   }
 
   // ---- mde: Live and Series in the top bar --------------------------------

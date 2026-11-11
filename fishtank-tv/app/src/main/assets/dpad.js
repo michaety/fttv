@@ -156,6 +156,10 @@
     // (fishtank's Fishbucks counter in the account badge: an animated number
     // that does nothing, between the top row and the account picture)
     if (el.tagName === 'BUTTON' && /^\s*₣/.test(el.textContent || '') && location.host.indexOf('fishtank') >= 0) return true;
+    // (mde Live: the player's own buttons inside the picture, and the
+    // guide's and info's Hide buttons -- see liveTick)
+    if (el.tagName === 'BUTTON' && el.closest('[class*="_screen"] .media-skin') && !/_tuneIn/.test(el.className)) return true;
+    if (el.tagName === 'BUTTON' && /_(guide|info)Toggle/.test(el.className) && location.host.indexOf('mde.tv') >= 0) return true;
     return !!(el.matches && el.matches('a[class*="_logo"], [class*="_spotlight"] [class*="_selector"] button, ' +
       'div.flex.flex-col.gap-5.mb-5 > a.flex.flex-col[href^="/episodes/"]'));
   }
@@ -231,6 +235,7 @@
       try { syncAccount(); } catch (e) {}
       try { renderPscRows(); } catch (e) {}
       try { renderShuffleButton(); } catch (e) {}
+      try { mdeNav(); mdeModal(); liveTick(); } catch (e) {}
       restoreReturnFocus();
     }, 250);
   }
@@ -625,7 +630,7 @@
       // The site's own card goes from its row straight away (hidden, not
       // removed: React owns that list), and the site is nudged to refetch it.
       var ul = mdeSiteRow();
-      if (ul) [].forEach.call(ul.querySelectorAll('a[href="' + path + '"]'), function(a){ var li = a.closest('li'); if (li) li.style.display = 'none'; });
+      if (ul) [].forEach.call(ul.querySelectorAll('a[href="' + path + '"]'), function(a){ var li = a.closest('li, [class*="_continue"]'); if (li) li.style.display = 'none'; });
       dirty = true;
       setTimeout(function(){ try { window.dispatchEvent(new Event('focus')); } catch (e) {} }, 1500);
     }
@@ -634,7 +639,7 @@
     return 'ok';
   };
   window.__ftvFocusedRecent = function(){
-    var a = cur && cur.closest && cur.closest('#__ftv_recent_row a[href], li[data-ftv-upnext] a[href]');
+    var a = cur && cur.closest && cur.closest('#__ftv_recent_row a[href], [data-ftv-upnext] a[href]');
     // mde's own Continue watching cards too (they can be removed now).
     if (!a && cur && cur.closest && location.host.indexOf('mde.tv') >= 0) {
       var ul = mdeSiteRow(), b = ul && cur.closest('a[href]');
@@ -852,7 +857,7 @@
   // from the page's og: tags (episode pages are full page loads).
   var lastRecentSave = 0;
   document.addEventListener('timeupdate', function(e){
-    if (location.host.indexOf('mde.tv') < 0 || e.target !== trackedVideo || location.pathname === '/') return;
+    if (location.host.indexOf('mde.tv') < 0 || e.target !== trackedVideo || !isEpisodePath(location.pathname)) return;
     var now = Date.now();
     if (now - lastRecentSave < 5000) return;
     lastRecentSave = now;
@@ -866,7 +871,7 @@
     if (trackedVideo.duration > 60 && trackedVideo.currentTime > trackedVideo.duration - 30) queueMdeNextUp();
   }, true);
   document.addEventListener('ended', function(e){
-    if (location.host.indexOf('mde.tv') < 0 || e.target !== trackedVideo) return;
+    if (location.host.indexOf('mde.tv') < 0 || e.target !== trackedVideo || !isEpisodePath(location.pathname)) return;
     removeRecent(location.pathname);
     queueMdeNextUp();
   }, true);
@@ -880,7 +885,7 @@
       // ...except for Up next cards when nothing is part-watched: then the
       // site shows no row of its own, so they get a row of ours.
       if (location.pathname !== '/' || mdeSiteRow() || loadRecent().some(function(x){ return !x.next; })) return null;
-      return document.querySelector('[class*="_landing"]');
+      return document.querySelector('main [class*="_rows"]');
     }
     if (location.pathname === '/episodes' && !location.search) {
       return document.querySelector('div.flex.flex-col.gap-5.mb-5');
@@ -918,43 +923,39 @@
   }
 
   function buildMdeRow(slot, list){
-    var tpl = null, secs = slot.children;
+    var tpl = null, secs = slot.querySelectorAll('section');
     for (var i = 0; i < secs.length; i++) {
       var lab = secs[i].querySelector('[class*="_label"]');
-      if (lab && /^\s*new\s*$/i.test(lab.textContent) && secs[i].querySelector('a[class*="_video"]')) { tpl = secs[i]; break; }
+      if (lab && /^\s*new\s*$/i.test(lab.textContent) && secs[i].querySelector('a[class*="_tile"]')) { tpl = secs[i]; break; }
     }
     if (!tpl) return null;
-    // The section holds several rows (New, Popular): copy the section's
-    // shell but only the row whose label is "New".
-    var scroll = null, kids = tpl.children;
-    for (var j = 0; j < kids.length; j++) {
-      var kl = kids[j].querySelector('[class*="_label"]');
-      if (kl && /^\s*new\s*$/i.test(kl.textContent)) { scroll = kids[j]; break; }
-    }
-    var row = tpl.cloneNode(false);
-    row.appendChild((scroll || tpl.firstElementChild).cloneNode(true));
+    var row = tpl.cloneNode(true);
+    row.style.order = '-1';
+    row.querySelectorAll('[class*="_slideButton"]').forEach(function(b){ b.remove(); });
     var label = row.querySelector('[class*="_label"]');
-    (label.querySelector('span') || label).textContent = 'Continue Watching';
-    var card = row.querySelector('a[class*="_video"]');
+    (label.querySelector('span') || label).textContent = 'Continue watching';
+    var card = row.querySelector('a[class*="_tile"]');
     var box = card.parentElement;
+    card = card.cloneNode(true);
+    card.classList.remove('__ftv_focus');
+    card.removeAttribute('style');
+    card.removeAttribute('data-ftv');
     while (box.firstChild) box.removeChild(box.firstChild);
-    box.style.justifyContent = 'flex-start';   // site spreads a full row edge to edge
-    box.style.gap = '16px';
     list.forEach(function(x){
       var c = card.cloneNode(true);
       c.href = x.path;
-      c.removeAttribute('data-ftv');
+      c.setAttribute('aria-label', (x.series ? x.series + ', ' : '') + (x.title || ''));
       c.addEventListener('click', function(e){
         e.preventDefault();
         window.__ftvGo(x.path, { title: x.title, series: x.series, thumb: x.thumb });
       });
+      c.querySelectorAll('[class*="_duration"], [class*="_badge"], [class*="_bar"], [class*="_posted"]').forEach(function(w){ w.remove(); });
       var img = c.querySelector('img');
       if (img) { img.src = x.thumb || ''; img.removeAttribute('srcset'); img.loading = 'eager'; }
-      var series = c.querySelector('[class*="_seriesName"]');
-      if (series) { if (x.series) series.textContent = x.series; else series.remove(); }
-      var title = c.querySelector('[class*="_title"]');
-      if (title) title.textContent = x.title || 'Untitled';
-      c.querySelectorAll('[class*="_watched"]').forEach(function(w){ w.remove(); });
+      var series = c.querySelector('[class*="_meta"]');
+      if (series) { if (x.series) series.textContent = x.series; else series.textContent = ''; }
+      var title = c.querySelector('[class*="_name"]');
+      if (title) { title.textContent = x.title || 'Untitled'; title.removeAttribute('title'); }
       if (img) img.insertAdjacentElement('afterend', cardStrip(x));
       box.appendChild(c);
     });
@@ -1039,7 +1040,9 @@
   function mdeSiteRow(){
     var hs = document.querySelectorAll('section h2');
     for (var i = 0; i < hs.length; i++) {
-      if (/continue watching/i.test(hs[i].textContent)) return hs[i].parentElement.querySelector('ul');
+      if (!/continue watching/i.test(hs[i].textContent) || hs[i].closest('#__ftv_recent_row')) continue;
+      var sec = hs[i].parentElement;
+      return sec.querySelector('[class*="_strip"]') || sec.querySelector('ul');
     }
     return null;
   }
@@ -1072,13 +1075,14 @@
     });
     var img = li.querySelector('img');
     if (img) { img.src = x.seriesThumb || x.thumb || ''; img.removeAttribute('srcset'); img.loading = 'eager'; }
-    li.querySelectorAll('progress').forEach(function(p){ p.remove(); });
+    li.querySelectorAll('progress, [class*="_bar"], [class*="_duration"]').forEach(function(p){ p.remove(); });
+    li.removeAttribute('style');
     var set = function(sel, t){ var e = li.querySelector(sel); if (e) e.textContent = t; };
-    set('[class*="_series"]', x.series || '');
-    set('[class*="_title"]', x.title || 'Next episode');
+    set('[class*="_meta"], [class*="_series"]', x.series || '');
+    set('[class*="_name"], [class*="_title"]', x.title || 'Next episode');
     var rem = li.querySelector('[class*="_remaining"]');
     if (rem) { rem.textContent = 'Up next'; rem.style.color = '__FTV_ACCENT_HEX__'; }
-    var th = li.querySelector('[class*="_thumbnail"]') || (img && img.parentElement);
+    var th = li.querySelector('[class*="_frame"], [class*="_thumbnail"]') || (img && img.parentElement);
     if (th) {
       if (getComputedStyle(th).position === 'static') th.style.position = 'relative';
       // An "UP NEXT" badge styled as the site's own WATCHED badge (copied:
@@ -1104,7 +1108,7 @@
       dirty = true;
     }
     var ups = loadRecent().filter(function(x){ return x.next; });
-    var mine = ul.querySelectorAll('li[data-ftv-upnext]');
+    var mine = ul.querySelectorAll('[data-ftv-upnext]');
     var sig = JSON.stringify(ups.map(function(x){ return [x.path, x.seriesThumb || x.thumb]; }));
     if (ul.__ftvUpSig === sig && mine.length === ups.length && (!mine.length || ul.firstElementChild === mine[0])) return;
     var tpl = null;
@@ -1520,10 +1524,13 @@
     }
     fullscreenUndo = [];
     fullscreenEl = null;
+    document.documentElement.classList.remove('__ftv_livefs');
+    hideLiveBar();
   }
 
   function maybeAutoFullscreen(el){
     if (el === fullscreenEl || location.pathname === '/') return;
+    if (isLive() && liveWindowed) return;
     undoFullscreen();
     fullscreenEl = el;
     // position:fixed is relative to the viewport UNLESS an ancestor has a
@@ -1573,6 +1580,7 @@
     el.style.setProperty('height', window.innerHeight + 'px', 'important');
     el.style.setProperty('z-index', String(FULLSCREEN_Z), 'important');
     el.style.setProperty('background', '#000', 'important');
+    if (isLive()) { document.documentElement.classList.add('__ftv_livefs'); showLiveBar(); }
     hideVeil();
   }
 
@@ -1585,8 +1593,7 @@
   // stopped again as soon as it leaves (see updateSpotlightVideo).
   var spotOn = false;
   function spotVideo(){
-    var car = cur && !silentCur && spotlightOf(cur);
-    var box = car && (car.closest('[class*="_spotlight"]') || car);
+    var box = cur && !silentCur && spotlightOf(cur);
     return box ? box.querySelector('video') : null;
   }
   function isSpotPlaying(v){ return spotOn && v && v === spotVideo(); }
@@ -1693,7 +1700,7 @@
   // before the address changes, and pausing it then made the site's player
   // fall back to playing it muted.
   function isHomeVideo(v){
-    return location.pathname === '/' && !!(v.closest && v.closest('[class*="_landing"]'));
+    return location.pathname === '/' && !!(v.closest && v.closest('[class*="_spotlight"], main [class*="_rows"], [class*="_landing"]'));
   }
   function pauseHomeVideos(){
     if (!PAUSE_HOME_VIDEOS || location.pathname !== '/') return;
@@ -2200,6 +2207,7 @@
   // once a frame: a held remote button repeats faster than the TV can draw.
   var osdRaf = 0;
   function showSeekOverlay(){
+    if (isLive()) { showLiveBar(); return; }   // no scrubbing live TV
     ensureSeekOverlay();
     if (!seekOverlayVisible) {
       var m = playbackMeta();
@@ -2528,6 +2536,7 @@
 
   // Drop the scrub without seeking. Returns true if one was in progress.
   window.__ftvScrubCancel = function(){
+    if (liveBack()) return true;
     if (cancelNext()) return true;
     // mde's own up-next card: press its close button.
     var close = document.querySelector('[class*="_nextVideo"] [class*="_close"]');
@@ -2556,6 +2565,7 @@
   // this exists to answer.
   function playingVideo(){
     if (location.pathname === '/') return null;
+    if (isLive() && liveWindowed) return null;   // the guide, picture in its box
     checkPlayerFrame();
     return (trackedVideo && document.contains(trackedVideo)) || findPlayerFrame();
   }
@@ -2595,6 +2605,11 @@
   // row, or mde's own) if that row is showing, else fishtank's "Episodes" menu button (the menu it opens
   // on launch), else the first on-screen content item.
   function preferredStart(list){
+    if (isLive()) {
+      var lt = document.querySelector('[class*="_screen"] [class*="_tuneIn"]');
+      if (!lt || list.indexOf(lt) < 0) lt = document.querySelector('[class*="_screen"] .media-skin');
+      if (lt && list.indexOf(lt) >= 0 && !isCovered(lt)) return lt;
+    }
     var rc = document.querySelector('#__ftv_recent_row a');
     if (!rc && location.host.indexOf('mde.tv') >= 0) {
       // Our Up next card goes in first, so the cursor starts on it rather
@@ -2905,7 +2920,7 @@
     if (location.host.indexOf('mde.tv') < 0 || !cur || silentCur || playingVideo() || spotlightOf(cur)) return;
     var a = cur.closest && cur.closest('a[href]');
     var m = a && /^\/series\/[^/]+\/([^/?#]+)$/.exec(a.getAttribute('href') || '');
-    if (!m || a.closest('li[data-ftv-upnext]')) return;   // Up next keeps the show's artwork
+    if (!m || a.closest('[data-ftv-upnext]')) return;   // Up next keeps the show's artwork
     var img = a.querySelector('img');
     if (!img) return;
     var el = cur;
@@ -3083,43 +3098,207 @@
     return null;
   }
 
-  // ---- mde's Spotlight carousel ----------------------------------------
-  // One slide link at a time, switched by the 1-7 buttons above it, and it
-  // rotates on its own. The cursor follows the slide that's showing (or a
-  // rotation would leave it on a hidden link, and Select would open that),
-  // and LEFT/RIGHT on it press the previous/next button.
-  function spotlightOf(el){
-    var car = el && el.closest && el.closest('[class*="_spotlight"] [class*="_carousel"]');
-    return car && el.closest('[class*="_slide"]') ? car : null;
+  // ---- mde Live ----------------------------------------------------------
+  // The site's Live page is a TV channel guide: a picture, the channel's
+  // info and the guide below. On the TV, tuning in (Select on "Press to
+  // tune in", a channel or a programme in the guide) puts the channel full
+  // screen; Up/Down there change channel, as on a TV, with a banner saying
+  // what's on; Back goes to the guide with the picture still playing in its
+  // box, and Select on the picture goes full screen again.
+  var liveWindowed = false, liveBarEl = null, liveBarTimer = null, liveBarStyled = false, liveFrom = null;
+  function isLive(){ return location.host.indexOf('mde.tv') >= 0 && location.pathname === '/live'; }
+  function liveVideo(){ return document.querySelector('[class*="_screen"] video'); }
+  function liveFull(){
+    liveWindowed = false;
+    liveFrom = cur;   // where Back puts the cursor
+    var t = document.querySelector('[class*="_screen"] [class*="_tuneIn"]');
+    if (t) { t.click(); return; }   // starts the picture, whose play event goes full screen
+    var v = liveVideo();
+    if (!v) return;
+    trackedVideo = v;
+    if (v.paused) { try { var p = v.play(); if (p && p.catch) p.catch(function(){}); } catch (e) {} }
+    maybeAutoFullscreen(v);
   }
-  function syncSpotlight(){
-    var car = spotlightOf(cur);
-    if (!car || cur.closest('[class*="_current"]')) return;
-    var a = car.querySelector('[class*="_current"] a[href]');
-    if (a) { dirty = true; mark(a); }
-  }
-  // Follow the carousel's own rotation too, so the ring never sits on a
-  // hidden slide -- checked only while a slide has the cursor (mark()
-  // starts and stops it), not all the time.
-  var spotTimer = null;
-  function watchSpotlight(){
-    var on = !!(cur && !silentCur && spotlightOf(cur));
-    if (on && !spotTimer) spotTimer = setInterval(function(){
-      if (!cur || !spotlightOf(cur)) { clearInterval(spotTimer); spotTimer = null; return; }
-      syncSpotlight();
-    }, 500);
-    else if (!on && spotTimer) { clearInterval(spotTimer); spotTimer = null; }
-  }
-  function stepSpotlight(dir){
-    var car = spotlightOf(cur);
-    if (!car) return false;
-    var btns = car.querySelectorAll('[class*="_selector"] button');
-    if (btns.length < 2) return false;
-    var i = 0;
-    for (var j = 0; j < btns.length; j++) if (/_selected/.test(btns[j].className)) i = j;
-    btns[(i + (dir === 'right' ? 1 : btns.length - 1)) % btns.length].click();
-    setTimeout(syncSpotlight, 60);
+  function liveBack(){
+    if (!isLive() || liveWindowed || !fullscreenEl) return false;
+    liveWindowed = true;
+    undoFullscreen();
+    dirty = true;
+    var back = liveFrom && document.contains(liveFrom) ? liveFrom : document.querySelector('[class*="_screen"] .media-skin');
+    liveFrom = null;
+    if (back) { try { mark(back); } catch (e) {} }
     return true;
+  }
+  function liveKey(dir){
+    if (dir === 'up' || dir === 'down') {
+      var b = document.querySelector('button[aria-label="' + (dir === 'up' ? 'Next' : 'Previous') + ' channel"]');
+      if (b) b.click();
+      showLiveBar();
+      setTimeout(showLiveBar, 350);   // once the site has the new channel's info
+    } else showLiveBar();
+  }
+  // "6:30 PM" today, as a time
+  function liveClock(t){
+    var m = /(\d+):(\d+)\s*([AP])M/i.exec(t || '');
+    if (!m) return null;
+    var d = new Date(), h = +m[1] % 12 + (/p/i.test(m[3]) ? 12 : 0);
+    d.setHours(h, +m[2], 0, 0);
+    return d;
+  }
+  function showLiveBar(){
+    if (!isLive()) return;
+    var q = function(sel){ var e = document.querySelector(sel); return e ? e.textContent.replace(/\s+/g, ' ').trim() : ''; };
+    if (!liveBarStyled) {
+      liveBarStyled = true;
+      var st = document.createElement('style');
+      st.textContent =
+        '#__ftv_livebar{position:fixed;left:4%;right:4%;bottom:6%;z-index:2147483600;padding:16px 22px;border-radius:6px;' +
+          'background:rgba(0,0,0,.82);border:1px solid rgba(255,255,255,.18);box-shadow:0 6px 24px rgba(0,0,0,.6);color:#fff;' +
+          'font:400 16px/1.25 "Share Tech Mono",monospace;opacity:0;transform:translateY(12px);transition:opacity .2s,transform .2s;pointer-events:none;}' +
+        '#__ftv_livebar.__ftv_show{opacity:1;transform:none;}' +
+        '#__ftv_livebar .ch{display:flex;align-items:baseline;gap:12px;font:400 26px/1 "FFGothic TwoTwo",sans-serif;text-transform:uppercase;}' +
+        '#__ftv_livebar .ch b{color:#25FF06;font-weight:400;}' +
+        '#__ftv_livebar .ch .lv{margin-left:auto;font-size:15px;color:#fff;background:#d00;padding:3px 8px;border-radius:2px;}' +
+        '#__ftv_livebar .blk{margin-top:8px;font:400 14px "FFGothic OneTwo Condensed",sans-serif;text-transform:uppercase;color:rgba(255,255,255,.7);}' +
+        '#__ftv_livebar .sr{margin-top:2px;font:400 20px "FFGothic TwoTwo",sans-serif;color:#FFE600;text-transform:uppercase;}' +
+        '#__ftv_livebar .ti{margin-top:2px;font-size:19px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}' +
+        '#__ftv_livebar .tm{display:flex;align-items:center;gap:12px;margin-top:10px;font-size:15px;color:rgba(255,255,255,.8);}' +
+        '#__ftv_livebar .bar{flex:1;height:4px;background:rgba(255,255,255,.25);border-radius:2px;overflow:hidden;}' +
+        '#__ftv_livebar .bar i{display:block;height:100%;background:#25FF06;}' +
+        '#__ftv_livebar .nx{margin-top:8px;font-size:15px;color:rgba(255,255,255,.75);}' +
+        '#__ftv_livebar .hint{margin-top:10px;font-size:13px;color:rgba(255,255,255,.5);}';
+      document.head.appendChild(st);
+    }
+    if (!liveBarEl) {
+      liveBarEl = document.createElement('div');
+      liveBarEl.id = '__ftv_livebar';
+      document.documentElement.appendChild(liveBarEl);
+    }
+    var ch = q('[class*="_infoChannel"] > span'), num = (/^\s*(\d+)\s*/.exec(ch) || [])[1] || '';
+    var time = q('[class*="_infoTime"]'), parts = time.split(/\s+to\s+/i);
+    var a = liveClock(parts[0]), b = liveClock(parts[1]), pct = -1;
+    if (a && b) { if (b <= a) b = new Date(+b + 864e5); pct = Math.max(0, Math.min(1, (Date.now() - a) / (b - a))); }
+    var esc = function(t){ var d = document.createElement('div'); d.textContent = t; return d.innerHTML; };
+    var blk = q('[class*="_infoBlock"]'), sr = q('[class*="_infoSeries"]'), ti = q('[class*="_infoTitle"]'), nx = q('[class*="_infoNext"]');
+    liveBarEl.innerHTML =
+      '<div class="ch"><b>' + esc(num) + '</b><span>' + esc(ch.replace(/^\s*\d+\s*/, '')) + '</span><span class="lv">Live</span></div>' +
+      (blk ? '<div class="blk">' + esc(blk) + '</div>' : '') +
+      (sr ? '<div class="sr">' + esc(sr) + '</div>' : '') +
+      (ti && ti !== sr ? '<div class="ti">' + esc(ti) + '</div>' : '') +
+      (time ? '<div class="tm"><span>' + esc(time.replace(/\s+to\s+/i, ' \u2013 ')) + '</span>' +
+        (pct >= 0 ? '<span class="bar"><i style="width:' + (pct * 100).toFixed(1) + '%"></i></span>' : '') + '</div>' : '') +
+      (nx ? '<div class="nx">' + esc(nx) + '</div>' : '') +
+      '<div class="hint">\u25B2\u25BC Change channel \u00B7 Back for the TV guide</div>';
+    liveBarEl.classList.add('__ftv_show');
+    if (liveBarTimer) clearTimeout(liveBarTimer);
+    liveBarTimer = setTimeout(hideLiveBar, 5000);
+  }
+  function hideLiveBar(){
+    if (liveBarTimer) { clearTimeout(liveBarTimer); liveBarTimer = null; }
+    if (liveBarEl) liveBarEl.classList.remove('__ftv_show');
+  }
+  // The guide and the channel's info always showing: their Hide buttons
+  // are left out of the cursor's way (Down from the picture landed on
+  // "Hide guide"), and if they were hidden before (the site remembers), they
+  // come back.
+  function liveTick(){
+    if (!isLive()) return;
+    document.querySelectorAll('button[class*="_guideToggle"][aria-expanded="false"], button[class*="_infoToggle"][aria-expanded="false"]')
+      .forEach(function(b){ b.click(); });
+  }
+  // Tuning in from the page: full screen. A programme in the guide tunes
+  // its channel (the site only highlights it).
+  document.addEventListener('click', function(e){
+    if (!isLive()) return;
+    var t = e.target && e.target.closest ? e.target : null;
+    if (!t) return;
+    var cell = t.closest('button[class*="_guideCell"]');
+    if (cell) {
+      var row = cell.closest('[class*="_guideRow"]');
+      var chb = row && row.querySelector('button[class*="_guideChannel"]');
+      if (chb) { setTimeout(function(){ chb.click(); }, 0); }
+      return;
+    }
+    if (t.closest('button[class*="_guideChannel"]')) { setTimeout(liveFull, 300); return; }
+    if (t.closest('[class*="_tuneIn"]')) { liveWindowed = false; liveFrom = cur; return; }
+    // The picture (the site's player, which the cursor can rest on): full
+    // screen, rather than the player's own click (pause).
+    if (t.closest('[class*="_screen"] .media-skin') && !fullscreenEl) { e.preventDefault(); e.stopPropagation(); liveFull(); }
+  }, true);
+
+  // ---- mde: a pop-up over the page (Live's content warning before a
+  // programme) takes the cursor, on its first button, instead of leaving it
+  // on the page underneath.
+  var modalSeen = null;
+  function mdeModal(){
+    if (location.host.indexOf('mde.tv') < 0) return;
+    var m = document.querySelector('[class*="_modalContainer"]');
+    if (!m || !shown(m)) { modalSeen = null; return; }
+    if (m === modalSeen || playingVideo() || (cur && m.contains(cur))) return;
+    var b = m.querySelector('button:not([class*="_close"])');
+    if (!b) return;
+    modalSeen = m;
+    dirty = true;
+    mark(b);
+  }
+
+  // ---- mde: Live and Series in the top bar --------------------------------
+  // The site's own way to them (its menu) isn't shown at this screen size,
+  // and its homepage no longer has the Series grid.
+  function mdeNav(){
+    if (location.host.indexOf('mde.tv') < 0 || document.getElementById('__ftv_nav')) return;
+    var logo = document.querySelector('[class*="_topBar"] > a[class*="_logo"]');
+    if (!logo) return;
+    var nav = document.createElement('div');
+    nav.id = '__ftv_nav';
+    nav.style.cssText = 'display:flex;gap:8px;margin-left:16px;flex:0 0 auto;';
+    [['/live', 'Live'], ['/series', 'Series']].forEach(function(l){
+      var a = document.createElement('a');
+      a.href = l[0];
+      a.style.cssText = 'display:flex;align-items:center;gap:6px;height:32px;padding:0 12px;border:1px solid var(--color-gray,#444);' +
+        'border-radius:2px;background:#000;color:#fff;text-decoration:none;text-transform:uppercase;' +
+        'font:400 16px/1 "FFGothic TwoTwo",sans-serif;box-shadow:2px 2px 0 #000;';
+      if (l[0] === '/live') a.innerHTML = '<span style="width:8px;height:8px;border-radius:50%;background:#f22;box-shadow:0 0 6px #f22"></span>';
+      a.appendChild(document.createTextNode(l[1]));
+      a.addEventListener('click', function(e){ e.preventDefault(); window.__ftvGo(l[0]); });
+      nav.appendChild(a);
+    });
+    logo.insertAdjacentElement('afterend', nav);
+    dirty = true;
+  }
+
+  // ---- mde's Spotlight ---------------------------------------------------
+  // One big picture with a Watch link, and a row of small pictures (picks)
+  // that switch it; it also rotates on its own. Landing on a pick shows it,
+  // as a mouse hovering would, and Select on a pick plays it.
+  function spotlightOf(el){
+    return (el && el.closest && el.closest('[class*="_spotlight"]')) || null;
+  }
+  function isSpotPick(el){
+    return !!(el && el.tagName === 'BUTTON' && el.closest && el.closest('[class*="_spotlight"] [class*="_picks"]'));
+  }
+  function spotPickOn(b){ return b.getAttribute('aria-pressed') === 'true' || /_on\b/.test(b.className); }
+  // (a short wait, so moving along the picks doesn't load every picture)
+  var spotPickTimer = null;
+  function watchSpotlight(){
+    if (spotPickTimer) { clearTimeout(spotPickTimer); spotPickTimer = null; }
+    if (!cur || silentCur || !isSpotPick(cur) || spotPickOn(cur)) return;
+    var b = cur;
+    spotPickTimer = setTimeout(function(){ spotPickTimer = null; if (cur === b) b.click(); }, 250);
+  }
+  function playSpotPick(b){
+    if (spotPickTimer) { clearTimeout(spotPickTimer); spotPickTimer = null; }
+    if (!spotPickOn(b)) b.click();
+    // the Spotlight's link (all of it, or its Watch button) follows the
+    // pick once the site has re-rendered
+    setTimeout(function(){
+      var w = document.querySelector('[class*="_spotlight"] a[href^="/series/"]');
+      if (!w) return;
+      var m = cardMeta(w);
+      showLoader(m);
+      rememberLoading(w.getAttribute('href'), m);
+      w.click();
+    }, 80);
   }
 
   function isCwRemove(el){
@@ -3135,8 +3314,6 @@
   function doNavigate(dir){
     var list = items();
     if (!list.length) return;
-    syncSpotlight();
-    if ((dir === 'left' || dir === 'right') && stepSpotlight(dir)) return;
 
     // Only reset to the default when the cursor is really lost (removed,
     // hidden, or more than a screen away). Merely scrolled off the edge --
@@ -3157,7 +3334,7 @@
 
     // mde's Continue watching "x" buttons: only reached by pressing Up on
     // their own card, so Left/Right along the row stays on the cards.
-    var curLi = cur.closest && cur.closest('li');
+    var curLi = cur.closest && cur.closest('li, [class*="_continue"]');
     if (dir === 'up' && curLi && !isCwRemove(cur)) {
       var rb = [].filter.call(curLi.querySelectorAll('button'), isCwRemove)[0];
       if (rb && list.indexOf(rb) >= 0) { mark(rb); return; }
@@ -3209,6 +3386,7 @@
   // while held, computed natively from the key repeat count -- and up/down
   // just bring up the position overlay.
   window.__ftvNavigate = function(dir, step){
+    if (playingVideo() && isLive()) { liveKey(dir); return; }
     if (playingVideo()) {
       // Left/right scrub, unless the buttons have the focus; up/down move
       // between the bar and the buttons (the first press just shows them).
@@ -3275,6 +3453,7 @@
   }
   function noteBrowsePage(){
     var p = location.pathname;
+    liveWindowed = false;
     try {
       if (p === '/') sessionStorage.removeItem(BROWSE_KEY);
       else if (!isEpisodePath(p)) sessionStorage.setItem(BROWSE_KEY, p + location.search);
@@ -3354,11 +3533,18 @@
   };
   // What a card on the page says about its episode, for the loading screen.
   function cardMeta(a){
+    var spot = a.closest && a.closest('[class*="_spotlight"]');
+    if (spot) {
+      var sq = function(sel){ var e = spot.querySelector(sel); return e ? cleanTitle(e.textContent) : ''; };
+      var cl = spot.querySelector('[class*="_clip"]');
+      return { thumb: cl ? (cl.poster || cl.currentSrc || cl.src || '') : '',
+               title: sq('[class*="_title"]'), series: sq('[class*="_kicker"]') };
+    }
     var q = function(sel){ var e = a.querySelector(sel); return e ? cleanTitle(e.textContent) : ''; };
     var im = a.querySelector('img');
     return { thumb: im ? (im.currentSrc || im.src) : '',
-             title: q('[class*="_title"]') || cleanTitle(a.textContent),
-             series: q('[class*="_seriesName"]') || q('[class*="_series"]') };
+             title: q('[class*="_title"]') || q('[class*="_name"]') || cleanTitle(a.textContent),
+             series: q('[class*="_seriesName"]') || q('[class*="_series"]') || q('[class*="_meta"]') };
   }
   // A frame actually on screen (the player may have started before this
   // script was injected, so its play events were missed).
@@ -3657,7 +3843,7 @@
         { label: 'Shuffle', icon: 'shuffle', run: function(){ window.__ftvShuffle(tag); } }
       ] };
     }
-    var up = a.closest('li[data-ftv-upnext]');
+    var up = a.closest('[data-ftv-upnext]');
     var row = mdeSiteRow();
     var inCw = !!up || !!(row && row.contains(a));
     var items = [
@@ -3687,7 +3873,7 @@
     if (lp || playingVideo() || !cur || silentCur) return 'no';
     var a = cur.closest && cur.closest('a[href]');
     // On a card's x: the card it belongs to.
-    if (!a && cur.closest) { var li = cur.closest('li'); a = li && li.querySelector('a[href]'); }
+    if (!a && cur.closest) { var li = cur.closest('li, [class*="_continue"]'); a = li && li.querySelector('a[href]'); }
     if (!a) return 'no';
     var spec = lpItemsFor(a);
     if (!spec) return 'no';
@@ -3844,6 +4030,7 @@
 
   window.__ftvActivate = function(){
     if (lp) { lpRun(); return; }
+    if (playingVideo() && isLive()) { liveBarEl && liveBarEl.classList.contains('__ftv_show') ? hideLiveBar() : showLiveBar(); return; }
     if (playingVideo()) {
       // Select brings the controls up (on Pause) rather than pausing
       // straight away; then it presses whatever's highlighted. A scrub in
@@ -3856,7 +4043,7 @@
     }
     if (silentCur) { revealStart(); return; }    // first press just reveals it
     if (!cur) { window.__ftvReset(); return; }
-    syncSpotlight();
+    if (isSpotPick(cur)) { playSpotPick(cur); return; }
     if (window.FtvApp && window.FtvApp.navSound) { try { window.FtvApp.navSound('select'); } catch (e) {} }
     var tag = cur.tagName.toLowerCase();
     if (tag === 'input' || tag === 'textarea') {
@@ -3905,7 +4092,7 @@
     // after the rest of the page: wait longer for it when the account has
     // something part-watched (the list syncAccount keeps).
     var waitFor = location.host.indexOf('mde.tv') >= 0 && location.pathname === '/' &&
-      loadRecent().some(function(x){ return !x.next; }) ? 12 : 4;
+      loadRecent().some(function(x){ return !x.next; }) || isLive() ? 12 : 4;   // (Live's picture comes late too)
     if (!pref && (placeTries < waitFor || (!list.length && placeTries < 12))) { setTimeout(place, 600); return; }
     if (list.length) mark(pref || pickDefault(list), playingVideo());
   })();

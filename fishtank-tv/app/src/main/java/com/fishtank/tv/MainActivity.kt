@@ -250,10 +250,26 @@ class MainActivity : Activity() {
                    both formats share, and never on the hash. */
                 /* bottom nav bar (Videos/Audio/Screeds/Chat/Producer/Shop) */
                 div[class*="mobileNavigation"] { display: none !important; }
-                /* Continue watching cards: the New row's size (200 wide,
-                   2:1 thumbnail) instead of the site's smaller 150. */
-                section[aria-labelledby="continue-playback-title"] ul > li { flex: 0 0 200px !important; width: 200px !important; }
-                section[aria-labelledby="continue-playback-title"] ul > li [class*="_thumbnail"] { width: 100% !important; height: auto !important; aspect-ratio: 2 / 1 !important; }
+                /* homepage rows (the site's 2026-11 redesign): ~4.5 cards
+                   across, instead of the 3 (30vw each) of the tablet
+                   layout this viewport falls into */
+                main div[class*="_rows"] div[class*="_strip"] > * { flex: 0 0 208px !important; }
+                /* ...and the row headings at the site's desktop size, not
+                   its tablet 13px */
+                main div[class*="_rows"] section h2[class*="_label"] { font-size: 20px !important; }
+                /* Spotlight: a banner across the top instead of a 16:9 box
+                   the height of the whole screen, with 6 picks, not 4 */
+                main div[class*="_spotlight"] { aspect-ratio: auto !important; height: 270px !important; min-height: 0 !important; }
+                main div[class*="_spotlight"] [class*="_desc"] { display: -webkit-box !important; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden !important; }
+                main div[class*="_spotlight"] [class*="_picks"] button:nth-child(n+5) { display: block !important; }
+                main div[class*="_spotlight"] [class*="_picks"] button:nth-child(n+7) { display: none !important; }
+                /* Live, a channel full screen: only the picture (and the
+                   app's channel banner) -- the guide, the channel's info
+                   panel and the player's own controls painted over it */
+                html.__ftv_livefs main [class*="_page"] > :not([class*="_top"]),
+                html.__ftv_livefs main [class*="_info"],
+                html.__ftv_livefs [class*="_topBar"],
+                html.__ftv_livefs [class*="_screen"] .media-skin > :not(video) { visibility: hidden !important; }
                 /* docked audio player (has a visualizer that repaints) */
                 div[class*="_musicPanel"], div[class*="_music "], div[class$="_music"] { display: none !important; }
                 /* live chat bar -- a real performance cost, not just clutter:
@@ -290,6 +306,9 @@ class MainActivity : Activity() {
                    the (now-hidden) search wrapper's margin-left:auto --
                    without that it collapsed to sit right next to the logo */
                 div[class*="_topBar"] > div[class*="_user"] { margin-left: auto !important; }
+                /* ...and kept at its full width (the app's Live and Series
+                   buttons squeezed the name down to "so...") */
+                div[class*="_topBar"] > div[class*="_user"] { flex-shrink: 0 !important; }
                 /* reward / badge toasts (react-hot-toast): over the
                    fullscreen video and at the bottom of the screen. The
                    library stacks toasts down from the top, so the container
@@ -324,7 +343,7 @@ class MainActivity : Activity() {
                    keying it on its contents (:has(video)) made it flicker
                    in and out as the site re-rendered it. */
                 a[class*="_banner"] { display: none !important; }
-                /* homepage "Series" grid -- 4 columns instead of 2, so more
+                /* the Series page's grid -- 4 columns instead of 2, so more
                    fits on screen without scrolling as far */
                 div[class*="_seriesGrid"] { grid-template-columns: repeat(4, 1fr) !important; }
             """.trimIndent()

@@ -496,12 +496,14 @@ input.scrub::-moz-range-thumb { width: 12px; height: 20px; border: 1px solid #00
 .lv-ptitle { font: 16px var(--head); text-transform: uppercase; text-shadow: var(--shadow); }
 .lv-psub { margin-top: 2px; color: var(--gray-light); font-size: 14px; }
 .lv-prog .lv-dot { flex: none; margin-left: 0; }
-/* The player for Live TV: the channel card in place of the artwork, no seeking. */
-#plChannels { display: none; }
-#player.live #plChannels { display: flex; }
-#player.live .pl-seek, #player.live [data-seek], #player.live #plRestart, #player.live #plCaptions,
-#player.live #plLike, #player.live #plDislike, #player.live #plSeries, #player.live .pl-sheet,
-#player.live .pl-comments { display: none !important; }
-.lv-card { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; gap: 4px; padding: 16px;
-  background: linear-gradient(135deg, #10171a, #05090b); }
-.lv-card .lv-ch { font-size: 26px; }
+/* Live: the bar is hidden on the Live page; pictures of what's on. */
+body.live-open #now { display: none !important; }
+.lv-pic { position: relative; aspect-ratio: 16 / 9; margin: -12px -12px 12px; overflow: hidden; border-bottom: 1px solid var(--gray);
+  border-radius: 4px 4px 0 0; background: #000; }
+.lv-pic img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.lv-pic .lv-dot { position: absolute; top: 8px; right: 8px; }
+.lv-cpic { position: relative; flex: none; width: 112px; aspect-ratio: 16 / 9; overflow: hidden; border: 1px solid var(--gray);
+  border-radius: 3px; background: #000; }
+.lv-cpic img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.lv-cpic b { position: absolute; left: 0; bottom: 0; min-width: 24px; padding: 1px 6px; background: rgba(0,0,0,.8);
+  color: var(--accent); font: 20px/1.1 var(--head); text-align: center; }

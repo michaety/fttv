@@ -3411,7 +3411,38 @@
   // ---- Live from the phone (PhoneRemote's /api/live) ----------------------
   // The channels and what's on each, read off the guide (the site works the
   // schedule out itself; there's no list to ask for).
+  // The Live page's own list of videos (in its React state), by show and
+  // title: a programme's thumbnail, or failing that one of its show's.
+  var liveThumbIdx = null;
+  function liveThumbs(){
+    if (liveThumbIdx) return liveThumbIdx;
+    var page = document.querySelector('[class*="_page"]');
+    var k = page && Object.keys(page).filter(function(x){ return x.indexOf('__reactFiber') === 0; })[0];
+    var vids = null;
+    for (var f = k && page[k]; f && !vids; f = f.return) {
+      for (var h = f.memoizedState, i = 0; h && i < 80 && !vids; h = h.next, i++) {
+        var v = h.memoizedState;
+        if (Array.isArray(v) && v.length > 20 && v[0] && v[0].seriesTag && 'thumbnail' in v[0]) vids = v;
+      }
+      if (f.tag === 3) break;   // the root
+    }
+    if (!vids) return null;
+    var norm = function(t){ return String(t || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim(); };
+    var byTitle = {}, byShow = {};
+    vids.forEach(function(v){
+      if (!v.thumbnail) return;
+      byTitle[norm(v.seriesName) + '|' + norm(v.title)] = v.thumbnail;
+      if (!byTitle['|' + norm(v.title)]) byTitle['|' + norm(v.title)] = v.thumbnail;
+      if (!byShow[norm(v.seriesName)]) byShow[norm(v.seriesName)] = v.thumbnail;
+    });
+    liveThumbIdx = function(show, title){
+      return byTitle[norm(show) + '|' + norm(title)] || byTitle['|' + norm(title)] || byShow[norm(show)] || '';
+    };
+    return liveThumbIdx;
+  }
   window.__ftvLiveInfo = function(){
+    var th = null;
+    try { th = liveThumbs(); } catch (e) {}
     var q = function(r, sel){ var e = r.querySelector(sel); return e ? e.textContent.replace(/\s+/g, ' ').trim() : ''; };
     var arrows = function(t){ return t.replace(/^[\u25C4\u25BA\s]+|[\u25C4\u25BA\s]+$/g, ''); };
     var chans = [].map.call(document.querySelectorAll('[class*="_guideRow"]'), function(r){
@@ -3422,6 +3453,8 @@
                show: now ? arrows(q(now, '[class*="_guideCellTitle"]')) : '',
                sub: now ? arrows(q(now, '[class*="_guideCellSub"]')) : '',
                tuned: /_tuned/.test(r.className) };
+    });
+    chans.forEach(function(c){ c.thumb = th ? th(c.show, c.sub) : ''; 
     });
     var d = document;
     var ch = q(d, '[class*="_infoChannel"] > span');
@@ -3434,6 +3467,7 @@
       name: ch.replace(/^\s*\d+\s*/, ''),
       block: q(d, '[class*="_infoBlock"]'), series: q(d, '[class*="_infoSeries"]'),
       title: q(d, '[class*="_infoTitle"]'), time: q(d, '[class*="_infoTime"]'), next: q(d, '[class*="_infoNext"]'),
+      thumb: th ? th(q(d, '[class*="_infoSeries"]'), q(d, '[class*="_infoTitle"]')) : '',
       channels: chans });
   };
   // Channel n (or the one the site last had, n = 0), full screen. From

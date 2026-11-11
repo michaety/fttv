@@ -89,7 +89,6 @@
       <button id="plCaptions" hidden><i data-icon="cc"></i>Subtitles</button>
       <button id="plRestart"><i data-icon="restart"></i>Restart</button>
       <button id="plStop"><i data-icon="stop"></i>Stop</button>
-      <button id="plChannels"><i data-icon="list"></i>Schedule</button>
     </div>
    </div>
     <section class="pl-comments" id="plComments"></section>
@@ -586,7 +585,8 @@
   // sheet underneath for what's up next, the rest of the series, and the
   // episode's description.
   var playerOpen = false, plPath = null, plEp = null, plQueue = { queue: [], auto: [] }, queueTimer = null;
-  $('#npOpen').onclick = function(){ if (now) openPlayer(); };
+  // Live TV: the Live page (it has the controls); anything else, the player.
+  $('#npOpen').onclick = function(){ if (now && now.live && !fishtank) openLive(); else if (now) openPlayer(); };
   var playerOverLive = false;
   function openPlayer(){
     playerOpen = true;
@@ -711,9 +711,8 @@
 
   function updatePlayer(s){
     if (!s) return;
-    var live = !!(s.live && !fishtank);
-    $('#player').classList.toggle('live', live);
-    if (live) { livePlayer(s); return; }
+    // (Live TV has its own page, not the player)
+    if (s.live && !fishtank) { if (playerOpen) history.back(); return; }
     // The episode's own details (once loaded) name things better than the TV page.
     var ep = plEp && s.path === plPath ? plEp : null;
     $('#plTitle').textContent = (ep && ep.title) || s.title || 'Playing on the TV';
@@ -749,48 +748,7 @@
       resetComments();
     }).catch(function(){ renderNav(); });
   }
-  // Live TV in the player: the channel and what's on instead of an
-  // episode; the previous/next buttons change channel; no seeking.
-  var plLiveAt = 0;
-  function livePlayer(s){
-    plPath = '/live'; plEp = null;
-    var l = liveData && liveData.on ? liveData : null;
-    $('#plTitle').textContent = (l && (l.series || l.title)) || s.title || 'Live';
-    $('#plSub').textContent = l ? [l.channel + ' ' + l.name, l.title && l.title !== l.series ? l.title : ''].filter(Boolean).join(' · ') : 'Live TV';
-    var f = $('#plArt');
-    f.classList.toggle('loading', !!pending);
-    [].slice.call(f.querySelectorAll('img')).forEach(function(i){ i.remove(); });
-    $('#plBg').style.backgroundImage = '';
-    var card = f.querySelector('.lv-card');
-    if (!card) { card = el('div', 'lv-card'); f.appendChild(card); }
-    card.innerHTML = '';
-    var top = el('div', 'lv-ch');
-    top.appendChild(el('b', '', l ? String(l.channel) : ''));
-    top.appendChild(el('span', '', l ? l.name : 'Live'));
-    top.appendChild(el('i', 'lv-dot', 'Live'));
-    card.appendChild(top);
-    if (l && l.block) card.appendChild(el('div', 'lv-block', l.block));
-    if (l && l.time) {
-      var tm = el('div', 'lv-time'), fr = liveFrac(l.time);
-      tm.appendChild(el('span', '', l.time.replace(/\s+to\s+/i, ' – ')));
-      if (fr >= 0) { var bar = el('span', 'lv-bar'), fill = el('i'); fill.style.width = (fr * 100).toFixed(1) + '%'; bar.appendChild(fill); tm.appendChild(bar); }
-      card.appendChild(tm);
-    }
-    if (l && l.next) card.appendChild(el('div', 'lv-next', l.next));
-    $('#plPrev').disabled = $('#plNext').disabled = false;
-    $('#plPrev').setAttribute('aria-label', 'Channel down');
-    $('#plNext').setAttribute('aria-label', 'Channel up');
-    if (Date.now() - plLiveAt > 3000) {
-      plLiveAt = Date.now();
-      api('/api/live').then(function(d){
-        liveData = d;
-        if (playerOpen && now && now.live) livePlayer(now);
-      }).catch(function(){});
-    }
-  }
   function setArt(url){
-    var c = $('#plArt').querySelector('.lv-card');
-    if (c) c.remove();
     var f = $('#plArt');
     [].slice.call(f.querySelectorAll('img')).forEach(function(i){ i.remove(); });
     img(f, url, true);
@@ -816,10 +774,8 @@
     $('#plNext').disabled = !nextUp();
     $('#plPrev').disabled = !prevUp();
   }
-  $('#plNext').onclick = function(){ if (now && now.live) { liveStep('up'); return; } var v = nextUp(); if (v) play(v); };
-  $('#plPrev').onclick = function(){ if (now && now.live) { liveStep('down'); return; } var v = prevUp(); if (v) play(v); };
-  function liveStep(d){ plLiveAt = 0; liveCmd('/api/live/step', { d: d }); setTimeout(function(){ if (now) updatePlayer(now); }, 900); }
-  $('#plChannels').onclick = function(){ openLive(); };
+  $('#plNext').onclick = function(){ var v = nextUp(); if (v) play(v); };
+  $('#plPrev').onclick = function(){ var v = prevUp(); if (v) play(v); };
   $('#plRestart').onclick = function(){ seekTo(0); };
   $('#plCaptions').onclick = function(){
     if (now) { now.captions = now.captions === 'on' ? 'off' : 'on'; this.classList.toggle('on', now.captions === 'on'); }
@@ -1514,6 +1470,7 @@
     liveData = null; liveSig = '';
     $('#live').style.zIndex = playerOpen ? 16 : '';
     $('#live').classList.add('on');
+    document.body.classList.add('live-open');   // (the bar would only open this page again)
     document.body.classList.add('sheet-open');
     history.pushState({ live: 1 }, '');
     $('#lvBody').innerHTML = '<p class="empty" style="margin-top:18px">Opening Live on the TV…</p>';
@@ -1530,6 +1487,7 @@
     if (liveTimer) { clearTimeout(liveTimer); liveTimer = null; }
     if (schedTimer) { clearTimeout(schedTimer); schedTimer = null; }
     $('#live').classList.remove('on');
+    document.body.classList.remove('live-open');
     if (!sheetOpen && !playerOpen && !acctOpen) document.body.classList.remove('sheet-open');
   }
   function pollLive(){
@@ -1565,10 +1523,16 @@
     }
     box.innerHTML = '';
     var nowBox = el('div', 'lv-now');
+    if (l.thumb) {
+      var pic = el('div', 'lv-pic');
+      img(pic, l.thumb, true);
+      pic.appendChild(el('i', 'lv-dot', l.watching ? 'On your TV' : 'Live'));
+      nowBox.appendChild(pic);
+    }
     var ch = el('div', 'lv-ch');
     ch.appendChild(el('b', '', String(l.channel || '')));
     ch.appendChild(el('span', '', l.name || ''));
-    ch.appendChild(el('i', 'lv-dot', l.watching ? 'On your TV' : 'Live'));
+    if (!l.thumb) ch.appendChild(el('i', 'lv-dot', l.watching ? 'On your TV' : 'Live'));
     nowBox.appendChild(ch);
     if (l.block) nowBox.appendChild(el('div', 'lv-block', l.block));
     if (l.series) nowBox.appendChild(el('div', 'lv-series', l.series));
@@ -1605,7 +1569,10 @@
     box.appendChild(head);
     l.channels.forEach(function(c){
       var b = el('button', 'lv-chan' + (c.num === l.channel ? ' on' : ''));
-      b.appendChild(el('b', '', String(c.num)));
+      var cp = el('div', 'lv-cpic');
+      img(cp, c.thumb, true);
+      cp.appendChild(el('b', '', String(c.num)));
+      b.appendChild(cp);
       var t = el('div', 'lv-cmeta');
       t.appendChild(el('div', 'lv-cname', c.name));
       if (c.show) t.appendChild(el('div', 'lv-cshow', c.show + (c.sub ? ' · ' + c.sub : '')));

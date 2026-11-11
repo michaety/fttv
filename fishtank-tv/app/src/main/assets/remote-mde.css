@@ -538,3 +538,5 @@ body.live-open #now { display: none !important; }
 .tg-prog.past { opacity: .45; }
 .tg-now { position: absolute; top: 0; bottom: 0; z-index: 2; width: 2px; margin-left: -1px; background: #f22; box-shadow: 0 0 6px #f22;
   pointer-events: none; }
+.tg-nowbtn { margin-left: auto; height: 30px; padding: 0 12px; border: 1px solid #f22; border-radius: 4px; background: var(--button);
+  box-shadow: var(--shadow); color: #fff; font: 16px var(--cond); text-transform: uppercase; text-shadow: var(--shadow); }

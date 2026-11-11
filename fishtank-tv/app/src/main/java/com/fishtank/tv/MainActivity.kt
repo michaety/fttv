@@ -275,7 +275,7 @@ class MainActivity : Activity() {
                    app's channel banner) -- the guide, the channel's info
                    panel and the player's own controls painted over it */
                 html.__ftv_livefs main [class*="_page"] > :not([class*="_top"]),
-                html.__ftv_livefs main [class*="_info"],
+                html.__ftv_livefs main [class*="_top"] > [class*="_info"],   /* (not the box itself: it's "_top _infoHidden" with the info hidden) */
                 html.__ftv_livefs [class*="_topBar"],
                 html.__ftv_livefs [class*="_screen"] .media-skin > :not(video) { visibility: hidden !important; }
                 /* ...except the content warning some programmes open with,

@@ -1517,7 +1517,18 @@
     if (!l) return;
     var keepY = box.scrollTop;
     setTimeout(function(){ box.scrollTop = keepY; }, 0);
-    if (!l.on || !l.channels || !l.channels.length) {
+    // (The guide hidden on the TV: what's on from the phone's own schedule.)
+    if (l.on && !l.series && sched && sched.channels) {
+      sched.channels.forEach(function(c){
+        if (c.num !== l.channel) return;
+        var p = c.programs.filter(function(x){ return x.now; })[0];
+        if (!p) return;
+        l.series = p.title; l.title = p.sub; l.time = p.from + ' to ' + p.to;
+        var i = c.programs.indexOf(p), n = c.programs[i + 1];
+        if (n) l.next = 'Up next ' + n.from + ': ' + n.title;
+      });
+    }
+    if (!l.on || (!l.channels.length && !l.channel)) {
       box.innerHTML = '<p class="empty" style="margin-top:18px">Opening Live on the TV…</p>';
       return;
     }
@@ -1602,6 +1613,9 @@
     box.innerHTML = '';
     var head = el('div', 'head'); head.appendChild(el('h2', '', 'TV guide'));
     if (sched && !sched.ready) head.appendChild(el('span', 'tg-more', 'Getting more…'));
+    var nowBtn = el('button', 'tg-nowbtn', 'Now');
+    nowBtn.onclick = function(){ tgScroll = null; var g = box.querySelector('.tg'); if (g) g.scrollTo({ left: 0, behavior: 'smooth' }); };
+    head.appendChild(nowBtn);
     box.appendChild(head);
     var chans = sched && sched.channels || [];
     if (!chans.length) { box.appendChild(el('p', 'empty', 'Getting the guide from the TV…')); return; }

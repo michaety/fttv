@@ -3151,23 +3151,25 @@
     showLiveBar();
     setTimeout(showLiveBar, 350);   // once the site has the new channel's info
   }
-  // A channel whose picture is a different size from the last one's left the
-  // Firestick's video surface at the old size: the rest of the screen showed
-  // green (the decoder's empty buffer). When the size changes, the player is
-  // made to start its picture afresh: a seek to where it already is (which
-  // flushes the decoder) and the video redrawn.
-  document.addEventListener('resize', function(e){
-    var v = e.target;
-    if (!isLive() || !v || v.tagName !== 'VIDEO' || !v.videoWidth) return;
-    setTimeout(function(){
-      try { if (!v.paused && isFinite(v.currentTime)) v.currentTime = v.currentTime; } catch (er) {}
-      var vis = v.style.getPropertyValue('visibility'), pri = v.style.getPropertyPriority('visibility');
-      v.style.setProperty('visibility', 'hidden', 'important');
-      requestAnimationFrame(function(){ requestAnimationFrame(function(){
-        if (vis) v.style.setProperty('visibility', vis, pri); else v.style.removeProperty('visibility');
-      }); });
-    }, 60);
-  }, true);
+  // mde Live's streams come in VP9 and HEVC at unusual widths (1949x720,
+  // 2924x1080). The Fire TV Stick 4K Max's HEVC decoder can't do those: it
+  // puts the picture in a 1920x1088 frame and leaves the rest green. So on
+  // the Live page the player is told HEVC isn't available, and picks the
+  // VP9 version, which plays correctly. (Episodes are left as they are.)
+  (function(){
+    if (location.host.indexOf('mde.tv') < 0) return;
+    [window.MediaSource, window.ManagedMediaSource].forEach(function(MS){
+      if (!MS || !MS.isTypeSupported || MS.isTypeSupported.__ftv) return;
+      var orig = MS.isTypeSupported.bind(MS);
+      var f = function(t){
+        if (location.pathname === '/live' && /\b(hvc1|hev1)\b/i.test(String(t)) &&
+            orig('video/mp4; codecs="vp09.00.40.08.00.01.01.01.00"')) return false;
+        return orig(t);
+      };
+      f.__ftv = true;
+      MS.isTypeSupported = f;
+    });
+  })();
   // The guide shows an hour and a half: Right on a channel's last programme
   // pages it 30 minutes later (its own Later button), and Left on the first
   // pages back, until it's at the present (then Left goes to the channel,
@@ -3459,15 +3461,33 @@
     var d = document;
     var ch = q(d, '[class*="_infoChannel"] > span');
     var m = liveModal();
+    var info = { block: q(d, '[class*="_infoBlock"]'), series: q(d, '[class*="_infoSeries"]'),
+                 title: q(d, '[class*="_infoTitle"]'), time: q(d, '[class*="_infoTime"]'), next: q(d, '[class*="_infoNext"]') };
+    // With the info panel hidden (Hide info) those are gone: what's on comes
+    // from the tuned channel's row of the guide instead.
+    var tunedRow = d.querySelector('[class*="_guideRow"][class*="_tuned"]');
+    if (!info.series && tunedRow) {
+      var cells = tunedRow.querySelectorAll('button[class*="_guideCell"]');
+      var on = tunedRow.querySelector('button[class*="_guideCell"][class*="_onNow"]') || cells[0];
+      if (on) {
+        info.series = arrows(q(on, '[class*="_guideCellTitle"]'));
+        info.title = arrows(q(on, '[class*="_guideCellSub"]'));
+        var tm = /(\d+:\d+\s*[AP]M)\s+to\s+(\d+:\d+\s*[AP]M)/i.exec(on.getAttribute('aria-label') || '');
+        if (tm) info.time = tm[1] + ' to ' + tm[2];
+        var nx = cells[[].indexOf.call(cells, on) + 1];
+        var nt = nx && /(\d+:\d+\s*[AP]M)/i.exec(nx.getAttribute('aria-label') || '');
+        if (nx && nt) info.next = 'Up next ' + nt[1] + ': ' + arrows(q(nx, '[class*="_guideCellTitle"]'));
+      }
+    }
+    if (!ch && tunedRow) ch = q(tunedRow, '[class*="_guideChannelNumber"]') + ' ' + q(tunedRow, '[class*="_guideChannelName"] > span');
     return JSON.stringify({
       on: isLive(),
       watching: isLive() && !!fullscreenEl,
       warning: !!m,
       channel: +((/^\s*(\d+)/.exec(ch) || [])[1] || 0),
       name: ch.replace(/^\s*\d+\s*/, ''),
-      block: q(d, '[class*="_infoBlock"]'), series: q(d, '[class*="_infoSeries"]'),
-      title: q(d, '[class*="_infoTitle"]'), time: q(d, '[class*="_infoTime"]'), next: q(d, '[class*="_infoNext"]'),
-      thumb: th ? th(q(d, '[class*="_infoSeries"]'), q(d, '[class*="_infoTitle"]')) : '',
+      block: info.block, series: info.series, title: info.title, time: info.time, next: info.next,
+      thumb: th ? th(info.series, info.title) : '',
       channels: chans });
   };
   // Channel n (or the one the site last had, n = 0), full screen. From

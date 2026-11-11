@@ -517,11 +517,17 @@
   // The TV is briefly "not playing" while it loads the next episode, so the
   // player only closes once that has lasted a while.
   var idlePolls = 0;
+  var pageBuild = 0;
   function poll(){
     clearTimeout(pollTimer);
     if (document.hidden) return;
     api('/api/status').then(function(s){
       banner('');
+      // The TV app was updated since this page loaded: load the new one.
+      if (s.build) {
+        if (pageBuild && s.build !== pageBuild) { location.reload(); return; }
+        pageBuild = s.build;
+      }
       // Still starting until the TV is actually playing it: while the page
       // loads the TV reports the new path with no video, which would hide the bar.
       if (pending && ((s.path === pending.path && s.video) || Date.now() - pending.at > 20000)) pending = null;
@@ -1449,7 +1455,7 @@
 
   document.addEventListener('visibilitychange', function(){ if (!document.hidden) { load(); poll(); } });
   // ---- Live (mde) --------------------------------------------------------
-  var liveOpen = false, liveTimer = null, liveData = null;
+  var liveOpen = false, liveTimer = null, liveData = null, sched = null, schedTimer = null, schedCh = 0;
   if (!fishtank) $('#liveBtn').hidden = false;
   function openLive(){
     liveOpen = true;
@@ -1458,6 +1464,7 @@
     document.body.classList.add('sheet-open');
     history.pushState({ live: 1 }, '');
     $('#lvBody').innerHTML = '<p class="empty" style="margin-top:18px">Opening Live on the TV…</p>';
+    loadSched();
     // Live on the TV, if it isn't already there; then keep up with it.
     api('/api/live').then(function(l){
       if (!l.on || !l.watching) return api('/api/live/tune', { n: l.on ? l.channel || 0 : 0 });
@@ -1468,6 +1475,7 @@
   function closeLive(){
     liveOpen = false;
     if (liveTimer) { clearTimeout(liveTimer); liveTimer = null; }
+    if (schedTimer) { clearTimeout(schedTimer); schedTimer = null; }
     $('#live').classList.remove('on');
     if (!sheetOpen && !playerOpen && !acctOpen) document.body.classList.remove('sheet-open');
   }
@@ -1501,23 +1509,23 @@
       return;
     }
     box.innerHTML = '';
-    var now = el('div', 'lv-now');
+    var nowBox = el('div', 'lv-now');
     var ch = el('div', 'lv-ch');
     ch.appendChild(el('b', '', String(l.channel || '')));
     ch.appendChild(el('span', '', l.name || ''));
     ch.appendChild(el('i', 'lv-dot', l.watching ? 'On your TV' : 'Live'));
-    now.appendChild(ch);
-    if (l.block) now.appendChild(el('div', 'lv-block', l.block));
-    if (l.series) now.appendChild(el('div', 'lv-series', l.series));
-    if (l.title && l.title !== l.series) now.appendChild(el('div', 'lv-title', l.title));
+    nowBox.appendChild(ch);
+    if (l.block) nowBox.appendChild(el('div', 'lv-block', l.block));
+    if (l.series) nowBox.appendChild(el('div', 'lv-series', l.series));
+    if (l.title && l.title !== l.series) nowBox.appendChild(el('div', 'lv-title', l.title));
     if (l.time) {
       var tm = el('div', 'lv-time'), f = liveFrac(l.time);
       tm.appendChild(el('span', '', l.time.replace(/\s+to\s+/i, ' – ')));
       if (f >= 0) { var bar = el('span', 'lv-bar'), fill = el('i'); fill.style.width = (f * 100).toFixed(1) + '%'; bar.appendChild(fill); tm.appendChild(bar); }
-      now.appendChild(tm);
+      nowBox.appendChild(tm);
     }
-    if (l.next) now.appendChild(el('div', 'lv-next', l.next));
-    box.appendChild(now);
+    if (l.next) nowBox.appendChild(el('div', 'lv-next', l.next));
+    box.appendChild(nowBox);
     if (l.warning) {
       var w = el('div', 'lv-warn');
       w.appendChild(el('span', '', 'The TV is showing a content warning.'));
@@ -1532,6 +1540,12 @@
     up.onclick = function(){ liveCmd('/api/live/step', { d: 'up' }); };
     ctl.appendChild(dn); ctl.appendChild(up);
     box.appendChild(ctl);
+    var ctl2 = el('div', 'lv-ctl lv-ctl2');
+    var pp = el('button', '', now && !now.playing ? '▶ Play' : '❚❚ Pause'), stop = el('button', '', '■ Stop');
+    pp.onclick = function(){ toggle(); setTimeout(renderLive, 50); };
+    stop.onclick = function(){ cmd('stop'); history.back(); };
+    ctl2.appendChild(pp); ctl2.appendChild(stop);
+    box.appendChild(ctl2);
     var head = el('div', 'head'); head.appendChild(el('h2', '', 'Channels'));
     box.appendChild(head);
     l.channels.forEach(function(c){
@@ -1545,6 +1559,49 @@
       b.onclick = function(){ liveCmd('/api/live/tune', { n: c.num }); toast('Channel ' + c.num + ' on the TV'); };
       box.appendChild(b);
     });
+    var sbox = el('div', '');
+    sbox.id = 'lvSched';
+    box.appendChild(sbox);
+    renderSched();
+  }
+  // The schedule: the next 8 hours of each channel (the TV reads it off the
+  // site's guide, which takes it a few seconds the first time).
+  function loadSched(){
+    if (schedTimer) clearTimeout(schedTimer);
+    api('/api/live/schedule').then(function(d){
+      sched = d;
+      renderSched();
+      if (!d.ready && liveOpen) schedTimer = setTimeout(loadSched, 1500);
+    }).catch(function(){ if (liveOpen) schedTimer = setTimeout(loadSched, 3000); });
+  }
+  function renderSched(){
+    var box = $('#lvSched');
+    if (!box) return;
+    box.innerHTML = '';
+    var head = el('div', 'head'); head.appendChild(el('h2', '', 'Schedule'));
+    box.appendChild(head);
+    var chans = sched && sched.channels || [];
+    if (!chans.length) { box.appendChild(el('p', 'empty', 'Getting the schedule from the TV…')); return; }
+    if (!schedCh || !chans.some(function(c){ return c.num === schedCh; })) schedCh = (liveData && liveData.channel) || chans[0].num;
+    var tabs = el('div', 'lv-tabs');
+    chans.forEach(function(c){
+      var t = el('button', c.num === schedCh ? 'on' : '', c.num + ' ' + c.name);
+      t.onclick = function(){ schedCh = c.num; renderSched(); };
+      tabs.appendChild(t);
+    });
+    box.appendChild(tabs);
+    var ch = chans.filter(function(c){ return c.num === schedCh; })[0];
+    ch.programs.forEach(function(p){
+      var r = el('div', 'lv-prog' + (p.now ? ' now' : ''));
+      r.appendChild(el('div', 'lv-pt', p.from));
+      var m = el('div', 'lv-pm');
+      m.appendChild(el('div', 'lv-ptitle', p.title));
+      if (p.sub) m.appendChild(el('div', 'lv-psub', p.sub));
+      r.appendChild(m);
+      if (p.now) r.appendChild(el('i', 'lv-dot', 'On now'));
+      box.appendChild(r);
+    });
+    if (!sched.ready) box.appendChild(el('p', 'empty', 'Getting more…'));
   }
   $('#liveBtn').onclick = function(){ openLive(); };
   $('#lvBack').onclick = function(){ if (liveOpen) history.back(); };

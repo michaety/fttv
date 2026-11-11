@@ -484,3 +484,15 @@ input.scrub::-moz-range-thumb { width: 12px; height: 20px; border: 1px solid #00
 .lv-cmeta { flex: 1; min-width: 0; }
 .lv-cname { font: 18px var(--head); text-transform: uppercase; text-shadow: var(--shadow); }
 .lv-cshow { margin-top: 2px; color: var(--gray-light); font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lv-ctl2 button { height: 44px; }
+.lv-tabs { display: flex; gap: 4px; padding: 0 8px 8px; overflow-x: auto; scrollbar-width: none; }
+.lv-tabs button { flex: none; height: 32px; padding: 0 10px; border: 1px solid var(--gray); border-radius: 4px; background: var(--button);
+  box-shadow: var(--shadow); color: #fff; font: 16px var(--cond); text-transform: uppercase; text-shadow: var(--shadow); }
+.lv-tabs button.on { border-color: var(--accent); color: var(--accent); }
+.lv-prog { display: flex; align-items: flex-start; gap: 12px; margin: 0 8px; padding: 10px 4px; border-bottom: 1px solid var(--gray-dark); }
+.lv-prog.now .lv-ptitle { color: var(--yellow); }
+.lv-pt { flex: none; width: 70px; color: var(--gray-light); font-size: 14px; padding-top: 2px; }
+.lv-pm { flex: 1; min-width: 0; }
+.lv-ptitle { font: 16px var(--head); text-transform: uppercase; text-shadow: var(--shadow); }
+.lv-psub { margin-top: 2px; color: var(--gray-light); font-size: 14px; }
+.lv-prog .lv-dot { flex: none; margin-left: 0; }

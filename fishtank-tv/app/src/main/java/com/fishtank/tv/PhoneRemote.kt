@@ -334,6 +334,9 @@ class PhoneRemote(private val context: Context, private val host: Host) {
             "/api/live" -> if (fishtank) Triple("400 Bad Request", "text/plain", "mde only") else json(
                 JSONObject(evalOnMain("window.__ftvLiveInfo ? window.__ftvLiveInfo() : ''")?.let { unquote(it) }
                     ?.takeIf { it.startsWith("{") } ?: "{\"on\":false,\"channels\":[]}"))
+            "/api/live/schedule" -> if (fishtank) Triple("400 Bad Request", "text/plain", "mde only") else json(
+                JSONObject(evalOnMain("window.__ftvLiveSchedule ? window.__ftvLiveSchedule() : ''")?.let { unquote(it) }
+                    ?.takeIf { it.startsWith("{") } ?: "{\"ready\":false,\"channels\":[]}"))
             "/api/live/tune" -> {
                 val n = q["n"]?.toIntOrNull()?.coerceIn(0, 99) ?: 0
                 if (fishtank) Triple("400 Bad Request", "text/plain", "mde only")
@@ -588,7 +591,12 @@ class PhoneRemote(private val context: Context, private val host: Host) {
     // ---- Player page and queue ---------------------------------------------
 
     private fun status(): JSONObject = JSONObject(evalOnMain("window.__ftvRemoteStatus ? window.__ftvRemoteStatus() : ''")
-        ?.let { unquote(it) }?.takeIf { it.startsWith("{") } ?: "{}").put("device", deviceName)
+        ?.let { unquote(it) }?.takeIf { it.startsWith("{") } ?: "{}").put("device", deviceName).put("build", build)
+
+    /** When this copy of the app was installed: a phone page from before an update reloads (see remote.html). */
+    private val build: Long by lazy {
+        try { context.packageManager.getPackageInfo(context.packageName, 0).lastUpdateTime } catch (e: Exception) { 0L }
+    }
 
     /** "Playing on <this>": the name set for the Fire TV in its settings. */
     private val deviceName: String by lazy {

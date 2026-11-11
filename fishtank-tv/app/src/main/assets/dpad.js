@@ -159,10 +159,8 @@
     // (mde's Spotlight link, whose Watch button takes its place -- see
     // spotWatchTick)
     if (el.tagName === 'A' && /_spotlightLink/.test(el.className) && document.querySelector('div[class*="_spotlight"] [class*="_watch"][tabindex="0"]')) return true;
-    // (mde Live: the player's own buttons inside the picture, and the
-    // guide's and info's Hide buttons -- see liveTick)
+    // (mde Live: the player's own buttons inside the picture)
     if (el.tagName === 'BUTTON' && el.closest('[class*="_screen"] .media-skin') && !/_tuneIn/.test(el.className)) return true;
-    if (el.tagName === 'BUTTON' && /_(guide|info)Toggle/.test(el.className) && location.host.indexOf('mde.tv') >= 0) return true;
     return !!(el.matches && el.matches('a[class*="_logo"], [class*="_spotlight"] [class*="_selector"] button, ' +
       'div.flex.flex-col.gap-5.mb-5 > a.flex.flex-col[href^="/episodes/"]'));
   }
@@ -3215,6 +3213,71 @@
     return true;
   }
 
+  // ---- The schedule, for the phone ---------------------------------------
+  // The site works each channel's programmes out itself and only draws an
+  // hour and a half of them, so they're read off its own guide: the Live
+  // page loaded out of sight, paged on 30 minutes at a time for 8 hours.
+  // The page on screen isn't touched; the guide's shown/hidden setting the
+  // hidden copy may change is put back. Kept for 10 minutes.
+  var liveSched = null, liveSchedAt = 0, liveSchedFrame = null;
+  window.__ftvLiveSchedule = function(){
+    var fresh = liveSched && Date.now() - liveSchedAt < 10 * 60 * 1000;
+    if (!fresh && !liveSchedFrame) buildLiveSchedule();
+    return JSON.stringify({ ready: !!fresh, channels: liveSched || [] });
+  };
+  function buildLiveSchedule(){
+    var keys = ['live-guide', 'live-info'], keep = {};
+    try { keys.forEach(function(k){ keep[k] = localStorage.getItem(k); }); } catch (e) {}
+    var f = liveSchedFrame = document.createElement('iframe');
+    f.setAttribute('aria-hidden', 'true');
+    f.tabIndex = -1;
+    f.style.cssText = 'position:fixed;left:-3000px;top:0;width:960px;height:540px;visibility:hidden;pointer-events:none;border:0;';
+    f.src = '/live';
+    var chans = {}, order = [], steps = 0, t0 = Date.now();
+    var done = function(){
+      try { keys.forEach(function(k){ if (keep[k] === null) localStorage.removeItem(k); else localStorage.setItem(k, keep[k]); }); } catch (e) {}
+      f.remove();
+      liveSchedFrame = null;
+      if (order.length) {
+        liveSched = order.map(function(n){ return chans[n]; });
+        liveSchedAt = Date.now();
+      }
+    };
+    var clean = function(t){ return String(t || '').replace(/[\u25C4\u25BA]/g, '').replace(/\s+/g, ' ').trim(); };
+    var collect = function(d){
+      [].forEach.call(d.querySelectorAll('[class*="_guideRow"]'), function(r){
+        var numEl = r.querySelector('[class*="_guideChannelNumber"]'), nameEl = r.querySelector('[class*="_guideChannelName"] > span');
+        var n = numEl ? +numEl.textContent.trim() : 0;
+        if (!n) return;
+        if (!chans[n]) { chans[n] = { num: n, name: nameEl ? clean(nameEl.textContent) : '', programs: [] }; order.push(n); }
+        var c = chans[n];
+        [].forEach.call(r.querySelectorAll('button[class*="_guideCell"]'), function(b){
+          var m = /(\d+:\d+\s*[AP]M)\s+to\s+(\d+:\d+\s*[AP]M)/i.exec(b.getAttribute('aria-label') || '');
+          if (!m) return;
+          var key = m[1] + '-' + m[2];
+          if (c.programs.some(function(p){ return p.key === key; })) return;
+          var tt = b.querySelector('[class*="_guideCellTitle"]'), sb = b.querySelector('[class*="_guideCellSub"]');
+          c.programs.push({ key: key, from: m[1], to: m[2], title: clean(tt && tt.textContent), sub: clean(sb && sb.textContent),
+                            now: /_onNow/.test(b.className) });
+        });
+      });
+    };
+    var poll = setInterval(function(){
+      var d = null;
+      try { d = f.contentDocument; } catch (e) {}
+      if (Date.now() - t0 > 40000) { clearInterval(poll); done(); return; }
+      if (!d) return;
+      var tg = d.querySelector('button[class*="_guideToggle"][aria-expanded="false"]');
+      if (tg) { tg.click(); return; }
+      if (!d.querySelector('[class*="_guideRow"] button[class*="_guideCell"]')) return;
+      collect(d);
+      var later = d.querySelector('button[class*="_guideArrow"][aria-label="Later"]');
+      if (++steps > 16 || !later) { clearInterval(poll); done(); return; }
+      later.click();
+    }, 250);
+    document.documentElement.appendChild(f);
+  }
+
   // The content warning the site puts up before some programmes, if open.
   function liveModal(){
     var m = document.querySelector('[class*="_modalContainer"]');
@@ -3446,10 +3509,8 @@
     if (liveBarTimer) { clearTimeout(liveBarTimer); liveBarTimer = null; }
     if (liveBarEl) liveBarEl.classList.remove('__ftv_show');
   }
-  // The guide and the channel's info always showing: their Hide buttons
-  // are left out of the cursor's way (Down from the picture landed on
-  // "Hide guide"), and if they were hidden before (the site remembers), they
-  // come back.
+  // (The guide's and the info's Hide buttons are the site's own, and it
+  // remembers the choice.)
   function liveTick(){
     if (!isLive()) return;
     // tune in once the page is up, when asked to before getting here
@@ -3460,8 +3521,6 @@
       liveWindowed = false;
       window.__ftvLiveTune(+want);
     }
-    document.querySelectorAll('button[class*="_guideToggle"][aria-expanded="false"], button[class*="_infoToggle"][aria-expanded="false"]')
-      .forEach(function(b){ b.click(); });
   }
   // Tuning in from the page: full screen. A programme in the guide tunes
   // its channel (the site only highlights it).

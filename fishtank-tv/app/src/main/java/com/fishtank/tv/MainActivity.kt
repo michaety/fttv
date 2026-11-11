@@ -278,6 +278,9 @@ class MainActivity : Activity() {
                 html.__ftv_livefs main [class*="_info"],
                 html.__ftv_livefs [class*="_topBar"],
                 html.__ftv_livefs [class*="_screen"] .media-skin > :not(video) { visibility: hidden !important; }
+                /* ...except the content warning some programmes open with,
+                   over the full-screen picture (and the static) */
+                html.__ftv_livefs div[class*="_modal"] { z-index: 2147483400 !important; }
                 /* docked audio player (has a visualizer that repaints) */
                 div[class*="_musicPanel"], div[class*="_music "], div[class$="_music"] { display: none !important; }
                 /* live chat bar -- a real performance cost, not just clutter:

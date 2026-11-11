@@ -2450,7 +2450,15 @@
     var s = { path: location.pathname, video: video, title: '', series: '', thumb: '',
               playing: window.__ftvIsPlaying(), t: p.time || 0, dur: p.duration || 0,
               captions: window.__ftvCaptions ? window.__ftvCaptions('state') : 'none' };
-    if (video && location.host.indexOf('mde.tv') >= 0) {
+    if (video && isLive()) {
+      // Live: the channel and what's on, no position (the phone's bar
+      // opens its Live page instead of the player)
+      var li = JSON.parse(window.__ftvLiveInfo());
+      s.live = true;
+      s.title = (li.channel ? li.channel + ' ' : '') + (li.name || 'Live') + (li.series ? ' · ' + li.series : '');
+      s.series = 'Live';
+      s.t = 0; s.dur = 0;
+    } else if (video && location.host.indexOf('mde.tv') >= 0) {
       var og = function(k){ var m = document.querySelector('meta[property="og:' + k + '"]'); return m ? m.content : ''; };
       var crumb = document.querySelector('a[href="/series/' + location.pathname.split('/')[2] + '"]');
       s.title = cleanTitle((og('title') || document.title).replace(/\s*\|\s*MDE\.tv\s*$/i, ''));
@@ -2570,6 +2578,7 @@
   function playingVideo(){
     if (location.pathname === '/') return null;
     if (isLive() && liveWindowed) return null;   // the guide, picture in its box
+    if (isLive() && liveModal()) return null;    // a content warning: the cursor's, to press Continue
     checkPlayerFrame();
     return (trackedVideo && document.contains(trackedVideo)) || findPlayerFrame();
   }
@@ -3136,11 +3145,166 @@
   function liveKey(dir){
     if (dir === 'up' || dir === 'down') {
       var b = document.querySelector('button[aria-label="' + (dir === 'up' ? 'Next' : 'Previous') + ' channel"]');
-      if (b) b.click();
+      if (b) { liveStatic(); b.click(); }
       showLiveBar();
       setTimeout(showLiveBar, 350);   // once the site has the new channel's info
     } else showLiveBar();
   }
+  // The content warning the site puts up before some programmes, if open.
+  function liveModal(){
+    var m = document.querySelector('[class*="_modalContainer"]');
+    return m && shown(m) ? m : null;
+  }
+
+  // ---- Static between channels -------------------------------------------
+  // Changing channel shows TV static (with a little of its hiss) until the
+  // new channel's picture is moving: at least a moment, at most a few
+  // seconds, and it stops for a content warning.
+  var staticEl = null, staticCanvas = null, staticRaf = 0, staticUntil = 0, staticMin = 0, staticAudio = null, staticDone = null;
+  function liveStatic(){
+    if (!staticEl) {
+      staticEl = document.createElement('div');
+      staticEl.id = '__ftv_static';
+      staticEl.style.cssText = 'position:fixed;inset:0;z-index:2147483300;background:#000;pointer-events:none;opacity:0;transition:opacity .12s;';
+      staticCanvas = document.createElement('canvas');
+      staticCanvas.width = 320; staticCanvas.height = 180;
+      staticCanvas.style.cssText = 'width:100%;height:100%;display:block;image-rendering:pixelated;';
+      staticEl.appendChild(staticCanvas);
+      document.documentElement.appendChild(staticEl);
+    }
+    var now = Date.now();
+    staticMin = now + 450;
+    staticUntil = now + 3500;
+    staticEl.style.opacity = '1';
+    staticHiss(true);
+    if (!staticRaf) staticRaf = requestAnimationFrame(staticFrame);
+    // Over once the picture moves again (a new channel's first frames).
+    var v = liveVideo();
+    if (staticDone && staticDone.v) staticDone.v.removeEventListener('timeupdate', staticDone);
+    staticDone = null;
+    if (v) {
+      var t0 = v.currentTime, src = v.currentSrc;
+      var done = function(){
+        if (v.currentSrc === src && Math.abs(v.currentTime - t0) < 0.5) return;   // still the old channel
+        if (v.paused || v.readyState < 3) return;
+        v.removeEventListener('timeupdate', done);
+        if (staticDone === done) staticDone = null;
+        staticUntil = Math.min(staticUntil, Math.max(Date.now(), staticMin) + 120);
+      };
+      done.v = v;
+      staticDone = done;
+      v.addEventListener('timeupdate', done);
+    }
+  }
+  function staticFrame(){
+    var now = Date.now();
+    if (now >= staticUntil || (liveModal() && now >= staticMin)) {
+      staticRaf = 0;
+      staticEl.style.opacity = '0';
+      staticHiss(false);
+      return;
+    }
+    var ctx = staticCanvas.getContext('2d'), w = staticCanvas.width, h = staticCanvas.height;
+    var im = ctx.createImageData(w, h), px = new Uint32Array(im.data.buffer);
+    // a brighter band that rolls down the screen, as on an old set
+    var band = (now / 7) % (h * 1.6) - h * 0.3;
+    for (var y = 0, i = 0; y < h; y++) {
+      var lift = Math.abs(y - band) < 14 ? 40 : 0, dim = y % 2 ? 0.82 : 1;
+      for (var x = 0; x < w; x++, i++) {
+        var g = Math.min(255, ((Math.random() * 215) | 0) + lift) * dim | 0;
+        px[i] = 0xff000000 | (g << 16) | (g << 8) | g;
+      }
+    }
+    ctx.putImageData(im, 0, 0);
+    staticRaf = requestAnimationFrame(staticFrame);
+  }
+  // White noise, quiet, faded in and out (Web Audio; nothing to download).
+  function staticHiss(on){
+    try {
+      if (on) {
+        if (staticAudio) return;
+        var AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) return;
+        var ac = staticHiss.ac || (staticHiss.ac = new AC());
+        if (ac.state === 'suspended') ac.resume();
+        var len = ac.sampleRate, buf = ac.createBuffer(1, len, ac.sampleRate), d = buf.getChannelData(0);
+        for (var i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+        var src = ac.createBufferSource(); src.buffer = buf; src.loop = true;
+        var bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 3000; bp.Q.value = 0.6;
+        var g = ac.createGain(); g.gain.setValueAtTime(0, ac.currentTime); g.gain.linearRampToValueAtTime(0.06, ac.currentTime + 0.05);
+        src.connect(bp); bp.connect(g); g.connect(ac.destination);
+        src.start();
+        staticAudio = { src: src, g: g, ac: ac };
+      } else if (staticAudio) {
+        var a = staticAudio; staticAudio = null;
+        a.g.gain.linearRampToValueAtTime(0, a.ac.currentTime + 0.12);
+        setTimeout(function(){ try { a.src.stop(); } catch (e) {} }, 200);
+      }
+    } catch (e) {}
+  }
+
+  // ---- Live from the phone (PhoneRemote's /api/live) ----------------------
+  // The channels and what's on each, read off the guide (the site works the
+  // schedule out itself; there's no list to ask for).
+  window.__ftvLiveInfo = function(){
+    var q = function(r, sel){ var e = r.querySelector(sel); return e ? e.textContent.replace(/\s+/g, ' ').trim() : ''; };
+    var arrows = function(t){ return t.replace(/^[\u25C4\u25BA\s]+|[\u25C4\u25BA\s]+$/g, ''); };
+    var chans = [].map.call(document.querySelectorAll('[class*="_guideRow"]'), function(r){
+      var now = r.querySelector('[class*="_guideCell"][class*="_onNow"]') || r.querySelector('[class*="_guideCell"]');
+      return { num: +q(r, '[class*="_guideChannelNumber"]') || 0,
+               name: q(r, '[class*="_guideChannelName"] > span'),
+               about: q(r, '[class*="_guideChannelName"] small'),
+               show: now ? arrows(q(now, '[class*="_guideCellTitle"]')) : '',
+               sub: now ? arrows(q(now, '[class*="_guideCellSub"]')) : '',
+               tuned: /_tuned/.test(r.className) };
+    });
+    var d = document;
+    var ch = q(d, '[class*="_infoChannel"] > span');
+    var m = liveModal();
+    return JSON.stringify({
+      on: isLive(),
+      watching: isLive() && !!fullscreenEl,
+      warning: !!m,
+      channel: +((/^\s*(\d+)/.exec(ch) || [])[1] || 0),
+      name: ch.replace(/^\s*\d+\s*/, ''),
+      block: q(d, '[class*="_infoBlock"]'), series: q(d, '[class*="_infoSeries"]'),
+      title: q(d, '[class*="_infoTitle"]'), time: q(d, '[class*="_infoTime"]'), next: q(d, '[class*="_infoNext"]'),
+      channels: chans });
+  };
+  // Channel n (or the one the site last had, n = 0), full screen. From
+  // anywhere: off the Live page it goes there first, and tunes in once the
+  // page is up (liveTick).
+  var LIVE_TUNE_KEY = '__ftv_livetune';
+  window.__ftvLiveTune = function(n){
+    n = +n || 0;
+    if (!isLive()) {
+      try { sessionStorage.setItem(LIVE_TUNE_KEY, String(n)); } catch (e) {}
+      window.__ftvGo('/live' + (n ? '?channel=mde-' + n : ''));
+      return 'going';
+    }
+    var row = null;
+    [].forEach.call(document.querySelectorAll('[class*="_guideRow"]'), function(r){
+      var num = r.querySelector('[class*="_guideChannelNumber"]');
+      if (num && +num.textContent.trim() === n) row = r;
+    });
+    var b = row && row.querySelector('button[class*="_guideChannel"]');
+    if (b && !/_tuned/.test(row.className)) b.click();   // (the click handler: static, then full screen)
+    else liveFull();
+    return 'ok';
+  };
+  window.__ftvLiveStep = function(dir){
+    if (!isLive()) return 'no';
+    if (!fullscreenEl) liveFull();
+    liveKey(dir === 'down' ? 'down' : 'up');
+    return 'ok';
+  };
+  // The content warning's Continue, from the phone.
+  window.__ftvLiveContinue = function(){
+    var m = liveModal(), b = m && m.querySelector('button:not([class*="_close"])');
+    if (b) b.click();
+    return b ? 'ok' : 'no';
+  };
+
   // "6:30 PM" today, as a time
   function liveClock(t){
     var m = /(\d+):(\d+)\s*([AP])M/i.exec(t || '');
@@ -3207,6 +3371,14 @@
   // come back.
   function liveTick(){
     if (!isLive()) return;
+    // tune in once the page is up, when asked to before getting here
+    var want = null;
+    try { want = sessionStorage.getItem(LIVE_TUNE_KEY); } catch (e) {}
+    if (want !== null && document.querySelector('[class*="_guideRow"]')) {
+      try { sessionStorage.removeItem(LIVE_TUNE_KEY); } catch (e) {}
+      liveWindowed = false;
+      window.__ftvLiveTune(+want);
+    }
     document.querySelectorAll('button[class*="_guideToggle"][aria-expanded="false"], button[class*="_infoToggle"][aria-expanded="false"]')
       .forEach(function(b){ b.click(); });
   }
@@ -3223,7 +3395,7 @@
       if (chb) { setTimeout(function(){ chb.click(); }, 0); }
       return;
     }
-    if (t.closest('button[class*="_guideChannel"]')) { setTimeout(liveFull, 300); return; }
+    if (t.closest('button[class*="_guideChannel"]')) { liveStatic(); setTimeout(liveFull, 300); return; }
     if (t.closest('[class*="_tuneIn"]')) { liveWindowed = false; liveFrom = cur; return; }
     // The picture (the site's player, which the cursor can rest on): full
     // screen, rather than the player's own click (pause).

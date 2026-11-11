@@ -327,6 +327,31 @@ class PhoneRemote(private val context: Context, private val host: Host) {
                     else -> Triple("400 Bad Request", "text/plain", "bad path")
                 }
             }
+            // mde Live (dpad.js __ftvLive*): the channels and what's on,
+            // read off the TV's Live page; tune a channel (going to Live
+            // first if need be), channel up/down, and the content warning's
+            // Continue.
+            "/api/live" -> if (fishtank) Triple("400 Bad Request", "text/plain", "mde only") else json(
+                JSONObject(evalOnMain("window.__ftvLiveInfo ? window.__ftvLiveInfo() : ''")?.let { unquote(it) }
+                    ?.takeIf { it.startsWith("{") } ?: "{\"on\":false,\"channels\":[]}"))
+            "/api/live/tune" -> {
+                val n = q["n"]?.toIntOrNull()?.coerceIn(0, 99) ?: 0
+                if (fishtank) Triple("400 Bad Request", "text/plain", "mde only")
+                else {
+                    val r = evalOnMain("window.__ftvLiveTune ? window.__ftvLiveTune($n) : ''")?.let { unquote(it) }
+                    if (r.isNullOrEmpty()) main.post { host.openPath(if (n > 0) "/live?channel=mde-$n" else "/live") }
+                    json(JSONObject().put("ok", true))
+                }
+            }
+            "/api/live/step" -> {
+                val dir = if (q["d"] == "down") "down" else "up"
+                if (fishtank) Triple("400 Bad Request", "text/plain", "mde only")
+                else { evalOnMain("window.__ftvLiveStep && window.__ftvLiveStep('$dir')"); json(JSONObject().put("ok", true)) }
+            }
+            "/api/live/continue" -> {
+                if (fishtank) Triple("400 Bad Request", "text/plain", "mde only")
+                else { evalOnMain("window.__ftvLiveContinue && window.__ftvLiveContinue()"); json(JSONObject().put("ok", true)) }
+            }
             "/api/camera" -> {
                 val name = q["name"].orEmpty()
                 if (!fishtank || name !in ftCameras) Triple("400 Bad Request", "text/plain", "bad camera")

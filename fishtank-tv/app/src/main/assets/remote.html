@@ -23,6 +23,7 @@
     <input type="search" id="q" placeholder="Search" enterkeyhint="search" autocomplete="off">
     <button>SEARCH</button>
   </form>
+  <button id="liveBtn" aria-label="Live TV" hidden><i></i>Live</button>
   <button id="acctBtn" aria-label="Your account" hidden></button>
 </header>
 <div id="banner"></div>
@@ -41,6 +42,15 @@
   </div>
   <div class="ac-tabs" id="acTabs"></div>
   <div class="ac-body" id="acBody"></div>
+</div>
+<!-- mde Live: the TV's channels (read off its Live page), what's on, and
+     channel up/down. Opening it puts Live on the TV. -->
+<div id="live">
+  <div class="sh-head">
+    <button id="lvBack" aria-label="Back">‹</button>
+    <h2>Live</h2>
+  </div>
+  <div class="lv-body" id="lvBody"></div>
 </div>
 <div id="sheet">
   <div class="sh-head">
@@ -379,6 +389,7 @@
   // The phone's own back gesture/button closes the player page, then the list.
   // Whichever was opened last is on top.
   window.addEventListener('popstate', function(){
+    if (liveOpen) { closeLive(); return; }
     if (sheetOpen && (!playerOpen || sheetOverPlayer)) closeSheet();
     else if (playerOpen) closePlayer();
     else if (acctOpen) closeAccount();
@@ -567,7 +578,7 @@
   // sheet underneath for what's up next, the rest of the series, and the
   // episode's description.
   var playerOpen = false, plPath = null, plEp = null, plQueue = { queue: [], auto: [] }, queueTimer = null;
-  $('#npOpen').onclick = function(){ if (now) openPlayer(); };
+  $('#npOpen').onclick = function(){ if (now && now.live && !fishtank) openLive(); else if (now) openPlayer(); };
   function openPlayer(){
     playerOpen = true;
     setSheet(null);
@@ -1437,6 +1448,107 @@
   }
 
   document.addEventListener('visibilitychange', function(){ if (!document.hidden) { load(); poll(); } });
+  // ---- Live (mde) --------------------------------------------------------
+  var liveOpen = false, liveTimer = null, liveData = null;
+  if (!fishtank) $('#liveBtn').hidden = false;
+  function openLive(){
+    liveOpen = true;
+    liveData = null;
+    $('#live').classList.add('on');
+    document.body.classList.add('sheet-open');
+    history.pushState({ live: 1 }, '');
+    $('#lvBody').innerHTML = '<p class="empty" style="margin-top:18px">Opening Live on the TV…</p>';
+    // Live on the TV, if it isn't already there; then keep up with it.
+    api('/api/live').then(function(l){
+      if (!l.on || !l.watching) return api('/api/live/tune', { n: l.on ? l.channel || 0 : 0 });
+      liveData = l; renderLive();
+    }).catch(offline);
+    pollLive();
+  }
+  function closeLive(){
+    liveOpen = false;
+    if (liveTimer) { clearTimeout(liveTimer); liveTimer = null; }
+    $('#live').classList.remove('on');
+    if (!sheetOpen && !playerOpen && !acctOpen) document.body.classList.remove('sheet-open');
+  }
+  function pollLive(){
+    if (liveTimer) clearTimeout(liveTimer);
+    liveTimer = setTimeout(function(){
+      if (!liveOpen) return;
+      if (document.hidden) { pollLive(); return; }
+      api('/api/live').then(function(l){ liveData = l; renderLive(); }).catch(function(){}).then(pollLive);
+    }, liveData ? 2000 : 800);
+  }
+  function liveCmd(path, params){
+    return api(path, params).then(function(){ setTimeout(function(){ if (liveOpen) api('/api/live').then(function(l){ liveData = l; renderLive(); }); }, 700); }).catch(offline);
+  }
+  // "6:30 PM to 7:00 PM": how far through, 0..1, or -1.
+  function liveFrac(t){
+    var p = String(t || '').split(/\s+to\s+/i).map(function(x){
+      var m = /(\d+):(\d+)\s*([AP])M/i.exec(x);
+      if (!m) return null;
+      var d = new Date(); d.setHours(+m[1] % 12 + (/p/i.test(m[3]) ? 12 : 0), +m[2], 0, 0); return d;
+    });
+    if (!p[0] || !p[1]) return -1;
+    if (p[1] <= p[0]) p[1] = new Date(+p[1] + 864e5);
+    return Math.max(0, Math.min(1, (Date.now() - p[0]) / (p[1] - p[0])));
+  }
+  function renderLive(){
+    var l = liveData, box = $('#lvBody');
+    if (!l) return;
+    if (!l.on || !l.channels || !l.channels.length) {
+      box.innerHTML = '<p class="empty" style="margin-top:18px">Opening Live on the TV…</p>';
+      return;
+    }
+    box.innerHTML = '';
+    var now = el('div', 'lv-now');
+    var ch = el('div', 'lv-ch');
+    ch.appendChild(el('b', '', String(l.channel || '')));
+    ch.appendChild(el('span', '', l.name || ''));
+    ch.appendChild(el('i', 'lv-dot', l.watching ? 'On your TV' : 'Live'));
+    now.appendChild(ch);
+    if (l.block) now.appendChild(el('div', 'lv-block', l.block));
+    if (l.series) now.appendChild(el('div', 'lv-series', l.series));
+    if (l.title && l.title !== l.series) now.appendChild(el('div', 'lv-title', l.title));
+    if (l.time) {
+      var tm = el('div', 'lv-time'), f = liveFrac(l.time);
+      tm.appendChild(el('span', '', l.time.replace(/\s+to\s+/i, ' – ')));
+      if (f >= 0) { var bar = el('span', 'lv-bar'), fill = el('i'); fill.style.width = (f * 100).toFixed(1) + '%'; bar.appendChild(fill); tm.appendChild(bar); }
+      now.appendChild(tm);
+    }
+    if (l.next) now.appendChild(el('div', 'lv-next', l.next));
+    box.appendChild(now);
+    if (l.warning) {
+      var w = el('div', 'lv-warn');
+      w.appendChild(el('span', '', 'The TV is showing a content warning.'));
+      var go = el('button', '', 'Continue');
+      go.onclick = function(){ liveCmd('/api/live/continue'); };
+      w.appendChild(go);
+      box.appendChild(w);
+    }
+    var ctl = el('div', 'lv-ctl');
+    var dn = el('button', '', '▼ Channel down'), up = el('button', '', 'Channel up ▲');
+    dn.onclick = function(){ liveCmd('/api/live/step', { d: 'down' }); };
+    up.onclick = function(){ liveCmd('/api/live/step', { d: 'up' }); };
+    ctl.appendChild(dn); ctl.appendChild(up);
+    box.appendChild(ctl);
+    var head = el('div', 'head'); head.appendChild(el('h2', '', 'Channels'));
+    box.appendChild(head);
+    l.channels.forEach(function(c){
+      var b = el('button', 'lv-chan' + (c.num === l.channel ? ' on' : ''));
+      b.appendChild(el('b', '', String(c.num)));
+      var t = el('div', 'lv-cmeta');
+      t.appendChild(el('div', 'lv-cname', c.name));
+      if (c.show) t.appendChild(el('div', 'lv-cshow', c.show + (c.sub ? ' · ' + c.sub : '')));
+      else if (c.about) t.appendChild(el('div', 'lv-cshow', c.about));
+      b.appendChild(t);
+      b.onclick = function(){ liveCmd('/api/live/tune', { n: c.num }); toast('Channel ' + c.num + ' on the TV'); };
+      box.appendChild(b);
+    });
+  }
+  $('#liveBtn').onclick = function(){ openLive(); };
+  $('#lvBack').onclick = function(){ if (liveOpen) history.back(); };
+
   loadAccount().catch(function(){});
   load();
   poll();

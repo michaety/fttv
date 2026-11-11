@@ -442,3 +442,45 @@ input.scrub::-moz-range-thumb { width: 12px; height: 20px; border: 1px solid #00
 #siTitle { display: block; height: auto; padding: 0; background: none; border: 0; box-shadow: none; }
 #siForm button::before, #siForm button::after { content: none; }
 #siForm .si-safe { padding: 8px 10px; border-left: 3px solid var(--accent); background: rgba(127,127,127,.12); border-radius: 2px; }
+
+/* Live (the header's LIVE button): the TV's channels, in mde's style. */
+#liveBtn { flex: none; display: flex; align-items: center; gap: 6px; height: 32px; padding: 0 8px; border: 1px solid var(--gray);
+  border-radius: 4px; background: var(--button); box-shadow: var(--shadow); color: #fff; font: 18px var(--cond);
+  text-transform: uppercase; text-shadow: var(--shadow); }
+#liveBtn[hidden] { display: none; }
+#liveBtn i { width: 8px; height: 8px; border-radius: 50%; background: #f22; box-shadow: 0 0 6px #f22; }
+#live { position: fixed; inset: 0; z-index: 9; display: flex; flex-direction: column; visibility: hidden;
+  background: linear-gradient(45deg, #141a1d 25%, #0d1213 50%, #0d1516 75%, #111a1b 100%);
+  transform: translateX(100%); transition: transform .22s ease-out; }
+#live.on { transform: none; visibility: visible; }
+#lvBack { font-size: 28px !important; line-height: 1; color: #fff !important; }
+.lv-body { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 8px 0 calc(110px + env(safe-area-inset-bottom)); }
+.lv-now { margin: 0 8px 10px; padding: 12px; border: 1px solid var(--gray); border-radius: 4px; background: var(--darkest);
+  box-shadow: var(--shadow); }
+.lv-ch { display: flex; align-items: baseline; gap: 8px; font: 22px/1.1 var(--head); text-transform: uppercase; text-shadow: var(--shadow); }
+.lv-ch b { color: var(--accent); font-weight: 400; }
+.lv-dot { margin-left: auto; padding: 3px 6px; border-radius: 2px; background: #d00; color: #fff; font: 13px var(--cond);
+  font-style: normal; text-shadow: none; }
+.lv-block { margin-top: 8px; color: var(--gray-light); font: 14px var(--cond); text-transform: uppercase; }
+.lv-series { margin-top: 2px; color: var(--yellow); font: 18px var(--head); text-transform: uppercase; text-shadow: var(--shadow); }
+.lv-title { margin-top: 2px; font-size: 16px; }
+.lv-time { display: flex; align-items: center; gap: 10px; margin-top: 8px; color: var(--gray-light); font-size: 14px; }
+.lv-bar { flex: 1; height: 4px; border-radius: 2px; background: rgba(255,255,255,.2); overflow: hidden; }
+.lv-bar i { display: block; height: 100%; background: var(--accent); }
+.lv-next { margin-top: 6px; color: var(--gray-light); font-size: 14px; }
+.lv-warn { display: flex; align-items: center; gap: 10px; margin: 0 8px 10px; padding: 10px 12px; border: 1px solid var(--yellow);
+  border-radius: 4px; background: var(--darkest); }
+.lv-warn span { flex: 1; font-size: 14px; }
+.lv-warn button, .lv-ctl button { height: 40px; padding: 0 12px; border: 1px solid var(--gray); border-radius: 4px; background: var(--button);
+  box-shadow: var(--shadow); color: #fff; font: 18px var(--cond); text-transform: uppercase; text-shadow: var(--shadow); }
+.lv-warn button { border-color: var(--yellow); color: var(--yellow); }
+.lv-ctl { display: flex; gap: 8px; margin: 0 8px 6px; }
+.lv-ctl button { flex: 1; height: 52px; }
+.lv-ctl button:active, .lv-chan:active { border-color: var(--accent); }
+.lv-chan { display: flex; align-items: center; gap: 12px; width: calc(100% - 16px); margin: 0 8px 8px; padding: 10px 12px; text-align: left;
+  border: 1px solid var(--gray); border-radius: 4px; background: var(--darkest); box-shadow: var(--shadow); color: #fff; }
+.lv-chan.on { border-color: var(--accent); }
+.lv-chan > b { flex: none; width: 28px; color: var(--accent); font: 26px var(--head); font-weight: 400; text-align: center; }
+.lv-cmeta { flex: 1; min-width: 0; }
+.lv-cname { font: 18px var(--head); text-transform: uppercase; text-shadow: var(--shadow); }
+.lv-cshow { margin-top: 2px; color: var(--gray-light); font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

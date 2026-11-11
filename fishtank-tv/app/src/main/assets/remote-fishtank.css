@@ -393,3 +393,6 @@ h2 svg { flex: none; width: 16px; height: 16px; margin-right: 6px; fill: current
 #siTitle { display: block; height: auto; padding: 0; background: none; border: 0; box-shadow: none; }
 #siForm button::before, #siForm button::after { content: none; }
 #siForm .si-safe { padding: 8px 10px; border-left: 3px solid var(--green); background: rgba(127,127,127,.12); border-radius: 2px; }
+
+/* mde only (its Live button and page) */
+#live { display: none; }

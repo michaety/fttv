@@ -20,33 +20,25 @@ Unofficial. Not affiliated with, endorsed by, or supported by either site.
 
 ## Features
 
-- **TV layout:** clutter removed and easy navigation for your TV.
-- **Remote control:** browse the site with the arrows and Select.
-- **Sign in with your phone:** when the TV isn't signed in, scan the code and
-  type your email and password on your phone instead of with the remote.
-- **Link your phone:** browse, search and play on the TV from your phone, plus
-  themes, comments, and likes on MDE.
-  See [Link your phone](#link-your-phone).
-- **Live TV (MDE):** the Live button in the header. Tune in full screen, Up/Down
-  change channel (with static), Back for the TV guide. On your phone: what's on,
-  channel controls and a TV guide with each programme's details.
+- **TV layout:** clutter removed for easy navigation of your TV.
+- **Sign in with your phone:** scan the code and type your email and password on your phone instead of with the remote.
+- **[Link your phone](#link-your-phone):** browse, search and play on the TV from your phone, plus
+  themes, comments, and more.
+- **Live TV (MDE):** Tune in to the TV guide.
 - **Search:** MDE's search box is in the header.
 - **63% less CPU:** compared with v1.0, measured on MDE's homepage.
 - **Subtitles:** on MDE, from the Menu (☰) button.
-- **Autoplay:** the next episode starts when one finishes. Back cancels.
-- **Continue watching:** pick up where you left off, or start the next episode.
-  On MDE it follows your account, so it matches your phone and PC.
-- **Hold Select on a card:** a menu to play it, queue it, or remove it from
-  Continue watching (on MDE also go to its show or shuffle it).
-- **Auto-updates:** the app offers new versions when it opens. On Fire TV's
-  confirm screen, move right to **INSTALL** (it starts on Cancel).
+- **Autoplay:** the next episode starts when one finishes.
+- **Continue watching and account playback sync:** pick up where you left off, or start the next episode on any device.
+- **Hold Select on a card:** a long-press menu to play, queue, shuffle or remove from
+  Continue watching
+- **Auto-updates:** the app offers new versions when it opens.
 
 ## Link your phone
 
-Press Menu (☰) on the TV, choose **Link your phone** and scan the QR code (same
-Wi-Fi as the TV). Pick something on your phone and it plays on the TV, with
+Press Menu (☰) on the TV, choose **Link your phone** and scan the QR code. Pick something on your phone and it plays on the TV, with
 full controls and a queue. You can also change the app's theme from your phone, read and post
-comments, and on MDE like episodes. Add the page to your home screen to skip the QR
+comments, and like episodes. Add the page to your home screen to skip the QR
 code next time.
 
 <img src="assets/screenshots/link-phone-tv.jpg" alt="Link your phone screen on the TV" width="720">
@@ -63,11 +55,8 @@ code next time.
 ## Limitations
 
 - **No Google sign-in:** sign in with your email and password instead.
-- **Speed:** it runs the full desktop site, so pages load slowly on a Firestick.
+- **Speed:** it runs the full desktop site, so pages can load slowly.
 - **Subtitles:** MDE only; Fishtank's player doesn't support them.
-- **Continue watching:** on Fishtank it only knows what you've watched on that
-  TV, since the site doesn't save your place to your account. MDE does, so
-  there it follows your account.
 - **Navigation:** it follows the page layout, so it can occasionally pick an
   unexpected item.
 
@@ -77,7 +66,7 @@ code next time.
   (2nd gen).
 - An account on the site, **with a password**. Google sign-in doesn't work
   in the app, so if you only use Google, set a password with "forgot
-  password" on the site first.
+  password" on the site first. This won't prevent you from signing in with Google elsewhere.
 
 ## Installing
 
@@ -105,11 +94,6 @@ to install.
 
 Option 2: **[Apps2Fire](https://play.google.com/store/apps/details?id=mobi.koni.appstofiretv)**
 pushes an APK from your Android phone over wifi. Install Apps2Fire, then the apks of your choosing and push the installs to your Firestick.
-
-**4. Launch and sign in**
-
-The app appears in your apps row. Open it and scan the code with your phone to
-sign in there, or choose "Use the remote instead" and sign in on the TV.
 
 ## Notes
 

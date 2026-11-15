@@ -291,6 +291,9 @@ class MainActivity : Activity() {
                 /* ...except the content warning some programmes open with,
                    over the full-screen picture (and the static) */
                 html.__ftv_livefs div[class*="_modal"] { z-index: 2147483400 !important; }
+                /* and the one some episodes open with (the site holds the
+                   video paused until Continue): over the app's player */
+                div#modal[class*="_modal"] { z-index: 2147483647 !important; }
                 /* docked audio player (has a visualizer that repaints) */
                 div[class*="_musicPanel"], div[class*="_music "], div[class$="_music"] { display: none !important; }
                 /* live chat bar -- a real performance cost, not just clutter:

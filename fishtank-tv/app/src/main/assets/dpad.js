@@ -2588,7 +2588,9 @@
   function playingVideo(){
     if (location.pathname === '/') return null;
     if (isLive() && liveWindowed) return null;   // the guide, picture in its box
-    if (isLive() && liveModal()) return null;    // a content warning: the cursor's, to press Continue
+    // a content warning (Live's, or an episode's, which the site holds paused
+    // until it's answered): the cursor's, to press Continue
+    if (location.host.indexOf('mde.tv') >= 0 && !quietRemove && liveModal()) return null;
     checkPlayerFrame();
     return (trackedVideo && document.contains(trackedVideo)) || findPlayerFrame();
   }

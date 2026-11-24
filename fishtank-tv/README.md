@@ -447,6 +447,11 @@ For the phone's Continue watching, `syncAccount` copies the list into
   inside the landing page, not by the address, which lags behind in-page
   navigation), and it's unmuted when it starts. The site falls back to muted
   playback when a start is interrupted.
+- No pop-out player. Leaving a playing episode for another page of the site
+  makes the site carry it on in a floating window (`_popOutVideoPlayer`, a
+  portal on `<body>`), which covers the page and can't be reached with the
+  cursor. It's hidden by CSS and closed with its own Close button
+  (`mdePopOut`). BACK never showed it, because BACK pauses first.
 - Shuffle: a button on each show's page, in the row with Play and Share, using
   the site's own FatCow icon `arrow_switch.png`. The phone's show sheet has
   one too (`/api/shuffle?tag=`). The TV Menu on a show's page or episode

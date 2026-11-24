@@ -236,6 +236,7 @@
       try { syncAccount(); } catch (e) {}
       try { renderPscRows(); } catch (e) {}
       try { renderShuffleButton(); } catch (e) {}
+      try { mdePopOut(); } catch (e) {}
       try { mdeNav(); mdeModal(); liveTick(); mdeSeries(); spotWatchTick(); hideRemovedCards(); } catch (e) {}
       restoreReturnFocus();
     }, 250);
@@ -3863,6 +3864,29 @@
       try { mdeSeries(); } catch (e) {}
     }, 500);
     document.documentElement.appendChild(f);
+  }
+
+  // ---- mde: no pop-out player ---------------------------------------------
+  // Leaving an episode that's playing for another page of the site (a show,
+  // a link under the player), the site carries it on in a small floating
+  // window over the page. That's for a mouse: on a TV it covers the page
+  // and the cursor can't reach it. It's hidden from the start (CSS) and
+  // closed with its own Close button, which also saves the position.
+  (function(){
+    if (location.host.indexOf('mde.tv') < 0) return;
+    var st = document.createElement('style');
+    st.textContent = 'body > [class*="_popOutVideoPlayer"]{display:none !important;}';
+    document.documentElement.appendChild(st);
+  })();
+  function mdePopOut(){
+    if (location.host.indexOf('mde.tv') < 0) return;
+    var p = document.querySelector('body > [class*="_popOutVideoPlayer"]');
+    if (!p || p.__ftvClosed) return;
+    p.__ftvClosed = true;
+    p.querySelectorAll('video').forEach(function(v){ try { v.pause(); } catch (e) {} });
+    var b = p.querySelector('[class*="_close"] button');
+    if (b) b.click();
+    dirty = true;
   }
 
   // ---- mde: Live and Series in the top bar --------------------------------

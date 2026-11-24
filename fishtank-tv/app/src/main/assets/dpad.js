@@ -3881,8 +3881,13 @@
       a.style.cssText = 'display:flex;align-items:center;gap:6px;height:32px;padding:0 12px;border:1px solid var(--color-gray,#444);' +
         'border-radius:2px;background:#000;color:#fff;text-decoration:none;text-transform:uppercase;' +
         'font:400 16px/1 "FFGothic TwoTwo",sans-serif;box-shadow:2px 2px 0 #000;';
-      if (l[0] === '/live') a.innerHTML = '<span style="width:8px;height:8px;border-radius:50%;background:#f22;box-shadow:0 0 6px #f22"></span>';
-      a.appendChild(document.createTextNode(l[1]));
+      if (l[0] === '/live') {
+        // Just a little TV set (antenna, screen, feet), no word.
+        a.setAttribute('aria-label', 'Live');
+        a.innerHTML = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" ' +
+          'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+          '<path d="M8 2l4 4 4-4"/><rect x="2.5" y="6" width="19" height="13" rx="2"/><path d="M7 22h10"/></svg>';
+      } else a.appendChild(document.createTextNode(l[1]));
       a.addEventListener('click', function(e){ e.preventDefault(); window.__ftvGo(l[0]); });
       nav.appendChild(a);
     });

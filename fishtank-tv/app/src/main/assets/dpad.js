@@ -1324,15 +1324,66 @@
   if (location.host.indexOf('mde.tv') >= 0 && window.fetch && !window.__ftvFetchWrapped) {
     window.__ftvFetchWrapped = true;
     var fetch0 = window.fetch;
+    // Resuming. mde's player asks the account where the episode was left
+    // (POST .../session) but waits only 0.8s for the answer; a Fire TV
+    // Stick often takes longer, most of all just after the app starts. It
+    // then starts from this TV's own copy of the position, or from 0:00 if
+    // the episode was watched somewhere else, and saves that over the
+    // account's position. So: its 0.8s timer, set straight after the
+    // request, is stretched until the request has had its full 5s; and if
+    // the answer still comes late with the player at the start, the video
+    // is moved to the account's position (which the player then saves).
+    var sessionAsked = false, realSessions = {};
+    var setTimeout0 = window.setTimeout;
+    window.setTimeout = function(fn, ms){
+      if (sessionAsked && ms === 800) { sessionAsked = false; arguments[1] = 6000; }
+      return setTimeout0.apply(this, arguments);
+    };
+    var lateResume = function(pos, path){
+      var tries = 0;
+      (function look(){
+        if (location.pathname !== path || ++tries > 80) return;
+        var v = null;
+        document.querySelectorAll('video').forEach(function(x){
+          if (x.duration > 0 && x.readyState >= 1 && (!v || x.clientWidth > v.clientWidth)) v = x;
+        });
+        if (!v || pos >= v.duration - 10) { setTimeout0(look, 250); return; }
+        if (v.currentTime < 20 && pos - v.currentTime > 10) { try { v.currentTime = pos; } catch (e) {} }
+      })();
+    };
+    var sessionAnswered = function(j, took, path){
+      if (!j || typeof j.sessionId !== 'string') return;
+      realSessions[j.sessionId] = 1;
+      var p = j.progress;
+      if (took >= 700 && p && !p.completed && p.position >= 10) lateResume(p.position, path);
+    };
     window.fetch = function(input, init){
+      var asked = 0;
       try {
         var u = String(typeof input === 'string' ? input : (input && input.url) || '').split('?')[0];
-        if (location.pathname === '/' && /\/v1\/playback-progress\/video\//.test(u)) {
-          if (/\/session$/.test(u)) return Promise.resolve(new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } }));
-          return Promise.resolve(new Response(null, { status: 409 }));
+        if (/\/v1\/playback-progress\/video\//.test(u)) {
+          var session = /\/session$/.test(u);
+          if (location.pathname === '/') {
+            // The homepage saves nothing (the Spotlight plays there), except
+            // the last save of an episode that has just been left.
+            if (session) return Promise.resolve(new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } }));
+            var sid = /"sessionId":"([^"]+)"/.exec(String((init && init.body) || ''));
+            if (!(sid && realSessions[sid[1]])) return Promise.resolve(new Response(null, { status: 409 }));
+          } else if (session) {
+            asked = performance.now();
+            sessionAsked = true;
+            Promise.resolve().then(function(){ sessionAsked = false; });
+          }
         }
       } catch (e) {}
-      return fetch0.apply(this, arguments);
+      var res = fetch0.apply(this, arguments);
+      if (asked) {
+        var path = location.pathname;
+        res.then(function(r){ return r.ok ? r.clone().json() : null; })
+           .then(function(j){ sessionAnswered(j, performance.now() - asked, path); })
+           .catch(function(){});
+      }
+      return res;
     };
   }
   if (location.host.indexOf('mde.tv') >= 0) {

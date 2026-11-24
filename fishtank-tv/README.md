@@ -427,7 +427,9 @@ For the phone's Continue watching, `syncAccount` copies the list into
   still stopped (`PAUSE_HOME_VIDEOS`).
 - mde saves progress for those clips too, so on the homepage `fetch` answers
   `/playback-progress/video/...` itself: `{}` for `/session` (no session, so
-  nothing is ever saved) and 409 otherwise.
+  nothing is ever saved) and 409 otherwise. The exception is a save carrying a
+  session id that a real episode page was given: that's the last save of an
+  episode that has just been left for the homepage, and it goes through.
 - Paused: the controls show the episode's date and the first four lines of its
   description (`.__ftv_desc`, from the same `/videos/<tag>` request as the likes).
 - Spotlight full screen: while the cursor is on it and its clip is playing,
@@ -454,11 +456,20 @@ For the phone's Continue watching, `syncAccount` copies the list into
   answer is swapped, as the queue does. It stops as soon as anything else is
   opened (`__ftv_shuffle` holds the episode it expects).
 - Resume is mde's own. Its player waits only 800ms for the account position
-  (`POST .../session`) before starting from what it has locally, which is
-  nothing on a TV. Once (out of five tries) that started an episode at 0:24 and
-  saved over the account's place; not reproduced since. If it comes back,
-  seeking to the position in `GET /playback-progress` early in playback would
-  fix it.
+  (`POST .../session`) before starting from what it has locally (IndexedDB
+  `mde` / `keyvaluepairs`, key `playback:<user>:video:<id>`), or from 0:00 when
+  the episode was watched on another device. A late answer only attaches the
+  session, and the player then saves its own position over the account's. A
+  Fire TV Stick misses the 800ms often, most of all just after the app starts.
+  Two fixes, both in the `fetch` wrapper in `dpad.js`:
+  - The player sets its 800ms timer in the same run as the session request,
+    so `setTimeout` is wrapped and that one timer becomes 6s. The request
+    gives up at 5s by itself, so the player always waits for the answer.
+  - If the answer still took over 700ms, and the video is within its first
+    20s with the account's position more than 10s ahead, the video is moved
+    there (`lateResume`). This covers the site changing its timer.
+  To test: delete the episode's IndexedDB key and add latency with CDP
+  `Network.emulateNetworkConditions`.
 
 **One copy of the app.** MainActivity is `singleTask`. It used to be the
 default launch mode, so opening the app while it was already open (Fire TV

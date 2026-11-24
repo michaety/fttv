@@ -208,6 +208,17 @@ page.
     `/profile/<id>`), plus the TV's current theme.
   - `/api/loadout?calling_card=&emblem=` (mde): `PUT /rewards/me/loadout`;
     an empty value takes it off.
+  - mde's Profile tab also shows, from the same `/api/account` answer:
+    - The daily claim (`claim` in `/silver/me`: `available`, `streak`,
+      `amount`). `/api/claim` does the site's `POST /silver/me/claim` and
+      returns the account again with the `award`. While it's ready, the
+      account button carries a red dot; the page asks again whenever it
+      becomes visible.
+    - This week's challenges (`GET /quests/me`: three quests with
+      `progress`, `target`, `paid` and a `reward`, plus the week's theme and
+      end). `/quests/year` answers 403 for an ordinary account.
+    - "Almost there": the four locked calling cards with the highest
+      `progress / goal`.
   - `/api/history` (mde): the History list, as cards.
   - Theme: neither site keeps it on the account. Their theme editors save
     to the browser's localforage IndexedDB (each value wrapped as

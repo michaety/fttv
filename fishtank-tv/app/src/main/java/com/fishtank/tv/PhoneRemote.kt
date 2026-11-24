@@ -217,6 +217,15 @@ class PhoneRemote(private val context: Context, private val host: Host) {
                 apiSend("PUT", "/rewards/me/loadout", body)?.let { json(account()) }
                     ?: Triple("502 Bad Gateway", "text/plain", "mde said no")
             }
+            // mde's daily claim (the site's "Claim" chip): POST /silver/me/claim.
+            "/api/claim" -> {
+                if (fishtank) return Triple("400 Bad Request", "text/plain", "mde only")
+                val award = apiSend("POST", "/silver/me/claim")?.optJSONObject("award")
+                    ?: return Triple("502 Bad Gateway", "text/plain", "mde said no")
+                json(account().put("award", JSONObject()
+                    .put("silver", award.optInt("silver"))
+                    .put("xp", award.optInt("xp"))))
+            }
             "/api/theme/set" -> {
                 // Only the shapes each site's theme takes, nothing else.
                 val t = try { JSONObject(q["v"].orEmpty()) } catch (e: Exception) { null }
@@ -823,6 +832,38 @@ class PhoneRemote(private val context: Context, private val host: Host) {
             }
         }
         val equipped = { k: String -> loadout?.optString(k)?.takeIf { it.isNotEmpty() && it != "null" } }
+        // The daily claim, and this week's challenges with how far along each is.
+        silver?.optJSONObject("claim")?.let { c ->
+            out.put("claim", JSONObject()
+                .put("available", c.optBoolean("available"))
+                .put("streak", c.optInt("streak"))
+                .put("amount", c.optInt("amount")))
+        }
+        api("/quests/me")?.let { qs ->
+            val week = qs.optJSONObject("week")
+            val list = JSONArray()
+            qs.optJSONArray("quests")?.let { arr ->
+                for (i in 0 until arr.length()) {
+                    val x = arr.optJSONObject(i) ?: continue
+                    val reward = x.optJSONObject("reward")
+                    list.put(JSONObject()
+                        .put("tier", x.optString("tier"))
+                        .put("title", x.optString("title"))
+                        .put("blurb", x.optString("blurb"))
+                        .put("task", x.optString("task"))
+                        .put("target", x.optInt("target"))
+                        .put("progress", x.optInt("progress"))
+                        .put("paid", x.optBoolean("paid"))
+                        .put("silver", reward?.optInt("silver") ?: 0)
+                        .put("xp", reward?.optInt("xp") ?: 0))
+                }
+            }
+            out.put("week", JSONObject()
+                .put("number", week?.optInt("number") ?: 0)
+                .put("theme", week?.optString("theme").orEmpty())
+                .put("endsAt", week?.optString("ends_at").orEmpty())
+                .put("quests", list))
+        }
         return out.put("signedIn", true).put("profile", JSONObject()
             .put("name", user.optString("display_name"))
             .put("color", user.optString("color"))
@@ -830,6 +871,8 @@ class PhoneRemote(private val context: Context, private val host: Host) {
             .put("level", silver?.optInt("level") ?: 0)
             .put("prestige", silver?.optInt("prestige") ?: 0)
             .put("silver", silver?.optInt("balance") ?: 0)
+            .put("xpInto", silver?.optInt("xp_into_level") ?: 0)
+            .put("xpToNext", silver?.optInt("xp_to_next") ?: 0)
             .put("callingCard", equipped("calling_card") ?: JSONObject.NULL)
             .put("emblem", equipped("emblem") ?: JSONObject.NULL))
             .put("cards", cards)

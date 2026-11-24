@@ -340,7 +340,51 @@ input.scrub::-moz-range-thumb { width: 12px; height: 20px; border: 1px solid #00
    Theme and calling-card pages. */
 #acctBtn { flex: none; width: 32px; height: 32px; padding: 0; overflow: hidden; position: relative; border: 1px solid var(--gray);
   border-radius: 4px; background: var(--button); box-shadow: var(--shadow); }
-#acctBtn img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+#acctBtn img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: 3px; }
+#acctBtn.dot { overflow: visible; }
+#acctBtn.dot::after { content: ''; position: absolute; top: -5px; right: -5px; width: 12px; height: 12px; border-radius: 50%;
+  background: #f22; border: 2px solid #000; box-shadow: 0 0 6px #f22; }
+/* The Profile page's claim, this week's challenges and nearest calling cards. */
+.ac-claim { display: flex; align-items: center; gap: 10px; margin: 0 8px 12px; padding: 10px; border: 1px solid var(--gray);
+  border-radius: 4px; background: var(--button); box-shadow: var(--shadow); }
+.ac-claim.on { border-color: var(--accent); }
+.ac-claim .info { flex: 1; min-width: 0; }
+.ac-claim b { display: block; font: 18px var(--cond); text-transform: uppercase; text-shadow: var(--shadow); }
+.ac-claim.on b { color: var(--accent); }
+.ac-claim span { display: block; margin-top: 2px; font-size: 13px; color: var(--gray-light); text-transform: uppercase; }
+.ac-claim button { flex: none; height: 40px; padding: 0 16px; border: 1px solid var(--accent); border-radius: 4px;
+  background: var(--accent); color: var(--on-accent); font: 20px var(--cond); text-transform: uppercase; }
+.ac-claim button:disabled { opacity: .6; }
+.ac-sec { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin: 4px 8px 8px; }
+.ac-sec h3 { margin: 0; font: 20px var(--cond); text-transform: uppercase; text-shadow: var(--shadow); }
+.ac-sec span { flex: none; font-size: 12px; color: var(--gray-light); text-transform: uppercase; }
+.ac-quest { margin: 0 8px 8px; padding: 10px; border: 1px solid var(--gray); border-radius: 4px; background: var(--button);
+  box-shadow: var(--shadow); }
+.ac-quest .top { display: flex; align-items: center; gap: 8px; }
+.ac-quest .tier { flex: none; padding: 2px 6px; border-radius: 2px; background: var(--gray-dark); color: #fff;
+  font: normal 12px var(--cond); text-transform: uppercase; }
+.ac-quest .tier.easy { background: #1d6b2a; }
+.ac-quest .tier.medium { background: #8a6a00; }
+.ac-quest .tier.hard { background: #8a1f1f; }
+.ac-quest b { font: 18px var(--cond); text-transform: uppercase; text-shadow: var(--shadow); }
+.ac-quest p { margin: 6px 0 0; font-size: 13px; color: rgba(255,255,255,.8); }
+.ac-quest .prog, .ac-near .prog { height: 8px; margin-top: 8px; background: var(--gray-dark); box-shadow: 2px 2px 0 rgba(0,0,0,.5); }
+.ac-quest .prog i, .ac-near .prog i { display: block; height: 100%; background: var(--accent); }
+.ac-quest .foot { display: flex; justify-content: space-between; gap: 8px; margin-top: 4px; font: 12px var(--cond); }
+.ac-quest .num, .ac-near .num { color: var(--accent); }
+.ac-quest .rew { color: var(--yellow); text-transform: uppercase; }
+.ac-quest.done { opacity: .6; }
+.ac-sec { margin-top: 12px; }
+.ac-near { display: flex; gap: 10px; margin: 0 8px 8px; padding: 8px; border: 1px solid var(--gray); border-radius: 4px;
+  background: var(--button); box-shadow: var(--shadow); }
+.ac-near .pic { position: relative; flex: none; width: 108px; height: 30px; align-self: center; background: #000;
+  filter: grayscale(1) brightness(.6); }
+.ac-near .pic img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.ac-near .info { flex: 1; min-width: 0; }
+.ac-near b { display: block; font: 16px var(--cond); text-transform: uppercase; text-shadow: var(--shadow); }
+.ac-near p { margin: 2px 0 0; font-size: 12px; color: rgba(255,255,255,.75); }
+.ac-near .num { display: block; margin-top: 4px; font: 12px var(--cond); }
+.ac-near + .ac-link, .ac-quest + .ac-link, .ac-claim + .ac-link { margin-top: 12px; }
 #acct { position: fixed; inset: 0; z-index: 9; display: flex; flex-direction: column; visibility: hidden;
   background: linear-gradient(45deg, #141a1d 25%, #0d1213 50%, #0d1516 75%, #111a1b 100%);
   transform: translateX(100%); transition: transform .22s ease-out; }
@@ -444,11 +488,11 @@ input.scrub::-moz-range-thumb { width: 12px; height: 20px; border: 1px solid #00
 #siForm .si-safe { padding: 8px 10px; border-left: 3px solid var(--accent); background: rgba(127,127,127,.12); border-radius: 2px; }
 
 /* Live (the header's LIVE button): the TV's channels, in mde's style. */
-#liveBtn { flex: none; display: flex; align-items: center; gap: 6px; height: 32px; padding: 0 8px; border: 1px solid var(--gray);
+#liveBtn { flex: none; display: flex; align-items: center; justify-content: center; width: 36px; height: 32px; padding: 0; border: 1px solid var(--gray);
   border-radius: 4px; background: var(--button); box-shadow: var(--shadow); color: #fff; font: 18px var(--cond);
   text-transform: uppercase; text-shadow: var(--shadow); }
 #liveBtn[hidden] { display: none; }
-#liveBtn i { width: 8px; height: 8px; border-radius: 50%; background: #f22; box-shadow: 0 0 6px #f22; }
+#liveBtn svg { display: block; fill: none; filter: drop-shadow(2px 2px 0 rgba(0,0,0,.6)); }
 #live { position: fixed; inset: 0; z-index: 9; display: flex; flex-direction: column; visibility: hidden;
   background: linear-gradient(45deg, #141a1d 25%, #0d1213 50%, #0d1516 75%, #111a1b 100%);
   transform: translateX(100%); transition: transform .22s ease-out; }

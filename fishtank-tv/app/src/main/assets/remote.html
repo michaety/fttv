@@ -23,7 +23,7 @@
     <input type="search" id="q" placeholder="Search" enterkeyhint="search" autocomplete="off">
     <button>SEARCH</button>
   </form>
-  <button id="liveBtn" aria-label="Live TV" hidden><i></i>Live</button>
+  <button id="liveBtn" aria-label="Live TV" hidden><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2l4 4 4-4"/><rect x="2.5" y="6" width="19" height="13" rx="2"/><path d="M7 22h10"/></svg></button>
   <button id="acctBtn" aria-label="Your account" hidden></button>
 </header>
 <div id="banner"></div>
@@ -1232,6 +1232,8 @@
       b.hidden = !a.signedIn;
       b.innerHTML = '';
       if (a.signedIn) img(b, a.profile.photo, true);
+      // A dot when there's something to collect (mde's daily claim).
+      b.classList.toggle('dot', !!(a.signedIn && a.claim && a.claim.available));
       if (acctOpen) renderAccount();
       return a;
     });
@@ -1301,6 +1303,7 @@
     head.appendChild(row);
     if (fishtank && p.bio) head.appendChild(el('p', 'ac-bio', p.bio));
     box.appendChild(head);
+    if (!fishtank) { renderClaim(box); renderWeek(box); renderNearCards(box); }
     if (!fishtank) {
       var n = (acct.cards || []).filter(function(c){ return c.unlocked; }).length;
       var go = el('button', 'ac-link', 'Calling cards · ' + n + ' of ' + (acct.cards || []).length + ' unlocked ›');
@@ -1313,6 +1316,95 @@
     var t = el('button', 'ac-link', 'Theme ›');
     t.onclick = function(){ acctTab = 'theme'; renderAccount(); };
     box.appendChild(t);
+  }
+
+  // mde's daily claim, as the site's "Claim" chip: once a day, more for a
+  // longer streak. It goes out as the TV's account.
+  function renderClaim(box){
+    var c = acct.claim;
+    if (!c) return;
+    var it = el('div', 'ac-claim' + (c.available ? ' on' : '')), info = el('div', 'info');
+    info.appendChild(el('b', '', c.available ? 'Daily claim ready' : 'Daily claim collected'));
+    var streak = c.streak ? c.streak + '-day streak' : '';
+    info.appendChild(el('span', '', c.available
+      ? ['+' + (c.amount || 0) + ' silver', streak].filter(Boolean).join(' · ')
+      : [streak, 'Back tomorrow'].filter(Boolean).join(' · ')));
+    it.appendChild(info);
+    if (c.available) {
+      var b = el('button', '', 'Claim');
+      b.onclick = function(){
+        b.disabled = true;
+        b.textContent = 'Claiming…';
+        api('/api/claim').then(function(a){
+          acct = a;
+          var w = a.award || {};
+          toast('Claimed' + (w.silver ? ' · +' + w.silver + ' silver' : '') + (w.xp ? ' · +' + w.xp + ' XP' : ''));
+          $('#acctBtn').classList.remove('dot');
+          renderAccount();
+        }).catch(function(){ b.disabled = false; b.textContent = 'Claim'; toast('Couldn’t claim. Try again.'); });
+      };
+      it.appendChild(b);
+    }
+    box.appendChild(it);
+  }
+  function timeLeft(iso){
+    var ms = Date.parse(iso) - Date.now();
+    if (!(ms > 0)) return '';
+    var m = Math.floor(ms / 60000), d = Math.floor(m / 1440), h = Math.floor(m % 1440 / 60);
+    return 'Ends in ' + (d ? d + 'd ' + h + 'h' : h ? h + 'h ' + (m % 60) + 'm' : (m % 60) + 'm');
+  }
+  // This week's challenges (mde's /quests page): three, easy to hard.
+  function renderWeek(box){
+    var w = acct.week;
+    if (!w || !(w.quests || []).length) return;
+    var head = el('div', 'ac-sec');
+    head.appendChild(el('h3', '', 'This week' + (w.theme ? ' · ' + w.theme : '')));
+    head.appendChild(el('span', '', timeLeft(w.endsAt)));
+    box.appendChild(head);
+    w.quests.forEach(function(q){
+      var done = q.paid || (q.target > 0 && q.progress >= q.target);
+      var it = el('div', 'ac-quest' + (done ? ' done' : ''));
+      var top = el('div', 'top');
+      top.appendChild(el('i', 'tier ' + q.tier, q.tier));
+      top.appendChild(el('b', '', q.title));
+      it.appendChild(top);
+      it.appendChild(el('p', '', q.task || q.blurb));
+      var bar = el('div', 'prog'), fill = el('i');
+      fill.style.width = Math.min(100, q.target ? q.progress / q.target * 100 : 0) + '%';
+      bar.appendChild(fill);
+      it.appendChild(bar);
+      var foot = el('div', 'foot');
+      foot.appendChild(el('span', 'num', done ? '✓ Done' : q.progress + ' / ' + q.target));
+      foot.appendChild(el('span', 'rew', '+' + q.silver + ' silver · +' + q.xp.toLocaleString() + ' XP'));
+      it.appendChild(foot);
+      box.appendChild(it);
+    });
+  }
+  // The locked calling cards nearest to done, nearest first.
+  function renderNearCards(box){
+    var near = (acct.cards || []).filter(function(c){ return !c.unlocked && c.goal > 0 && c.progress > 0; })
+      .sort(function(a, b){ return (b.progress / b.goal - a.progress / a.goal) || (a.goal - b.goal); }).slice(0, 4);
+    if (!near.length) return;
+    var head = el('div', 'ac-sec');
+    head.appendChild(el('h3', '', 'Almost there'));
+    head.appendChild(el('span', '', 'Calling cards'));
+    box.appendChild(head);
+    near.forEach(function(c){
+      var it = el('div', 'ac-near'), pic = el('div', 'pic');
+      img(pic, c.card);
+      it.appendChild(pic);
+      var info = el('div', 'info');
+      info.appendChild(el('b', '', c.title));
+      if (c.description) info.appendChild(el('p', '', c.description));
+      var bar = el('div', 'prog'), fill = el('i');
+      fill.style.width = Math.min(100, c.progress / c.goal * 100) + '%';
+      bar.appendChild(fill);
+      info.appendChild(bar);
+      info.appendChild(el('span', 'num', c.progress + ' / ' + c.goal + ' · ' + Math.floor(c.progress / c.goal * 100) + '%'));
+      it.appendChild(info);
+      it.onclick = function(){ acctTab = 'cards'; renderAccount(); };
+      box.appendChild(it);
+    });
   }
 
   // mde's calling cards: unlocked first (rarest first), then the rest with
@@ -1735,6 +1827,10 @@
   $('#lvBack').onclick = function(){ if (liveOpen) history.back(); };
 
   loadAccount().catch(function(){});
+  // Back on the page later in the day: the claim may be ready again.
+  document.addEventListener('visibilitychange', function(){
+    if (document.visibilityState === 'visible') loadAccount().catch(function(){});
+  });
   load();
   poll();
 })();
